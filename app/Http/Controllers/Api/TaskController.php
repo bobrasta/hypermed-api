@@ -22,7 +22,7 @@ class TaskController extends Controller
         $user = Auth::user();
 
         $query = Task::with(['assignee', 'creator'])
-            ->orderByRaw("FIELD(status,'overdue','in_progress','assigned','completed') ASC")
+            ->orderByRaw("CASE status WHEN 'overdue' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'assigned' THEN 3 WHEN 'completed' THEN 4 ELSE 5 END ASC")
             ->orderBy('due_date', 'asc')
             ->orderBy('created_at', 'desc');
 
