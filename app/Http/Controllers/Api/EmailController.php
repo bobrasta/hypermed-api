@@ -151,7 +151,11 @@ class EmailController extends Controller
 
     public function unreadCount(Request $request)
     {
-        $account = $this->resolveAccount($request, $request->integer('account_id') ?: null);
+        try {
+            $account = $this->resolveAccount($request, $request->integer('account_id') ?: null);
+        } catch (\Throwable) {
+            return response()->json(['data' => ['unread' => 0]]);
+        }
 
         $count = SyncedEmail::where('email_account_id', $account->id)
             ->where('folder', 'INBOX')
