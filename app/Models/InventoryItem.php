@@ -73,4 +73,14 @@ class InventoryItem extends Model
     {
         return $this->hasMany(PartUsed::class);
     }
+
+    public function batchLots()
+    {
+        return $this->hasMany(BatchLot::class)->orderByDesc('received_at');
+    }
+
+    public function serialNumbers()
+    {
+        return $this->hasMany(SerialNumber::class)->orderBy('serial_number');
+    }
 }

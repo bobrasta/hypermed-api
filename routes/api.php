@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\BatchLotController;
 use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EmailAccountController;
@@ -9,6 +10,7 @@ use App\Http\Controllers\Api\HospitalController;
 use App\Http\Controllers\Api\InventoryController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\LicenseController;
+use App\Http\Controllers\Api\LocationController;
 use App\Http\Controllers\Api\MachineController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\PurchaseOrderController;
@@ -18,6 +20,7 @@ use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RevenueController;
 use App\Http\Controllers\Api\SalesLeadController;
 use App\Http\Controllers\Api\SalesOrderController;
+use App\Http\Controllers\Api\SerialNumberController;
 use App\Http\Controllers\Api\ServiceTicketController;
 use App\Http\Controllers\Api\StaffController;
 use App\Http\Controllers\Api\StockMovementController;
@@ -93,9 +96,20 @@ Route::prefix('v1')->group(function () {
         Route::post('sales-orders/{salesOrder}/invoice', [SalesOrderController::class, 'createInvoice']);
         Route::apiResource('sales-orders', SalesOrderController::class)->only(['index', 'store', 'show']);
 
+        // Locations
+        Route::apiResource('locations', LocationController::class);
+
         // Inventory
         Route::patch('inventory/{inventoryItem}/adjust', [InventoryController::class, 'adjust']);
         Route::get('inventory/{inventoryItem}/movements',  [StockMovementController::class, 'index']);
+        Route::get('inventory/{inventoryItem}/batches',    [BatchLotController::class, 'index']);
+        Route::post('inventory/{inventoryItem}/batches',   [BatchLotController::class, 'store']);
+        Route::put('inventory/{inventoryItem}/batches/{batchLot}',    [BatchLotController::class, 'update']);
+        Route::delete('inventory/{inventoryItem}/batches/{batchLot}', [BatchLotController::class, 'destroy']);
+        Route::get('inventory/{inventoryItem}/serials',    [SerialNumberController::class, 'index']);
+        Route::post('inventory/{inventoryItem}/serials',   [SerialNumberController::class, 'store']);
+        Route::put('inventory/{inventoryItem}/serials/{serialNumber}',    [SerialNumberController::class, 'update']);
+        Route::delete('inventory/{inventoryItem}/serials/{serialNumber}', [SerialNumberController::class, 'destroy']);
         Route::post('inventory/{inventoryItem}/images',    [InventoryController::class, 'uploadImage']);
         Route::delete('inventory/{inventoryItem}/images/{image}', [InventoryController::class, 'deleteImage']);
         Route::post('inventory/{inventoryItem}/documents', [InventoryController::class, 'uploadDocument']);
