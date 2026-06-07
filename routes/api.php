@@ -11,13 +11,17 @@ use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\LicenseController;
 use App\Http\Controllers\Api\MachineController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\PurchaseOrderController;
+use App\Http\Controllers\Api\PurchaseRequisitionController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RevenueController;
 use App\Http\Controllers\Api\SalesLeadController;
 use App\Http\Controllers\Api\ServiceTicketController;
-use App\Http\Controllers\Api\TicketAttachmentController;
 use App\Http\Controllers\Api\StaffController;
+use App\Http\Controllers\Api\StockMovementController;
+use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\TaskController;
+use App\Http\Controllers\Api\TicketAttachmentController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -72,7 +76,33 @@ Route::prefix('v1')->group(function () {
 
         // Inventory
         Route::patch('inventory/{inventoryItem}/adjust', [InventoryController::class, 'adjust']);
+        Route::get('inventory/{inventoryItem}/movements',  [StockMovementController::class, 'index']);
+        Route::post('inventory/{inventoryItem}/images',    [InventoryController::class, 'uploadImage']);
+        Route::delete('inventory/{inventoryItem}/images/{image}', [InventoryController::class, 'deleteImage']);
+        Route::post('inventory/{inventoryItem}/documents', [InventoryController::class, 'uploadDocument']);
+        Route::delete('inventory/{inventoryItem}/documents/{document}', [InventoryController::class, 'deleteDocument']);
         Route::apiResource('inventory', InventoryController::class);
+
+        // Stock Movements (global — filterable by item)
+        Route::get('stock-movements',  [StockMovementController::class, 'index']);
+        Route::post('stock-movements', [StockMovementController::class, 'store']);
+
+        // Suppliers
+        Route::post('suppliers/{supplier}/items',                  [SupplierController::class, 'addItem']);
+        Route::delete('suppliers/{supplier}/items/{inventoryItem}', [SupplierController::class, 'removeItem']);
+        Route::apiResource('suppliers', SupplierController::class);
+
+        // Purchase Requisitions
+        Route::post('requisitions/{purchaseRequisition}/submit',  [PurchaseRequisitionController::class, 'submit']);
+        Route::post('requisitions/{purchaseRequisition}/approve', [PurchaseRequisitionController::class, 'approve']);
+        Route::post('requisitions/{purchaseRequisition}/reject',  [PurchaseRequisitionController::class, 'reject']);
+        Route::apiResource('requisitions', PurchaseRequisitionController::class);
+
+        // Purchase Orders
+        Route::post('purchase-orders/{purchaseOrder}/send',    [PurchaseOrderController::class, 'send']);
+        Route::post('purchase-orders/{purchaseOrder}/receive', [PurchaseOrderController::class, 'receive']);
+        Route::post('purchase-orders/{purchaseOrder}/cancel',  [PurchaseOrderController::class, 'cancel']);
+        Route::apiResource('purchase-orders', PurchaseOrderController::class);
 
         // Contacts (CRM)
         Route::post('contacts/{contact}/interactions', [ContactController::class, 'addInteraction']);
