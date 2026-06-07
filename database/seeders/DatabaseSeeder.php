@@ -12,6 +12,7 @@ class DatabaseSeeder extends Seeder
             UserSeeder::class,
             HospitalSeeder::class,
             MachineSeeder::class,
+            SupplierSeeder::class,
             SparePartSeeder::class,
             ServiceTicketSeeder::class,
             InvoiceSeeder::class,
