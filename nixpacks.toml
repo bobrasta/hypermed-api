@@ -3,3 +3,6 @@ PHP_EXTENSIONS = "pgsql,mbstring,xml,curl,zip,redis,gd,bcmath,tokenizer"
 
 [phases.install]
 cmds = ["composer install --no-dev --optimize-autoloader"]
+
+[phases.build]
+cmds = []
