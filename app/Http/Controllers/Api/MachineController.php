@@ -23,7 +23,10 @@ class MachineController extends Controller
             $query->where('type', $request->type);
         }
 
-        $machines = $query->paginate(20);
+        // See InventoryController::index() — same reasoning: callers load a
+        // big batch once and reveal/filter locally, don't silently truncate.
+        $perPage = min($request->integer('per_page', 20), 1000);
+        $machines = $query->paginate($perPage);
 
         return MachineResource::collection($machines);
     }

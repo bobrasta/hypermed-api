@@ -31,7 +31,11 @@ class ServiceTicketController extends Controller
             $query->where('assigned_to', $request->assigned_to);
         }
 
-        return ServiceTicketResource::collection($query->latest()->paginate(20));
+        // See InventoryController::index() — same reasoning: callers load a
+        // big batch once and reveal/filter locally, don't silently truncate.
+        $perPage = min($request->integer('per_page', 20), 1000);
+
+        return ServiceTicketResource::collection($query->latest()->paginate($perPage));
     }
 
     public function store(Request $request)

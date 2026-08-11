@@ -23,7 +23,11 @@ class HospitalController extends Controller
             $query->where('zone', $request->zone);
         }
 
-        return HospitalResource::collection($query->paginate(20));
+        // See InventoryController::index() — same reasoning: callers load a
+        // big batch once and reveal/filter locally, don't silently truncate.
+        $perPage = min($request->integer('per_page', 20), 1000);
+
+        return HospitalResource::collection($query->paginate($perPage));
     }
 
     public function store(Request $request)
