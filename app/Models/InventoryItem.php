@@ -11,13 +11,13 @@ class InventoryItem extends Model
 
     protected $fillable = [
         'sku', 'barcode', 'barcode_type', 'name', 'description',
-        'category', 'unit_of_measure',
+        'category_id', 'unit_of_measure',
         'manufacturer', 'model_number', 'country_of_origin',
         'has_ce', 'has_fda', 'has_tbs',
         'weight_kg', 'dimensions', 'voltage', 'specifications',
         'shelf_life_days', 'preferred_supplier_id',
         'unit_cost', 'cost_currency', 'stock_qty', 'reorder_level',
-        'supplier', 'is_active',
+        'supplier', 'is_active', 'creates_machine_record', 'warranty_months',
     ];
 
     protected $casts = [
@@ -30,7 +30,19 @@ class InventoryItem extends Model
         'has_fda'        => 'boolean',
         'has_tbs'        => 'boolean',
         'specifications' => 'array',
+        'creates_machine_record' => 'boolean',
+        'warranty_months' => 'integer',
     ];
+
+    public function category()
+    {
+        return $this->belongsTo(Category::class);
+    }
+
+    public function stockLevels()
+    {
+        return $this->hasMany(StockLevel::class);
+    }
 
     public function compatibleModels()
     {

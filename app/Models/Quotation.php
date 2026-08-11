@@ -11,12 +11,14 @@ class Quotation extends Model
         'status', 'valid_until', 'currency',
         'subtotal', 'discount_amount', 'tax_amount', 'total_amount',
         'notes', 'terms', 'created_by', 'sent_at', 'accepted_at',
+        'approval_status', 'approval_reason', 'approved_by', 'approved_at', 'rejection_reason',
     ];
 
     protected $casts = [
         'valid_until'  => 'date',
         'sent_at'      => 'datetime',
         'accepted_at'  => 'datetime',
+        'approved_at'  => 'datetime',
         'subtotal'     => 'integer',
         'discount_amount' => 'integer',
         'tax_amount'   => 'integer',
@@ -31,6 +33,11 @@ class Quotation extends Model
     public function createdBy()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function approvedBy()
+    {
+        return $this->belongsTo(User::class, 'approved_by');
     }
 
     public function items()

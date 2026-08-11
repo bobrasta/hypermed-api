@@ -11,13 +11,9 @@ class SalesLeadController extends Controller
 {
     public function index()
     {
-        $leads = SalesLead::with(['hospital', 'assignee'])->get();
+        $leads = SalesLead::with(['hospital', 'assignee'])->latest()->get();
 
-        $grouped = $leads->groupBy('stage')->map(fn ($group) =>
-            SalesLeadResource::collection($group)
-        );
-
-        return response()->json(['data' => $grouped]);
+        return SalesLeadResource::collection($leads);
     }
 
     public function store(Request $request)
@@ -31,6 +27,7 @@ class SalesLeadController extends Controller
             'deal_value'        => ['nullable', 'integer', 'min:0'],
             'stage'             => ['required', 'in:lead,qualified,demo_scheduled,proposal_sent,negotiation,won,lost'],
             'demo_date'         => ['nullable', 'date'],
+            'follow_up_date'    => ['nullable', 'date'],
             'assigned_to'       => ['nullable', 'exists:users,id'],
         ]);
 
@@ -56,6 +53,7 @@ class SalesLeadController extends Controller
             'deal_value'        => ['nullable', 'integer', 'min:0'],
             'stage'             => ['sometimes', 'in:lead,qualified,demo_scheduled,proposal_sent,negotiation,won,lost'],
             'demo_date'         => ['nullable', 'date'],
+            'follow_up_date'    => ['nullable', 'date'],
             'assigned_to'       => ['nullable', 'exists:users,id'],
         ]);
 

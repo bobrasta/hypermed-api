@@ -9,7 +9,8 @@ class StockMovement extends Model
     protected $fillable = [
         'inventory_item_id', 'type', 'quantity', 'quantity_before', 'quantity_after',
         'unit_cost', 'currency', 'reference_type', 'reference_id',
-        'location', 'batch_number', 'expiry_date', 'notes', 'performed_by',
+        'location_id', 'location_from_id', 'location_to_id',
+        'batch_number', 'expiry_date', 'notes', 'performed_by',
     ];
 
     protected $casts = [
@@ -23,6 +24,21 @@ class StockMovement extends Model
     public function inventoryItem()
     {
         return $this->belongsTo(InventoryItem::class);
+    }
+
+    public function location()
+    {
+        return $this->belongsTo(Location::class);
+    }
+
+    public function locationFrom()
+    {
+        return $this->belongsTo(Location::class, 'location_from_id');
+    }
+
+    public function locationTo()
+    {
+        return $this->belongsTo(Location::class, 'location_to_id');
     }
 
     public function performedBy()

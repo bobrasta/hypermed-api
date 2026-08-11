@@ -11,7 +11,7 @@ class LocationController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Location::query();
+        $query = Location::with('manager');
 
         if ($request->filled('type')) {
             $query->where('type', $request->type);
@@ -36,6 +36,7 @@ class LocationController extends Controller
             'code'    => ['nullable', 'string', 'max:50', 'unique:locations'],
             'type'    => ['nullable', 'in:warehouse,store,room,vehicle,other'],
             'address' => ['nullable', 'string'],
+            'manager_id' => ['nullable', 'exists:users,id'],
             'notes'   => ['nullable', 'string'],
         ]);
 
@@ -55,6 +56,7 @@ class LocationController extends Controller
             'code'      => ['nullable', 'string', 'max:50', 'unique:locations,code,' . $location->id],
             'type'      => ['nullable', 'in:warehouse,store,room,vehicle,other'],
             'address'   => ['nullable', 'string'],
+            'manager_id' => ['nullable', 'exists:users,id'],
             'notes'     => ['nullable', 'string'],
             'is_active' => ['sometimes', 'boolean'],
         ]);

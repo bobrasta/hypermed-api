@@ -12,9 +12,6 @@ use Illuminate\Support\Facades\Auth;
 
 class TaskController extends Controller
 {
-    // Roles that can manage all tasks
-    private static array $managerRoles = ['admin', 'manager'];
-
     // ── List ──────────────────────────────────────────────────────────────────
 
     public function index(Request $request): JsonResponse
@@ -26,7 +23,7 @@ class TaskController extends Controller
             ->orderBy('due_date', 'asc')
             ->orderBy('created_at', 'desc');
 
-        if (in_array($user->role, self::$managerRoles)) {
+        if ($user->isManagerTier()) {
             // Managers can filter by any staff member
             if ($request->filled('assigned_to')) {
                 $query->where('assigned_to', $request->assigned_to);
@@ -51,7 +48,7 @@ class TaskController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        if (! in_array(Auth::user()->role, self::$managerRoles)) {
+        if (! Auth::user()->isManagerTier()) {
             return response()->json(['message' => 'Not authorised.'], 403);
         }
 
@@ -71,6 +68,10 @@ class TaskController extends Controller
         $task = Task::create($data);
         $task->load(['assignee', 'creator']);
 
+        if ($task->assigned_to) {
+            $this->notifyAssignee($task);
+        }
+
         return response()->json(['data' => $this->format($task)], 201);
     }
 
@@ -79,7 +80,7 @@ class TaskController extends Controller
     public function update(Request $request, Task $task): JsonResponse
     {
         $user       = Auth::user();
-        $isManager  = in_array($user->role, self::$managerRoles);
+        $isManager  = $user->isManagerTier();
         $isAssignee = $task->assigned_to === $user->id;
 
         if (! $isManager && ! $isAssignee) {
@@ -104,7 +105,9 @@ class TaskController extends Controller
             ]);
         }
 
-        $justCompleted = false;
+        $justCompleted  = false;
+        $reassignedTo   = isset($data['assigned_to']) && $data['assigned_to'] !== $task->assigned_to
+            ? $data['assigned_to'] : null;
 
         if (isset($data['status'])) {
             if ($data['status'] === 'in_progress' && ! $task->started_at) {
@@ -122,6 +125,9 @@ class TaskController extends Controller
         if ($justCompleted) {
             $this->notifyManagers($task);
         }
+        if ($reassignedTo) {
+            $this->notifyAssignee($task);
+        }
 
         return response()->json(['data' => $this->format($task)]);
     }
@@ -130,7 +136,7 @@ class TaskController extends Controller
 
     public function destroy(Task $task): JsonResponse
     {
-        if (! in_array(Auth::user()->role, self::$managerRoles)) {
+        if (! Auth::user()->isManagerTier()) {
             return response()->json(['message' => 'Not authorised.'], 403);
         }
 
@@ -145,17 +151,36 @@ class TaskController extends Controller
     {
         $assigneeName = $task->assignee?->name ?? 'Staff';
 
-        User::whereIn('role', self::$managerRoles)
+        User::whereIn('role', User::MANAGER_ROLES)
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
-                'type'        => 'task',
+                'type'        => 'task_completed',
                 'title'       => 'Task Completed',
                 'body'        => "{$assigneeName} completed: {$task->title}",
                 'entity_type' => 'task',
                 'entity_id'   => $task->id,
                 'is_read'     => false,
             ]));
+    }
+
+    private function notifyAssignee(Task $task): void
+    {
+        if (! $task->assigned_to) {
+            return;
+        }
+
+        $creatorName = $task->creator?->name ?? 'A manager';
+
+        AppNotification::create([
+            'user_id'     => $task->assigned_to,
+            'type'        => 'task_assigned',
+            'title'       => 'New Task Assigned',
+            'body'        => "{$creatorName} assigned you: {$task->title}",
+            'entity_type' => 'task',
+            'entity_id'   => $task->id,
+            'is_read'     => false,
+        ]);
     }
 
     private function format(Task $t): array

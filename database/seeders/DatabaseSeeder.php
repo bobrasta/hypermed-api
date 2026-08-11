@@ -10,9 +10,15 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             UserSeeder::class,
+            ChartOfAccountsSeeder::class,
+            ExpenseCategorySeeder::class,
             HospitalSeeder::class,
             MachineSeeder::class,
             SupplierSeeder::class,
+            CategorySeeder::class,
+            LocationSeeder::class,
+            InventoryItemSeeder::class,
+            StockLevelSeeder::class,
             SparePartSeeder::class,
             ServiceTicketSeeder::class,
             InvoiceSeeder::class,

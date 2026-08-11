@@ -4,9 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ServiceTicketResource;
+use App\Models\AppNotification;
 use App\Models\ChecklistItem;
+use App\Models\PartCannibalization;
+use App\Models\SerialNumber;
 use App\Models\ServiceTicket;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class ServiceTicketController extends Controller
 {
@@ -56,6 +60,10 @@ class ServiceTicketController extends Controller
             $ticket->checklistItems()->create(['label' => $item['label'], 'is_checked' => false]);
         }
 
+        if ($ticket->assigned_to) {
+            $this->notifyAssignee($ticket);
+        }
+
         return response()->json([
             'data' => new ServiceTicketResource($ticket->load(['machine', 'hospital', 'assignee', 'checklistItems'])),
         ], 201);
@@ -79,9 +87,34 @@ class ServiceTicketController extends Controller
             'description' => ['nullable', 'string'],
         ]);
 
+        $reassignedTo = array_key_exists('assigned_to', $data)
+            && $data['assigned_to'] !== null
+            && $data['assigned_to'] !== $ticket->assigned_to
+            ? $data['assigned_to'] : null;
+
         $ticket->update($data);
 
+        if ($reassignedTo) {
+            $this->notifyAssignee($ticket);
+        }
+
         return response()->json(['data' => new ServiceTicketResource($ticket->load(['machine', 'hospital', 'assignee', 'checklistItems']))]);
+    }
+
+    private function notifyAssignee(ServiceTicket $ticket): void
+    {
+        $machine = $ticket->machine?->model ?? 'a machine';
+
+        AppNotification::create([
+            'user_id'     => $ticket->assigned_to,
+            'type'        => 'ticket_assigned',
+            'title'       => 'Service Ticket Assigned',
+            'body'        => "You've been assigned {$ticket->ticket_number} — {$machine}"
+                . ($ticket->description ? ": {$ticket->description}" : ''),
+            'entity_type' => 'service_ticket',
+            'entity_id'   => $ticket->id,
+            'is_read'     => false,
+        ]);
     }
 
     public function destroy(ServiceTicket $ticket)
@@ -99,6 +132,7 @@ class ServiceTicketController extends Controller
             'parts_used.*.inventory_item_id' => ['required_with:parts_used', 'exists:inventory_items,id'],
             'parts_used.*.qty'               => ['required_with:parts_used', 'integer', 'min:1'],
             'parts_used.*.unit_cost'         => ['nullable', 'integer', 'min:0'],
+            'parts_used.*.source_serial_number_id' => ['nullable', 'exists:serial_numbers,id'],
         ]);
 
         $ticket->update([
@@ -108,11 +142,7 @@ class ServiceTicketController extends Controller
         ]);
 
         foreach ($data['parts_used'] ?? [] as $part) {
-            $ticket->partsUsed()->create([
-                'inventory_item_id' => $part['inventory_item_id'],
-                'qty'               => $part['qty'],
-                'unit_cost'         => $part['unit_cost'] ?? 0,
-            ]);
+            $this->createPartUsed($ticket, $part, $request->user()->id);
         }
 
         return response()->json([
@@ -120,6 +150,57 @@ class ServiceTicketController extends Controller
                 $ticket->load(['machine', 'hospital', 'assignee', 'checklistItems', 'partsUsed.inventoryItem'])
             ),
         ]);
+    }
+
+    // Add a part mid-repair, before the ticket is resolved — previously the
+    // Flutter "Add Part" dialog called update() with a parts_used payload
+    // that update()'s validation rules silently dropped (never persisted, no
+    // error either). This is the real endpoint for that action.
+    public function addPart(Request $request, ServiceTicket $ticket)
+    {
+        $data = $request->validate([
+            'inventory_item_id'       => ['required', 'exists:inventory_items,id'],
+            'qty'                     => ['required', 'integer', 'min:1'],
+            'unit_cost'               => ['nullable', 'integer', 'min:0'],
+            'source_serial_number_id' => ['nullable', 'exists:serial_numbers,id'],
+        ]);
+
+        $this->createPartUsed($ticket, $data, $request->user()->id);
+
+        return response()->json([
+            'data' => new ServiceTicketResource(
+                $ticket->fresh()->load(['machine', 'hospital', 'assignee', 'checklistItems', 'partsUsed.inventoryItem'])
+            ),
+        ], 201);
+    }
+
+    // Shared by resolve() and addPart(): records the part as used, and if a
+    // source serial number is given (part was cannibalized from a stocked
+    // unit rather than pulled from generic stock), logs the cannibalization
+    // and flags that unit so it can't ship until a replacement is installed.
+    private function createPartUsed(ServiceTicket $ticket, array $part, int $userId): void
+    {
+        DB::transaction(function () use ($ticket, $part, $userId) {
+            $partUsed = $ticket->partsUsed()->create([
+                'inventory_item_id' => $part['inventory_item_id'],
+                'qty'               => $part['qty'],
+                'unit_cost'         => $part['unit_cost'] ?? 0,
+            ]);
+
+            if (! empty($part['source_serial_number_id'])) {
+                $serial = SerialNumber::findOrFail($part['source_serial_number_id']);
+
+                PartCannibalization::create([
+                    'source_serial_number_id' => $serial->id,
+                    'part_used_id'            => $partUsed->id,
+                    'removed_by'              => $userId,
+                    'removed_at'              => now(),
+                    'status'                  => 'open',
+                ]);
+
+                $serial->update(['has_missing_parts' => true]);
+            }
+        });
     }
 
     public function toggleChecklist(ServiceTicket $ticket, ChecklistItem $item)

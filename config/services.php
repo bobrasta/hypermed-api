@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    // Quotations/Sales Orders above this TZS total require admin approval
+    // before they can be sent/confirmed, regardless of discount.
+    'sales_approval_threshold' => env('SALES_APPROVAL_THRESHOLD', 5_000_000),
+
 ];

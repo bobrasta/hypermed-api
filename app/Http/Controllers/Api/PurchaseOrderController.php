@@ -3,9 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Location;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequisition;
-use App\Models\StockMovement;
+use App\Services\StockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -20,19 +21,28 @@ class PurchaseOrderController extends Controller
 
     public function index(Request $request)
     {
-        $pos = PurchaseOrder::with(['supplier', 'orderedBy', 'items.inventoryItem'])
+        $pos = PurchaseOrder::with(['supplier', 'location', 'orderedBy', 'items.inventoryItem'])
             ->when($request->status,      fn ($q, $s) => $q->where('status', $s))
             ->when($request->supplier_id, fn ($q, $id) => $q->where('supplier_id', $id))
+            ->when($request->location_id, fn ($q, $id) => $q->where('location_id', $id))
             ->latest()
             ->paginate(25);
 
-        return response()->json($pos);
+        return response()->json([
+            'data' => $pos->items(),
+            'meta' => [
+                'current_page' => $pos->currentPage(),
+                'last_page'    => $pos->lastPage(),
+                'total'        => $pos->total(),
+            ],
+        ]);
     }
 
     public function store(Request $request)
     {
         $data = $request->validate([
             'supplier_id'               => 'required|exists:suppliers,id',
+            'location_id'               => 'required|exists:locations,id',
             'purchase_requisition_id'   => 'nullable|exists:purchase_requisitions,id',
             'expected_delivery_date'    => 'nullable|date',
             'currency'                  => 'nullable|string|max:10',
@@ -55,6 +65,7 @@ class PurchaseOrderController extends Controller
             $po = PurchaseOrder::create([
                 'po_number'               => $this->nextPoNumber(),
                 'supplier_id'             => $data['supplier_id'],
+                'location_id'             => $data['location_id'],
                 'purchase_requisition_id' => $data['purchase_requisition_id'] ?? null,
                 'status'                  => 'draft',
                 'ordered_by'              => $request->user()->id,
@@ -83,7 +94,7 @@ class PurchaseOrderController extends Controller
 
     public function show(PurchaseOrder $purchaseOrder)
     {
-        $purchaseOrder->load(['supplier', 'orderedBy', 'requisition', 'items.inventoryItem']);
+        $purchaseOrder->load(['supplier', 'location', 'orderedBy', 'requisition', 'items.inventoryItem']);
 
         return response()->json(['data' => $purchaseOrder]);
     }
@@ -94,6 +105,7 @@ class PurchaseOrderController extends Controller
 
         $data = $request->validate([
             'supplier_id'            => 'sometimes|exists:suppliers,id',
+            'location_id'            => 'sometimes|exists:locations,id',
             'expected_delivery_date' => 'nullable|date',
             'currency'               => 'nullable|string|max:10',
             'shipping_address'       => 'nullable|string',
@@ -120,9 +132,10 @@ class PurchaseOrderController extends Controller
     }
 
     // Goods Received Note — record received quantities and update stock
-    public function receive(Request $request, PurchaseOrder $purchaseOrder)
+    public function receive(Request $request, PurchaseOrder $purchaseOrder, StockService $stockService)
     {
         abort_if(!in_array($purchaseOrder->status, ['sent', 'acknowledged', 'partially_received']), 422, 'Order cannot be received in its current status.');
+        abort_if(!$purchaseOrder->location_id, 422, 'This purchase order has no destination location set.');
 
         $data = $request->validate([
             'items'                             => 'required|array|min:1',
@@ -133,8 +146,9 @@ class PurchaseOrderController extends Controller
             'notes'                             => 'nullable|string',
         ]);
 
-        return DB::transaction(function () use ($data, $request, $purchaseOrder) {
+        return DB::transaction(function () use ($data, $purchaseOrder, $stockService) {
             $allReceived = true;
+            $location = $purchaseOrder->location;
 
             foreach ($data['items'] as $received) {
                 $poItem = $purchaseOrder->items()->findOrFail($received['purchase_order_item_id']);
@@ -150,28 +164,21 @@ class PurchaseOrderController extends Controller
                     $allReceived = false;
                 }
 
-                // Record stock movement
-                $item = $poItem->inventoryItem()->lockForUpdate()->first();
-                $before = $item->stock_qty;
-                $after  = $before + $received['quantity_received'];
+                $movement = $stockService->add(
+                    $poItem->inventoryItem,
+                    $location,
+                    $received['quantity_received'],
+                    $poItem->unit_cost,
+                    $data['notes'] ?? "Received via {$purchaseOrder->po_number}",
+                    $purchaseOrder,
+                );
 
-                StockMovement::create([
-                    'inventory_item_id' => $item->id,
-                    'type'              => 'receive',
-                    'quantity'          => $received['quantity_received'],
-                    'quantity_before'   => $before,
-                    'quantity_after'    => $after,
-                    'unit_cost'         => $poItem->unit_cost,
-                    'currency'          => $poItem->currency,
-                    'reference_type'    => 'purchase_order',
-                    'reference_id'      => $purchaseOrder->id,
-                    'batch_number'      => $received['batch_number'] ?? null,
-                    'expiry_date'       => $received['expiry_date'] ?? null,
-                    'notes'             => $data['notes'] ?? "Received via {$purchaseOrder->po_number}",
-                    'performed_by'      => $request->user()->id,
-                ]);
-
-                $item->update(['stock_qty' => $after]);
+                if (isset($received['batch_number']) || isset($received['expiry_date'])) {
+                    $movement->update([
+                        'batch_number' => $received['batch_number'] ?? null,
+                        'expiry_date'  => $received['expiry_date'] ?? null,
+                    ]);
+                }
             }
 
             $purchaseOrder->update([

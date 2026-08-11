@@ -21,6 +21,7 @@ class SalesLeadResource extends JsonResource
             'days_in_stage'      => $this->days_in_stage,
             'stage'              => $this->stage,
             'demo_date'          => $this->demo_date?->toDateString(),
+            'follow_up_date'     => $this->follow_up_date?->toDateString(),
             'assigned_to'        => $this->assigned_to,
             'assignee'           => new UserResource($this->whenLoaded('assignee')),
             'created_at'         => $this->created_at?->toIso8601String(),

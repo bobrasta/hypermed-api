@@ -5,12 +5,36 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\InvoiceResource;
 use App\Http\Resources\PaymentResource;
+use App\Models\Hospital;
 use App\Models\Invoice;
 use App\Models\Payment;
+use App\Services\CreditCheckService;
+use App\Services\DocumentPdfService;
+use App\Services\FinancePostingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\URL;
 
 class InvoiceController extends Controller
 {
+    // ── PDF / sharing ─────────────────────────────────────────────────────────────
+
+    public function pdf(Invoice $invoice, DocumentPdfService $pdfService)
+    {
+        return $pdfService->invoicePdf($invoice)->stream("{$invoice->invoice_number}.pdf");
+    }
+
+    public function shareLink(Invoice $invoice)
+    {
+        $expiresAt = now()->addDays(7);
+        $url = URL::temporarySignedRoute('invoices.pdf-public', $expiresAt, ['invoice' => $invoice->id]);
+
+        return response()->json(['data' => [
+            'share_url'  => $url,
+            'expires_at' => $expiresAt->toIso8601String(),
+        ]]);
+    }
+
     public function index(Request $request)
     {
         $query = Invoice::with(['hospital', 'machine', 'salesOrder', 'payments']);
@@ -41,7 +65,7 @@ class InvoiceController extends Controller
         return InvoiceResource::collection($query->latest('issue_date')->paginate(50));
     }
 
-    public function store(Request $request)
+    public function store(Request $request, CreditCheckService $creditCheck, FinancePostingService $financePosting)
     {
         $data = $request->validate([
             'hospital_id'  => ['nullable', 'exists:hospitals,id'],
@@ -67,6 +91,11 @@ class InvoiceController extends Controller
         $taxRate   = $data['tax_rate'] ?? 0;
         $taxAmount = (int) round($subtotal * $taxRate / 100);
 
+        $creditCheck->assertWithinLimit(
+            isset($data['hospital_id']) ? Hospital::find($data['hospital_id']) : null,
+            $subtotal + $taxAmount,
+        );
+
         $data['subtotal']        = $subtotal;
         $data['tax_rate']        = $taxRate;
         $data['tax_amount']      = $taxAmount;
@@ -75,16 +104,22 @@ class InvoiceController extends Controller
         $data['status']          = 'pending';
         $data['invoice_number']  = $this->nextInvoiceNumber();
 
-        $invoice = Invoice::create($data);
+        $invoice = DB::transaction(function () use ($data, $lineItems, $financePosting) {
+            $invoice = Invoice::create($data);
 
-        foreach ($lineItems as $item) {
-            $invoice->lineItems()->create([
-                'description' => $item['description'],
-                'quantity'    => $item['quantity'],
-                'unit_price'  => $item['unit_price'],
-                'total'       => (int) ($item['quantity'] * $item['unit_price']),
-            ]);
-        }
+            foreach ($lineItems as $item) {
+                $invoice->lineItems()->create([
+                    'description' => $item['description'],
+                    'quantity'    => $item['quantity'],
+                    'unit_price'  => $item['unit_price'],
+                    'total'       => (int) ($item['quantity'] * $item['unit_price']),
+                ]);
+            }
+
+            $financePosting->postInvoiceIssued($invoice);
+
+            return $invoice;
+        });
 
         return response()->json([
             'data' => new InvoiceResource($invoice->load(['hospital', 'machine', 'salesOrder', 'lineItems', 'payments'])),
@@ -114,9 +149,12 @@ class InvoiceController extends Controller
         return response()->json(['data' => new InvoiceResource($invoice->load(['hospital', 'machine', 'salesOrder', 'lineItems', 'payments']))]);
     }
 
-    public function destroy(Invoice $invoice)
+    public function destroy(Invoice $invoice, FinancePostingService $financePosting)
     {
-        $invoice->delete();
+        DB::transaction(function () use ($invoice, $financePosting) {
+            $financePosting->reverseInvoice($invoice->load('payments'));
+            $invoice->delete();
+        });
 
         return response()->json(null, 204);
     }
@@ -134,20 +172,23 @@ class InvoiceController extends Controller
         return response()->json(['data' => new InvoiceResource($invoice->load(['hospital', 'machine', 'salesOrder', 'lineItems', 'payments']))]);
     }
 
-    public function cancel(Invoice $invoice)
+    public function cancel(Invoice $invoice, FinancePostingService $financePosting)
     {
         if ($invoice->status === 'paid') {
             return response()->json(['message' => 'Paid invoices cannot be cancelled.'], 422);
         }
 
-        $invoice->update(['status' => 'cancelled']);
+        DB::transaction(function () use ($invoice, $financePosting) {
+            $financePosting->reverseInvoice($invoice->load('payments'));
+            $invoice->update(['status' => 'cancelled']);
+        });
 
         return response()->json(['data' => new InvoiceResource($invoice->load(['hospital', 'machine', 'salesOrder', 'lineItems', 'payments']))]);
     }
 
     // ── Payment recording ─────────────────────────────────────────────────────────
 
-    public function recordPayment(Request $request, Invoice $invoice)
+    public function recordPayment(Request $request, Invoice $invoice, FinancePostingService $financePosting)
     {
         if (in_array($invoice->status, ['paid', 'cancelled', 'waived'])) {
             return response()->json(['message' => 'Cannot record payment on a ' . $invoice->status . ' invoice.'], 422);
@@ -165,24 +206,27 @@ class InvoiceController extends Controller
         $data['recorded_by']    = $request->user()->id;
         $data['payment_number'] = $this->nextPaymentNumber();
 
-        $payment = Payment::create($data);
+        $payment = DB::transaction(function () use ($data, $invoice, $financePosting) {
+            $payment = Payment::create($data);
 
-        // Recalculate amount_paid and update status
-        $totalPaid = $invoice->payments()->sum('amount') + $data['amount'];
-        // (payment already created so reload)
-        $totalPaid = $invoice->payments()->sum('amount');
+            $totalPaid = $invoice->payments()->sum('amount');
 
-        $newStatus = match (true) {
-            $totalPaid >= $invoice->total => 'paid',
-            $totalPaid > 0               => 'partial',
-            default                      => $invoice->status,
-        };
+            $newStatus = match (true) {
+                $totalPaid >= $invoice->total => 'paid',
+                $totalPaid > 0               => 'partial',
+                default                      => $invoice->status,
+            };
 
-        $invoice->update([
-            'amount_paid' => $totalPaid,
-            'status'      => $newStatus,
-            'paid_at'     => $newStatus === 'paid' ? now() : null,
-        ]);
+            $invoice->update([
+                'amount_paid' => $totalPaid,
+                'status'      => $newStatus,
+                'paid_at'     => $newStatus === 'paid' ? now() : null,
+            ]);
+
+            $financePosting->postPaymentReceived($invoice, $payment);
+
+            return $payment;
+        });
 
         return response()->json([
             'data'    => new PaymentResource($payment->load('recordedBy')),

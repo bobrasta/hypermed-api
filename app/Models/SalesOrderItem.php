@@ -8,12 +8,13 @@ class SalesOrderItem extends Model
 {
     protected $fillable = [
         'sales_order_id', 'inventory_item_id', 'description', 'unit_of_measure',
-        'quantity_ordered', 'quantity_delivered', 'unit_price', 'total_price',
+        'quantity_ordered', 'quantity_delivered', 'quantity_invoiced', 'unit_price', 'total_price',
     ];
 
     protected $casts = [
         'quantity_ordered'   => 'integer',
         'quantity_delivered' => 'integer',
+        'quantity_invoiced'  => 'integer',
         'unit_price'         => 'integer',
         'total_price'        => 'integer',
     ];

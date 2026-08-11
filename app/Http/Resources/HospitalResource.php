@@ -22,6 +22,7 @@ class HospitalResource extends JsonResource
             'machine_count'       => $this->machine_count,
             'machines_operational' => $this->machines_operational,
             'revenue_monthly'     => $this->revenue_monthly,
+            'credit_limit'        => $this->credit_limit,
             'contact_name'        => $this->contact_name,
             'contact_phone'       => $this->contact_phone,
             'contact_email'       => $this->contact_email,

@@ -5,8 +5,17 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Support\Env;
 use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+
+// putenv()/getenv() are process-wide, not per-request — under a threaded SAPI
+// (e.g. XAMPP's Apache mpm_winnt, many threads sharing one process) concurrent
+// requests' env bootstrapping can race and transiently read back an empty
+// DB_CONNECTION/DB_DATABASE/etc, silently falling through to hardcoded config
+// defaults. $_ENV/$_SERVER are correctly isolated per request even there, so
+// restrict Dotenv to those instead. Must run before anything else boots.
+Env::disablePutenv();
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(

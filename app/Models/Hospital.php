@@ -12,7 +12,7 @@ class Hospital extends Model
     protected $fillable = [
         'name', 'short_code', 'type', 'region', 'district',
         'latitude', 'longitude', 'zone',
-        'machine_count', 'machines_operational', 'revenue_monthly',
+        'machine_count', 'machines_operational', 'revenue_monthly', 'credit_limit',
         'contact_name', 'contact_phone', 'contact_email', 'notes',
     ];
 
@@ -20,7 +20,13 @@ class Hospital extends Model
         'latitude' => 'float',
         'longitude' => 'float',
         'revenue_monthly' => 'integer',
+        'credit_limit' => 'integer',
     ];
+
+    public function salesOrders()
+    {
+        return $this->hasMany(SalesOrder::class);
+    }
 
     public function machines()
     {

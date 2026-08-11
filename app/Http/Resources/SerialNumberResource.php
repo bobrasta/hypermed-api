@@ -13,6 +13,7 @@ class SerialNumberResource extends JsonResource
             'inventory_item_id'     => $this->inventory_item_id,
             'serial_number'         => $this->serial_number,
             'status'                => $this->status,
+            'has_missing_parts'     => $this->has_missing_parts,
             'location_id'           => $this->location_id,
             'location_name'         => $this->whenLoaded('location', fn() => $this->location?->name),
             'assigned_to_machine_id'=> $this->assigned_to_machine_id,

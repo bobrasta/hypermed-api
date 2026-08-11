@@ -21,6 +21,8 @@ class LocationResource extends JsonResource
                 default     => 'Other',
             },
             'address'   => $this->address,
+            'manager_id' => $this->manager_id,
+            'manager_name' => $this->whenLoaded('manager', fn () => $this->manager?->name),
             'notes'     => $this->notes,
             'is_active' => $this->is_active,
             'created_at'=> $this->created_at?->toDateString(),

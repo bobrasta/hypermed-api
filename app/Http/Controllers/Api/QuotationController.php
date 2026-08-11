@@ -7,11 +7,32 @@ use App\Http\Resources\QuotationResource;
 use App\Http\Resources\SalesOrderResource;
 use App\Models\Quotation;
 use App\Models\SalesOrder;
+use App\Services\ApprovalService;
+use App\Services\DocumentPdfService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\URL;
 
 class QuotationController extends Controller
 {
+    // ── PDF / sharing ─────────────────────────────────────────────────────────────
+
+    public function pdf(Quotation $quotation, DocumentPdfService $pdfService)
+    {
+        return $pdfService->quotationPdf($quotation)->stream("{$quotation->quotation_number}.pdf");
+    }
+
+    public function shareLink(Quotation $quotation)
+    {
+        $expiresAt = now()->addDays(7);
+        $url = URL::temporarySignedRoute('quotations.pdf-public', $expiresAt, ['quotation' => $quotation->id]);
+
+        return response()->json(['data' => [
+            'share_url'  => $url,
+            'expires_at' => $expiresAt->toIso8601String(),
+        ]]);
+    }
+
     private function nextQtNumber(): string
     {
         $year  = now()->format('Y');
@@ -49,7 +70,7 @@ class QuotationController extends Controller
         return QuotationResource::collection($quotations);
     }
 
-    public function store(Request $request)
+    public function store(Request $request, ApprovalService $approval)
     {
         $data = $request->validate([
             'lead_id'                   => 'nullable|exists:sales_leads,id',
@@ -71,11 +92,21 @@ class QuotationController extends Controller
             'items.*.discount_percent'  => 'nullable|numeric|min:0|max:100',
         ]);
 
-        return DB::transaction(function () use ($data, $request) {
+        return DB::transaction(function () use ($data, $request, $approval) {
             $totals = $this->calcTotals(
                 $data['items'],
                 $data['discount_amount'] ?? 0,
                 $data['tax_amount'] ?? 0,
+            );
+
+            // Gross (list-price) subtotal, ignoring line-level discounts, so the
+            // approval check catches heavy line discounts even when the header
+            // discount_amount is 0 — otherwise they'd be invisible to it.
+            $grossSubtotal = collect($data['items'])->sum(fn ($i) => $i['quantity'] * $i['unit_price']);
+            $effectiveDiscount = ($grossSubtotal - $totals['subtotal']) + $totals['discount_amount'];
+
+            $approvalFields = $approval->evaluate(
+                $request->user(), $grossSubtotal, $effectiveDiscount, $totals['total_amount'],
             );
 
             $quotation = Quotation::create([
@@ -91,6 +122,7 @@ class QuotationController extends Controller
                 'terms'            => $data['terms'] ?? null,
                 'created_by'       => $request->user()->id,
                 ...$totals,
+                ...$approvalFields,
             ]);
 
             foreach ($data['items'] as $item) {
@@ -152,8 +184,45 @@ class QuotationController extends Controller
     public function send(Quotation $quotation)
     {
         abort_if($quotation->status !== 'draft', 422, 'Only draft quotations can be sent.');
+        abort_if($quotation->approval_status === 'pending', 422,
+            'This quotation needs manager approval before it can be sent: ' . $quotation->approval_reason);
+        abort_if($quotation->approval_status === 'rejected', 422,
+            'This quotation was rejected and cannot be sent: ' . $quotation->rejection_reason);
         $quotation->update(['status' => 'sent', 'sent_at' => now()]);
         return new QuotationResource($quotation->fresh(['createdBy', 'items']));
+    }
+
+    // Manager approves a discount/value that exceeded the creator's limits
+    public function approve(Request $request, Quotation $quotation)
+    {
+        abort_if(! $request->user()->hasSalesApprovalAuthority(), 403, 'You are not authorised to approve quotations.');
+        abort_if($quotation->approval_status !== 'pending', 422, 'This quotation is not pending approval.');
+
+        $quotation->update([
+            'approval_status' => 'approved',
+            'approved_by'     => $request->user()->id,
+            'approved_at'     => now(),
+        ]);
+
+        return new QuotationResource($quotation->fresh(['createdBy', 'approvedBy', 'items']));
+    }
+
+    // Manager rejects — the quotation cannot be sent until re-submitted differently
+    public function rejectApproval(Request $request, Quotation $quotation)
+    {
+        abort_if(! $request->user()->hasSalesApprovalAuthority(), 403, 'You are not authorised to reject quotations.');
+        abort_if($quotation->approval_status !== 'pending', 422, 'This quotation is not pending approval.');
+
+        $data = $request->validate(['rejection_reason' => 'nullable|string']);
+
+        $quotation->update([
+            'approval_status'  => 'rejected',
+            'approved_by'      => $request->user()->id,
+            'approved_at'      => now(),
+            'rejection_reason' => $data['rejection_reason'] ?? null,
+        ]);
+
+        return new QuotationResource($quotation->fresh(['createdBy', 'approvedBy', 'items']));
     }
 
     // Client accepted the quotation
@@ -178,12 +247,13 @@ class QuotationController extends Controller
         abort_if($quotation->status !== 'accepted', 422, 'Only accepted quotations can be converted to a sales order.');
 
         $data = $request->validate([
+            'location_id'             => 'required|exists:locations,id',
             'expected_delivery_date' => 'nullable|date',
             'notes'                  => 'nullable|string',
         ]);
 
         return DB::transaction(function () use ($quotation, $data, $request) {
-            $quotation->load('items');
+            $quotation->load(['items', 'lead']);
 
             $year  = now()->format('Y');
             $count = SalesOrder::whereYear('created_at', $year)->count() + 1;
@@ -194,6 +264,8 @@ class QuotationController extends Controller
                 'quotation_id'           => $quotation->id,
                 'client_name'            => $quotation->client_name,
                 'client_contact'         => $quotation->client_contact,
+                'hospital_id'            => $quotation->lead?->hospital_id,
+                'location_id'            => $data['location_id'],
                 'status'                 => 'pending',
                 'currency'               => $quotation->currency,
                 'subtotal'               => $quotation->subtotal,

@@ -1,11 +1,16 @@
 <?php
 
+use App\Http\Controllers\Api\AccountingController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\BankReconciliationController;
 use App\Http\Controllers\Api\BatchLotController;
+use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EmailAccountController;
 use App\Http\Controllers\Api\EmailController;
+use App\Http\Controllers\Api\ExpenseController;
+use App\Http\Controllers\Api\FinanceReportController;
 use App\Http\Controllers\Api\HospitalController;
 use App\Http\Controllers\Api\InventoryController;
 use App\Http\Controllers\Api\InvoiceController;
@@ -13,6 +18,7 @@ use App\Http\Controllers\Api\LicenseController;
 use App\Http\Controllers\Api\LocationController;
 use App\Http\Controllers\Api\MachineController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\PosController;
 use App\Http\Controllers\Api\PurchaseOrderController;
 use App\Http\Controllers\Api\PurchaseRequisitionController;
 use App\Http\Controllers\Api\QuotationController;
@@ -23,10 +29,15 @@ use App\Http\Controllers\Api\SalesOrderController;
 use App\Http\Controllers\Api\SerialNumberController;
 use App\Http\Controllers\Api\ServiceTicketController;
 use App\Http\Controllers\Api\StaffController;
+use App\Http\Controllers\Api\StockLevelController;
 use App\Http\Controllers\Api\StockMovementController;
 use App\Http\Controllers\Api\SupplierController;
+use App\Http\Controllers\Api\LateArrivalController;
+use App\Http\Controllers\Api\LeaveController;
+use App\Http\Controllers\Api\PartCannibalizationController;
 use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\TicketAttachmentController;
+use App\Http\Controllers\Api\VendorBillController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -38,6 +49,13 @@ Route::prefix('v1')->group(function () {
     Route::get('license/check',    [LicenseController::class, 'check']);
     Route::post('license/request', [LicenseController::class, 'store']);
 
+    // Public document sharing — time-limited signed links, no login required
+    // (so a hospital contact can open a shared quotation/invoice PDF directly).
+    Route::get('public/quotations/{quotation}/pdf', [QuotationController::class, 'pdf'])
+        ->name('quotations.pdf-public')->middleware('signed');
+    Route::get('public/invoices/{invoice}/pdf', [InvoiceController::class, 'pdf'])
+        ->name('invoices.pdf-public')->middleware('signed');
+
     Route::middleware('auth:sanctum')->group(function () {
 
         Route::post('auth/logout', [AuthController::class, 'logout']);
@@ -45,6 +63,41 @@ Route::prefix('v1')->group(function () {
 
         // Dashboard
         Route::get('dashboard', [DashboardController::class, 'index']);
+        Route::get('dashboard/inventory', [DashboardController::class, 'inventory']);
+        Route::get('dashboard/sales', [DashboardController::class, 'sales']);
+
+        // Accounting — Chart of Accounts + ledger journal
+        Route::get('accounting/accounts', [AccountingController::class, 'accounts']);
+        Route::get('accounting/journal',  [AccountingController::class, 'journal']);
+        Route::get('accounting/summary',  [AccountingController::class, 'summary']);
+        Route::post('accounting/close-period', [AccountingController::class, 'closePeriod']);
+
+        // Expenses
+        Route::get('expense-categories', [ExpenseController::class, 'categories']);
+        Route::apiResource('expenses', ExpenseController::class);
+
+        // Vendor Bills (Accounts Payable)
+        Route::post('vendor-bills/{vendorBill}/payments', [VendorBillController::class, 'recordPayment']);
+        Route::post('vendor-bills/{vendorBill}/cancel',   [VendorBillController::class, 'cancel']);
+        Route::apiResource('vendor-bills', VendorBillController::class);
+
+        // Finance reports
+        Route::get('finance-reports/vat',           [FinanceReportController::class, 'vat']);
+        Route::get('finance-reports/profit-loss',   [FinanceReportController::class, 'profitLoss']);
+        Route::get('finance-reports/trial-balance', [FinanceReportController::class, 'trialBalance']);
+        Route::get('finance-reports/balance-sheet', [FinanceReportController::class, 'balanceSheet']);
+        Route::get('finance-reports/ar-aging',      [FinanceReportController::class, 'arAging']);
+        Route::get('finance-reports/cash-flow',     [FinanceReportController::class, 'cashFlow']);
+
+        // Bank Reconciliation
+        Route::post('bank-reconciliations/{bankReconciliation}/import-statement', [BankReconciliationController::class, 'importStatement']);
+        Route::post('bank-reconciliations/{bankReconciliation}/clear-statement',  [BankReconciliationController::class, 'clearStatement']);
+        Route::post('bank-reconciliations/{bankReconciliation}/auto-match',       [BankReconciliationController::class, 'autoMatch']);
+        Route::post('bank-reconciliations/{bankReconciliation}/complete',         [BankReconciliationController::class, 'complete']);
+        Route::post('bank-reconciliations/{bankReconciliation}/reopen',           [BankReconciliationController::class, 'reopen']);
+        Route::patch('bank-reconciliations/{bankReconciliation}/lines/{line}/match',   [BankReconciliationController::class, 'matchLine']);
+        Route::patch('bank-reconciliations/{bankReconciliation}/lines/{line}/unmatch', [BankReconciliationController::class, 'unmatchLine']);
+        Route::apiResource('bank-reconciliations', BankReconciliationController::class);
 
         // ── Semi-static read endpoints — clients may cache for 60 s ──────────
         // CDN NOTE (Task 14): In production, put Cloudflare (free tier) in front
@@ -66,6 +119,7 @@ Route::prefix('v1')->group(function () {
 
         // Service Tickets
         Route::post('tickets/{ticket}/resolve', [ServiceTicketController::class, 'resolve']);
+        Route::post('tickets/{ticket}/parts', [ServiceTicketController::class, 'addPart']);
         Route::post('tickets/{ticket}/checklist/{item}', [ServiceTicketController::class, 'toggleChecklist']);
         Route::get('tickets/{ticket}/attachments', [TicketAttachmentController::class, 'index']);
         Route::post('tickets/{ticket}/attachments', [TicketAttachmentController::class, 'store']);
@@ -76,6 +130,8 @@ Route::prefix('v1')->group(function () {
         Route::post('invoices/{invoice}/send',    [InvoiceController::class, 'send']);
         Route::post('invoices/{invoice}/cancel',  [InvoiceController::class, 'cancel']);
         Route::post('invoices/{invoice}/payments',[InvoiceController::class, 'recordPayment']);
+        Route::get('invoices/{invoice}/pdf',        [InvoiceController::class, 'pdf']);
+        Route::post('invoices/{invoice}/share-link',[InvoiceController::class, 'shareLink']);
         Route::apiResource('invoices', InvoiceController::class);
 
         // Sales Leads
@@ -87,6 +143,10 @@ Route::prefix('v1')->group(function () {
         Route::post('quotations/{quotation}/accept',  [QuotationController::class, 'accept']);
         Route::post('quotations/{quotation}/reject',  [QuotationController::class, 'reject']);
         Route::post('quotations/{quotation}/convert', [QuotationController::class, 'convert']);
+        Route::post('quotations/{quotation}/approve',        [QuotationController::class, 'approve']);
+        Route::post('quotations/{quotation}/reject-approval', [QuotationController::class, 'rejectApproval']);
+        Route::get('quotations/{quotation}/pdf',        [QuotationController::class, 'pdf']);
+        Route::post('quotations/{quotation}/share-link',[QuotationController::class, 'shareLink']);
         Route::apiResource('quotations', QuotationController::class);
 
         // Sales Orders
@@ -94,10 +154,18 @@ Route::prefix('v1')->group(function () {
         Route::post('sales-orders/{salesOrder}/deliver', [SalesOrderController::class, 'deliver']);
         Route::post('sales-orders/{salesOrder}/cancel',  [SalesOrderController::class, 'cancel']);
         Route::post('sales-orders/{salesOrder}/invoice', [SalesOrderController::class, 'createInvoice']);
+        Route::post('sales-orders/{salesOrder}/approve',        [SalesOrderController::class, 'approve']);
+        Route::post('sales-orders/{salesOrder}/reject-approval', [SalesOrderController::class, 'rejectApproval']);
         Route::apiResource('sales-orders', SalesOrderController::class)->only(['index', 'store', 'show']);
+
+        // POS — one-shot counter sale (create + confirm + deliver + invoice + pay)
+        Route::post('pos/checkout', [PosController::class, 'checkout']);
 
         // Locations
         Route::apiResource('locations', LocationController::class);
+
+        // Categories
+        Route::apiResource('categories', CategoryController::class);
 
         // Inventory
         Route::patch('inventory/{inventoryItem}/adjust', [InventoryController::class, 'adjust']);
@@ -119,6 +187,9 @@ Route::prefix('v1')->group(function () {
         // Stock Movements (global — filterable by item)
         Route::get('stock-movements',  [StockMovementController::class, 'index']);
         Route::post('stock-movements', [StockMovementController::class, 'store']);
+
+        // Stock Levels (global — flat, filterable list across items x locations)
+        Route::get('stock-levels', [StockLevelController::class, 'index']);
 
         // Suppliers
         Route::post('suppliers/{supplier}/items',                  [SupplierController::class, 'addItem']);
@@ -151,6 +222,22 @@ Route::prefix('v1')->group(function () {
 
         // Tasks (general — separate from service tickets)
         Route::apiResource('tasks', TaskController::class)->except(['show']);
+
+        // Leave requests
+        Route::get('leave-requests', [LeaveController::class, 'index']);
+        Route::post('leave-requests', [LeaveController::class, 'store']);
+        Route::post('leave-requests/{leaveRequest}/approve', [LeaveController::class, 'approve']);
+        Route::post('leave-requests/{leaveRequest}/reject', [LeaveController::class, 'reject']);
+        Route::post('leave-requests/{leaveRequest}/cancel', [LeaveController::class, 'cancel']);
+
+        // Late arrivals
+        Route::get('late-arrivals', [LateArrivalController::class, 'index']);
+        Route::post('late-arrivals', [LateArrivalController::class, 'store']);
+
+        // Part cannibalizations (parts pulled from stocked units to fix field machines)
+        Route::get('part-cannibalizations', [PartCannibalizationController::class, 'index']);
+        Route::post('part-cannibalizations/{partCannibalization}/order-replacement', [PartCannibalizationController::class, 'orderReplacement']);
+        Route::post('part-cannibalizations/{partCannibalization}/resolve', [PartCannibalizationController::class, 'resolve']);
 
         // Notifications
         Route::get('notifications', [NotificationController::class, 'index']);
