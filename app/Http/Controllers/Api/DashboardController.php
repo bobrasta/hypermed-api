@@ -57,7 +57,7 @@ class DashboardController extends Controller
             ->limit(5)
             ->get();
 
-        $topHospitals = Hospital::select('id', 'name', 'short_code', 'machines_operational', 'machine_count', 'revenue_monthly')
+        $topHospitals = Hospital::select('id', 'name', 'short_code', 'machines_operational', 'machine_count', 'revenue_monthly', 'latitude', 'longitude', 'region', 'zone')
             ->orderByDesc('revenue_monthly')
             ->limit(5)
             ->get();
