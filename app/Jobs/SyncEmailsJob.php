@@ -4,16 +4,16 @@ namespace App\Jobs;
 
 use App\Models\EmailAccount;
 use App\Models\SyncedEmail;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Webklex\PHPIMAP\ClientManager;
 
-class SyncEmailsJob implements ShouldQueue
+// Runs synchronously (dispatch() call is instantiate-and-handle() directly, see
+// EmailController::sync()) — this used to implement ShouldQueue, but nothing in this
+// deployment ever runs `queue:work`, so jobs just piled up unprocessed and sync silently
+// never happened. Two accounts, ~50 messages a sync — a blocking IMAP round-trip is fine.
+class SyncEmailsJob
 {
     use Queueable;
-
-    public int $tries   = 2;
-    public int $timeout = 120;
 
     public function __construct(
         public readonly int    $accountId,
@@ -21,8 +21,11 @@ class SyncEmailsJob implements ShouldQueue
         public readonly int    $limit,
     ) {}
 
-    public function handle(): void
+    /** Returns the count of newly-synced (non-duplicate) emails. */
+    public function handle(): int
     {
+        $syncedCount = 0;
+
         $account = EmailAccount::findOrFail($this->accountId);
 
         $cm     = new ClientManager();
@@ -102,10 +105,14 @@ class SyncEmailsJob implements ShouldQueue
                     ]);
                 }
             }
+
+            $syncedCount++;
         }
 
         $client->disconnect();
 
         $account->update(['last_synced_at' => now()]);
+
+        return $syncedCount;
     }
 }

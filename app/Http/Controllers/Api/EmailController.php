@@ -78,11 +78,21 @@ class EmailController extends Controller
         $folder  = $request->input('folder', 'INBOX');
         $limit   = $request->integer('limit', 50);
 
-        SyncEmailsJob::dispatch($account->id, $folder, $limit);
+        // Runs inline, not queued — see SyncEmailsJob's class doc comment for why.
+        // Caught here (not left to bubble) because this used to fail silently inside a
+        // queue worker that never ran; now that it's synchronous, an uncaught IMAP
+        // exception would leak a full stack trace/server file paths into the response.
+        try {
+            $synced = (new SyncEmailsJob($account->id, $folder, $limit))->handle();
+        } catch (\Exception $e) {
+            return response()->json([
+                'data' => ['synced' => 0, 'folder' => $folder, 'error' => $e->getMessage()],
+            ], 422);
+        }
 
         return response()->json([
-            'data' => ['queued' => true, 'folder' => $folder],
-        ], 202);
+            'data' => ['synced' => $synced, 'folder' => $folder],
+        ]);
     }
 
     // ── List views ────────────────────────────────────────────────────────────
