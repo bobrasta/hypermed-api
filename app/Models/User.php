@@ -16,6 +16,7 @@ class User extends Authenticatable
     public const ROLES = [
         'super_admin', 'admin', 'sales_manager', 'sales',
         'finance_manager', 'finance', 'technician', 'cs', 'storekeeper', 'hr',
+        'cto', 'team_leader',
     ];
 
     // System-wide full authority — supersedes every module-specific gate below.
@@ -33,6 +34,16 @@ class User extends Authenticatable
 
     // Leave/attendance approval authority.
     public const HR_APPROVAL_ROLES = ['super_admin', 'admin', 'hr'];
+
+    // CTO's approval authority (expenses, per-diem, stock-out, service
+    // assignment) — Director (admin/super_admin) implicitly inherits it,
+    // same layering ADMIN_TIER already does over every module-specific gate.
+    public const CTO_TIER = ['super_admin', 'admin', 'cto'];
+
+    // Per-diem stage-1 (team lead) authority. Includes CTO_TIER so a request
+    // is never orphaned if no one currently holds 'team_leader' — CTO/Director
+    // can always act at the lower stage too.
+    public const TEAM_LEAD_APPROVAL_ROLES = [...self::CTO_TIER, 'team_leader'];
 
     protected $fillable = [
         'name', 'email', 'password', 'role', 'staff_group', 'zone',
@@ -98,6 +109,24 @@ class User extends Authenticatable
     public function hasHrAuthority(): bool
     {
         return in_array($this->role, self::HR_APPROVAL_ROLES, true);
+    }
+
+    public function hasCtoApprovalAuthority(): bool
+    {
+        return in_array($this->role, self::CTO_TIER, true);
+    }
+
+    public function hasTeamLeadAuthority(): bool
+    {
+        return in_array($this->role, self::TEAM_LEAD_APPROVAL_ROLES, true);
+    }
+
+    // "Director" is a semantic alias for the existing admin tier, not a new
+    // role or membership list — keeps intent readable at approval call sites
+    // without a second list that can drift from ADMIN_TIER.
+    public function hasDirectorAuthority(): bool
+    {
+        return $this->isAdminTier();
     }
 
     public function leaveRequests()

@@ -33,6 +33,9 @@ use App\Http\Controllers\Api\StockLevelController;
 use App\Http\Controllers\Api\StockMovementController;
 use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\LateArrivalController;
+use App\Http\Controllers\Api\StockOutRequestController;
+use App\Http\Controllers\Api\PerDiemController;
+use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Api\LeaveController;
 use App\Http\Controllers\Api\PartCannibalizationController;
 use App\Http\Controllers\Api\TaskController;
@@ -76,7 +79,13 @@ Route::prefix('v1')->group(function () {
 
         // Expenses
         Route::get('expense-categories', [ExpenseController::class, 'categories']);
+        Route::put('expense-categories/{expenseCategory}', [ExpenseController::class, 'updateCategory']);
+        Route::post('expenses/{expense}/approve', [ExpenseController::class, 'approve']);
+        Route::post('expenses/{expense}/escalate', [ExpenseController::class, 'escalate']);
+        Route::post('expenses/{expense}/reject', [ExpenseController::class, 'reject']);
         Route::apiResource('expenses', ExpenseController::class);
+        Route::get('settings', [SettingController::class, 'index']);
+        Route::put('settings/{key}', [SettingController::class, 'update']);
 
         // Vendor Bills (Accounts Payable)
         Route::post('vendor-bills/{vendorBill}/payments', [VendorBillController::class, 'recordPayment']);
@@ -184,6 +193,7 @@ Route::prefix('v1')->group(function () {
         Route::delete('inventory/{inventoryItem}/images/{image}', [InventoryController::class, 'deleteImage']);
         Route::post('inventory/{inventoryItem}/documents', [InventoryController::class, 'uploadDocument']);
         Route::delete('inventory/{inventoryItem}/documents/{document}', [InventoryController::class, 'deleteDocument']);
+        Route::post('inventory/quick-create', [InventoryController::class, 'quickCreate']);
         Route::apiResource('inventory', InventoryController::class);
 
         // Stock Movements (global — filterable by item)
@@ -235,6 +245,22 @@ Route::prefix('v1')->group(function () {
         // Late arrivals
         Route::get('late-arrivals', [LateArrivalController::class, 'index']);
         Route::post('late-arrivals', [LateArrivalController::class, 'store']);
+
+        // Stock-out requests (approval workflow)
+        Route::get('stock-out-requests', [StockOutRequestController::class, 'index']);
+        Route::post('stock-out-requests', [StockOutRequestController::class, 'store']);
+        Route::post('stock-out-requests/{stockOutRequest}/approve', [StockOutRequestController::class, 'approve']);
+        Route::post('stock-out-requests/{stockOutRequest}/reject', [StockOutRequestController::class, 'reject']);
+        Route::post('stock-out-requests/{stockOutRequest}/cancel', [StockOutRequestController::class, 'cancel']);
+
+        // Per-diem requests (approval workflow)
+        Route::get('per-diem-requests', [PerDiemController::class, 'index']);
+        Route::post('per-diem-requests', [PerDiemController::class, 'store']);
+        Route::post('per-diem-requests/{perDiemRequest}/approve-team-lead', [PerDiemController::class, 'approveTeamLead']);
+        Route::post('per-diem-requests/{perDiemRequest}/reject-team-lead', [PerDiemController::class, 'rejectTeamLead']);
+        Route::post('per-diem-requests/{perDiemRequest}/approve', [PerDiemController::class, 'approve']);
+        Route::post('per-diem-requests/{perDiemRequest}/reject', [PerDiemController::class, 'reject']);
+        Route::post('per-diem-requests/{perDiemRequest}/cancel', [PerDiemController::class, 'cancel']);
 
         // Part cannibalizations (parts pulled from stocked units to fix field machines)
         Route::get('part-cannibalizations', [PartCannibalizationController::class, 'index']);

@@ -18,6 +18,7 @@ class InventoryItem extends Model
         'shelf_life_days', 'preferred_supplier_id',
         'unit_cost', 'cost_currency', 'stock_qty', 'reorder_level',
         'supplier', 'is_active', 'creates_machine_record', 'warranty_months',
+        'needs_review',
     ];
 
     protected $casts = [
@@ -32,6 +33,7 @@ class InventoryItem extends Model
         'specifications' => 'array',
         'creates_machine_record' => 'boolean',
         'warranty_months' => 'integer',
+        'needs_review'   => 'boolean',
     ];
 
     public function category()

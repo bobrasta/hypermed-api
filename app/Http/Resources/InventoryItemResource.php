@@ -30,6 +30,7 @@ class InventoryItemResource extends JsonResource
             'is_active'            => $this->is_active,
             'creates_machine_record' => (bool) $this->creates_machine_record,
             'warranty_months'      => $this->warranty_months,
+            'needs_review'         => (bool) $this->needs_review,
             'created_at'           => $this->created_at?->toIso8601String(),
             'stock_levels'         => $this->whenLoaded('stockLevels', fn () =>
                 $this->stockLevels->map(fn ($level) => [

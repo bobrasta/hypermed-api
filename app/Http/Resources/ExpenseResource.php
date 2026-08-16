@@ -24,6 +24,15 @@ class ExpenseResource extends JsonResource
             'notes'         => $this->notes,
             'created_by_name' => $this->createdBy?->name,
             'created_at'    => $this->created_at?->toIso8601String(),
+            'status'                      => $this->status,
+            'requires_director_approval'  => (bool) $this->requires_director_approval,
+            'escalation_reason'           => $this->escalation_reason,
+            'escalated_by'                => $this->escalated_by,
+            'escalated_at'                => $this->escalated_at?->toIso8601String(),
+            'reviewed_by'                 => $this->reviewed_by,
+            'reviewer_name'               => $this->reviewer?->name,
+            'reviewed_at'                 => $this->reviewed_at?->toIso8601String(),
+            'rejection_reason'            => $this->rejection_reason,
         ];
     }
 }

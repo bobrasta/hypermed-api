@@ -9,6 +9,7 @@ use App\Models\ChecklistItem;
 use App\Models\PartCannibalization;
 use App\Models\SerialNumber;
 use App\Models\ServiceTicket;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -50,6 +51,11 @@ class ServiceTicketController extends Controller
             'checklist'         => ['nullable', 'array'],
             'checklist.*.label' => ['required_with:checklist', 'string'],
         ]);
+
+        abort_if(
+            ! empty($data['assigned_to']) && ! $request->user()->hasCtoApprovalAuthority(),
+            403, 'Only the CTO or Director can assign technicians to service tickets.',
+        );
 
         $lastTicket = ServiceTicket::orderByDesc('id')->first();
         $nextNum = $lastTicket ? ((int) ltrim($lastTicket->ticket_number, '#') + 1) : 1000;
@@ -96,6 +102,8 @@ class ServiceTicketController extends Controller
             && $data['assigned_to'] !== $ticket->assigned_to
             ? $data['assigned_to'] : null;
 
+        abort_if($reassignedTo && ! $request->user()->hasCtoApprovalAuthority(), 403, 'Only the CTO or Director can assign technicians to service tickets.');
+
         $ticket->update($data);
 
         if ($reassignedTo) {
@@ -109,6 +117,8 @@ class ServiceTicketController extends Controller
     {
         $machine = $ticket->machine?->model ?? 'a machine';
 
+        // The assignee gets it because it's their task; the team lead gets it
+        // because tracking who's deployed where is their job — no one else.
         AppNotification::create([
             'user_id'     => $ticket->assigned_to,
             'type'        => 'ticket_assigned',
@@ -119,6 +129,19 @@ class ServiceTicketController extends Controller
             'entity_id'   => $ticket->id,
             'is_read'     => false,
         ]);
+
+        $assigneeName = $ticket->assignee?->name ?? 'A technician';
+        User::where('role', 'team_leader')
+            ->pluck('id')
+            ->each(fn ($id) => AppNotification::create([
+                'user_id'     => $id,
+                'type'        => 'ticket_assigned',
+                'title'       => 'Technician Deployed',
+                'body'        => "{$assigneeName} was assigned to {$ticket->ticket_number} — {$machine}.",
+                'entity_type' => 'service_ticket',
+                'entity_id'   => $ticket->id,
+                'is_read'     => false,
+            ]));
     }
 
     public function destroy(ServiceTicket $ticket)

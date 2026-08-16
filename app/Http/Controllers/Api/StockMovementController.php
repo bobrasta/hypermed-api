@@ -29,7 +29,10 @@ class StockMovementController extends Controller
             'inventory_item_id' => 'required|exists:inventory_items,id',
             'location_id'       => 'required|exists:locations,id',
             'to_location_id'    => 'required_if:type,transfer|nullable|exists:locations,id',
-            'type'              => 'required|in:receive,issue,transfer,write_off,adjustment,return',
+            // 'issue'/'write_off' (stock leaving the store) go through
+            // StockOutRequestController's approval flow instead — only
+            // CTO/Director approving a request may create those movements.
+            'type'              => 'required|in:receive,transfer,adjustment,return',
             'quantity'          => 'required|integer|not_in:0',
             'unit_cost'         => 'nullable|integer|min:0',
             'reference_type'    => 'nullable|string|max:50',
@@ -51,12 +54,6 @@ class StockMovementController extends Controller
             'return' => $stockService->add(
                 $item, $location, abs($data['quantity']),
                 $data['unit_cost'] ?? $item->unit_cost, $reason, type: 'return',
-            ),
-            'issue' => $stockService->deduct(
-                $item, $location, abs($data['quantity']), $reason, type: 'issue',
-            ),
-            'write_off' => $stockService->deduct(
-                $item, $location, abs($data['quantity']), $reason, type: 'write_off',
             ),
             'transfer' => $stockService->transfer(
                 $item, $location, Location::findOrFail($data['to_location_id']), abs($data['quantity']), $reason,

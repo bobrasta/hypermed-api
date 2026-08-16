@@ -22,6 +22,9 @@ class InventoryController extends Controller
         if ($request->boolean('low_stock')) {
             $query->whereColumn('stock_qty', '<=', 'reorder_level');
         }
+        if ($request->filled('creates_machine_record')) {
+            $query->where('creates_machine_record', $request->boolean('creates_machine_record'));
+        }
         if ($request->filled('supplier')) {
             $query->where('supplier', $request->supplier);
         }
@@ -74,6 +77,29 @@ class InventoryController extends Controller
         return response()->json(['data' => new InventoryItemResource($item->load(['compatibleModels', 'category']))], 201);
     }
 
+    // Minimal-friction creation for a part discovered mid-service that isn't
+    // catalogued yet — auto-fills everything store() otherwise requires and
+    // flags the item for inventory admin to properly fill in later.
+    public function quickCreate(Request $request)
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string'],
+        ]);
+
+        $item = InventoryItem::create([
+            'sku'           => 'QR-' . strtoupper(uniqid()),
+            'name'          => $data['name'],
+            'category_id'   => null,
+            'unit_cost'     => 0,
+            'currency'      => 'TZS',
+            'stock_qty'     => 0,
+            'reorder_level' => 0,
+            'needs_review'  => true,
+        ]);
+
+        return response()->json(['data' => new InventoryItemResource($item->fresh())], 201);
+    }
+
     // Route param is {inventory} — variable name must match
     public function show(InventoryItem $inventory)
     {
@@ -97,6 +123,7 @@ class InventoryController extends Controller
             'is_active'       => ['sometimes', 'boolean'],
             'creates_machine_record' => ['sometimes', 'boolean'],
             'warranty_months' => ['nullable', 'integer', 'min:0'],
+            'needs_review'    => ['sometimes', 'boolean'],
         ]);
 
         $inventory->update($data);
