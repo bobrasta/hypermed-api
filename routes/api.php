@@ -99,6 +99,7 @@ Route::prefix('v1')->group(function () {
         Route::get('finance-reports/balance-sheet', [FinanceReportController::class, 'balanceSheet']);
         Route::get('finance-reports/ar-aging',      [FinanceReportController::class, 'arAging']);
         Route::get('finance-reports/cash-flow',     [FinanceReportController::class, 'cashFlow']);
+        Route::get('finance-reports/monthly-trend', [FinanceReportController::class, 'monthlyTrend']);
 
         // Bank Reconciliation
         Route::post('bank-reconciliations/{bankReconciliation}/import-statement', [BankReconciliationController::class, 'importStatement']);

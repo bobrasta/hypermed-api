@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Hospital;
 use App\Models\Invoice;
+use App\Models\Setting;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 
@@ -33,12 +34,15 @@ class RevenueController extends Controller
                     'month'  => $key,
                     'label'  => $month->format('M Y'),
                     'actual' => (int) ($rows[$key] ?? 0),
-                    'target' => 0,
                 ];
             })->values();
         });
 
-        return response()->json(['data' => $months]);
+        // Read outside the actuals cache so an admin-updated target shows up
+        // immediately instead of waiting on the 10-minute cache to expire.
+        $target = (int) Setting::get('revenue_monthly_target', 0);
+
+        return response()->json(['data' => $months->map(fn ($m) => [...$m, 'target' => $target])]);
     }
 
     public function byHospital()

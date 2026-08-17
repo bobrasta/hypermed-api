@@ -12,6 +12,7 @@ use App\Models\VendorBill;
 use App\Models\VendorBillPayment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class FinanceReportController extends Controller
@@ -267,5 +268,46 @@ class FinanceReportController extends Controller
             'cash_out_vendor_bills'  => $billPaymentCashOut,
             'net_cash_flow' => $cashIn - $cashOut,
         ]]);
+    }
+
+    // Revenue vs expenses per month for the trailing 12 months — same
+    // single-GROUP-BY-per-metric + cache-by-current-month shape as
+    // RevenueController::summary(), so the dashboard trend chart doesn't
+    // run 12 separate period queries on every load.
+    public function monthlyTrend()
+    {
+        $cacheKey = 'finance:monthly-trend:' . now()->format('Y-m');
+
+        $months = Cache::remember($cacheKey, 600, function () {
+            $start = Carbon::now()->subMonths(11)->startOfMonth()->toDateString();
+
+            $revenueRows = Invoice::where('status', '!=', 'cancelled')
+                ->where('issue_date', '>=', $start)
+                ->selectRaw("TO_CHAR(issue_date, 'YYYY-MM') AS month_key, SUM(subtotal) AS total")
+                ->groupByRaw("TO_CHAR(issue_date, 'YYYY-MM')")
+                ->pluck('total', 'month_key');
+
+            $expenseRows = Expense::where('expense_date', '>=', $start)
+                ->selectRaw("TO_CHAR(expense_date, 'YYYY-MM') AS month_key, SUM(amount) AS total")
+                ->groupByRaw("TO_CHAR(expense_date, 'YYYY-MM')")
+                ->pluck('total', 'month_key');
+
+            return collect(range(11, 0))->map(function ($offset) use ($revenueRows, $expenseRows) {
+                $month    = Carbon::now()->subMonths($offset);
+                $key      = $month->format('Y-m');
+                $revenue  = (int) ($revenueRows[$key] ?? 0);
+                $expenses = (int) ($expenseRows[$key] ?? 0);
+
+                return [
+                    'month'      => $key,
+                    'label'      => $month->format('M'),
+                    'revenue'    => $revenue,
+                    'expenses'   => $expenses,
+                    'net_profit' => $revenue - $expenses,
+                ];
+            })->values();
+        });
+
+        return response()->json(['data' => $months]);
     }
 }
