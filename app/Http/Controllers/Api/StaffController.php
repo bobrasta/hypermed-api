@@ -47,6 +47,10 @@ class StaffController extends Controller
             'avatar_initials' => collect(explode(' ', trim($data['name'])))->map(fn ($p) => strtoupper($p[0] ?? ''))->implode(''),
         ]);
 
+        // Keep the legacy role column and Spatie's role assignment in sync —
+        // the permission resolver reads Spatie roles, not this column directly.
+        $user->syncRoles([$data['role']]);
+
         return response()->json(['data' => new UserResource($user)], 201);
     }
 
@@ -77,6 +81,11 @@ class StaffController extends Controller
         }
 
         $user->update($data);
+
+        if (isset($data['role'])) {
+            $user->syncRoles([$data['role']]);
+            app(\App\Services\EffectivePermissionResolver::class)->invalidate($user);
+        }
 
         return response()->json(['data' => new UserResource($user->load('currentTask'))]);
     }

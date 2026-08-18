@@ -120,4 +120,80 @@ class PermissionController extends Controller
 
         return response()->json(['data' => ['id' => $role->id, 'name' => $role->name]]);
     }
+
+    // Effective permissions for an arbitrary user (admin lookup) — same shape
+    // as me(), reusing the same resolver so the two can never disagree.
+    public function userPermissions(Request $request, User $user, EffectivePermissionResolver $resolver)
+    {
+        abort_if(! $resolver->can($request->user(), 'roles.manage'), 403, 'You are not authorised to view member permissions.');
+
+        return response()->json(['data' => $resolver->resolve($user)->values()]);
+    }
+
+    public function userOverrides(Request $request, User $user, EffectivePermissionResolver $resolver)
+    {
+        abort_if(! $resolver->can($request->user(), 'roles.manage'), 403, 'You are not authorised to view member permissions.');
+
+        $overrides = DB::table('user_permission_overrides')
+            ->join('permissions', 'permissions.id', '=', 'user_permission_overrides.permission_id')
+            ->leftJoin('users as creators', 'creators.id', '=', 'user_permission_overrides.created_by')
+            ->where('user_permission_overrides.user_id', $user->id)
+            ->select(
+                'user_permission_overrides.id',
+                'permissions.name as key',
+                'permissions.label',
+                'user_permission_overrides.effect',
+                'user_permission_overrides.scope',
+                'user_permission_overrides.reason',
+                'creators.name as created_by_name',
+                'user_permission_overrides.created_at',
+            )
+            ->orderByDesc('user_permission_overrides.created_at')
+            ->get();
+
+        return response()->json(['data' => $overrides]);
+    }
+
+    public function storeUserOverride(Request $request, User $user, EffectivePermissionResolver $resolver)
+    {
+        abort_if(! $resolver->can($request->user(), 'roles.manage'), 403, 'You are not authorised to manage member permissions.');
+
+        $data = $request->validate([
+            'key'    => ['required', 'string', 'exists:permissions,name'],
+            'effect' => ['required', 'in:allow,deny'],
+            'scope'  => ['nullable', 'string', 'in:none,masked,own,team,all'],
+            'reason' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $permission = Permission::where('name', $data['key'])->firstOrFail();
+
+        DB::table('user_permission_overrides')->updateOrInsert(
+            ['user_id' => $user->id, 'permission_id' => $permission->id],
+            [
+                'effect'     => $data['effect'],
+                'scope'      => $data['scope'] ?? null,
+                'reason'     => $data['reason'] ?? null,
+                'created_by' => $request->user()->id,
+                'created_at' => now(),
+            ]
+        );
+
+        $resolver->invalidate($user);
+
+        return response()->json(['data' => ['user_id' => $user->id, 'key' => $data['key'], 'effect' => $data['effect']]], 201);
+    }
+
+    public function destroyUserOverride(Request $request, User $user, int $override, EffectivePermissionResolver $resolver)
+    {
+        abort_if(! $resolver->can($request->user(), 'roles.manage'), 403, 'You are not authorised to manage member permissions.');
+
+        DB::table('user_permission_overrides')
+            ->where('id', $override)
+            ->where('user_id', $user->id)
+            ->delete();
+
+        $resolver->invalidate($user);
+
+        return response()->json(null, 204);
+    }
 }

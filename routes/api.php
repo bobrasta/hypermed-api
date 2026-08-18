@@ -97,6 +97,10 @@ Route::prefix('v1')->group(function () {
         Route::put('roles/{role}',          [PermissionController::class, 'updateRole']);
         Route::delete('roles/{role}',       [PermissionController::class, 'destroyRole']);
         Route::put('roles/{role}/permissions', [PermissionController::class, 'syncRolePermissions']);
+        Route::get('users/{user}/permissions',            [PermissionController::class, 'userPermissions']);
+        Route::get('users/{user}/permission-overrides',   [PermissionController::class, 'userOverrides']);
+        Route::post('users/{user}/permission-overrides',  [PermissionController::class, 'storeUserOverride']);
+        Route::delete('users/{user}/permission-overrides/{override}', [PermissionController::class, 'destroyUserOverride']);
 
         // Vendor Bills (Accounts Payable)
         Route::post('vendor-bills/{vendorBill}/payments', [VendorBillController::class, 'recordPayment']);
