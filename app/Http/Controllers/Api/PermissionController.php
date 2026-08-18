@@ -19,6 +19,34 @@ class PermissionController extends Controller
         return response()->json(['data' => $resolver->resolve($request->user())->values()]);
     }
 
+    // Every permission override across every user, most recent first — the
+    // audit trail for Settings > Team & Roles > Activity.
+    public function allOverrides(Request $request, EffectivePermissionResolver $resolver)
+    {
+        abort_if(! $resolver->can($request->user(), 'roles.manage'), 403, 'You are not authorised to view the permission audit log.');
+
+        $overrides = DB::table('user_permission_overrides')
+            ->join('permissions', 'permissions.id', '=', 'user_permission_overrides.permission_id')
+            ->join('users as targets', 'targets.id', '=', 'user_permission_overrides.user_id')
+            ->leftJoin('users as creators', 'creators.id', '=', 'user_permission_overrides.created_by')
+            ->select(
+                'user_permission_overrides.id',
+                'targets.id as user_id',
+                'targets.name as user_name',
+                'permissions.name as key',
+                'permissions.label',
+                'user_permission_overrides.effect',
+                'user_permission_overrides.scope',
+                'user_permission_overrides.reason',
+                'creators.name as created_by_name',
+                'user_permission_overrides.created_at',
+            )
+            ->orderByDesc('user_permission_overrides.created_at')
+            ->get();
+
+        return response()->json(['data' => $overrides]);
+    }
+
     // Full catalog grouped by module, for the Role Builder's permission grid.
     public function permissions()
     {

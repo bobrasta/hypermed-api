@@ -16,26 +16,29 @@ use Spatie\Permission\Models\Role;
  * "bridge" permissions that now back User::hasXAuthority()'s dynamic checks
  * (see app/Models/User.php and app/Services/EffectivePermissionResolver.php).
  *
- * One-time bootstrap, guarded and safe to wire into every deploy: no-ops
- * once any role exists. This is deliberate — after the first run, an admin
- * can freely edit role permissions via the Role Builder, and a later,
- * unrelated deploy must never silently re-assert this seed data over their
- * changes. If the catalog needs new permissions later, add a fresh seeder
- * for just that addition rather than removing this guard.
+ * One-time bootstrap, guarded and safe to wire into every deploy: the main
+ * step no-ops once any role exists. This is deliberate — after the first
+ * run, an admin can freely edit role permissions via the Role Builder, and
+ * a later, unrelated deploy must never silently re-assert this seed data
+ * over their changes. Later additions (like seedScreenPermissions()) get
+ * their own independent guard and get called unconditionally below, so
+ * this one seeder class can keep growing without a new deploy-chain entry
+ * per addition — each step just needs to check for its own prior existence
+ * before writing anything.
  */
 class PermissionSeeder extends Seeder
 {
     public function run(): void
     {
-        if (Role::count() > 0) {
-            return;
+        if (Role::count() === 0) {
+            $roles = $this->seedRoles();
+            $this->backfillUserRoles($roles);
+            $permissions = $this->seedPermissionCatalog();
+            $this->seedBridgePermissions($roles, $permissions);
+            $this->seedModulePermissions($roles, $permissions);
         }
 
-        $roles = $this->seedRoles();
-        $this->backfillUserRoles($roles);
-        $permissions = $this->seedPermissionCatalog();
-        $this->seedBridgePermissions($roles, $permissions);
-        $this->seedModulePermissions($roles, $permissions);
+        $this->seedScreenPermissions();
     }
 
     /** @return array<string, Role> */
@@ -203,6 +206,60 @@ class PermissionSeeder extends Seeder
         // Real demonstration of the scope column: rank-and-file finance staff
         // see revenue figures at 'masked' scope, their manager at 'all'.
         $this->grantRolePermission($roles['finance'], $permissions['finance.view_revenue'], 'masked');
+    }
+
+    // Mirrors Flutter's main.dart allowedScreenKeys() switch exactly, as real
+    // grantable permissions — so a new role built via the Role Builder can
+    // see relevant screens immediately instead of needing a Flutter redeploy
+    // to add a case to that switch. Flutter falls back to the old hardcoded
+    // table only if a user has none of these (e.g. permissions fetch failed).
+    // Independently guarded (not the top-level Role::count() check) so this
+    // step can be added after the initial bootstrap already ran in production.
+    private function seedScreenPermissions(): void
+    {
+        if (Permission::where('name', 'screens.dashboard')->exists()) {
+            return;
+        }
+
+        $screenKeys = [
+            'dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service',
+            'inventory', 'finance', 'staff', 'my_leave', 'reports', 'settings',
+            'sales', 'customers', 'revenue', 'email', 'hr_approvals',
+        ];
+
+        $roles = Role::whereIn('name', User::ROLES)->get()->keyBy('name');
+
+        $screenPermissions = [];
+        foreach ($screenKeys as $key) {
+            $screenPermissions[$key] = Permission::firstOrCreate(
+                ['name' => "screens.{$key}", 'guard_name' => 'web'],
+                ['module' => 'screens', 'label' => 'View '.ucwords(str_replace('_', ' ', $key)).' Screen']
+            );
+        }
+
+        $grants = [
+            'super_admin'     => $screenKeys,
+            'admin'           => $screenKeys,
+            'cto'             => ['dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service', 'inventory', 'finance', 'staff', 'my_leave', 'reports', 'settings'],
+            'technician'      => ['dashboard', 'machines', 'detail', 'hospitals', 'service', 'inventory', 'staff', 'my_leave', 'reports', 'settings'],
+            'team_leader'     => ['dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service', 'staff', 'my_leave', 'reports', 'settings'],
+            'sales_manager'   => ['dashboard', 'machines', 'detail', 'sales', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings'],
+            'sales'           => ['dashboard', 'machines', 'detail', 'sales', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings'],
+            'finance_manager' => ['dashboard', 'revenue', 'finance', 'staff', 'my_leave', 'reports', 'settings'],
+            'finance'         => ['dashboard', 'revenue', 'finance', 'staff', 'my_leave', 'reports', 'settings'],
+            'cs'              => ['dashboard', 'customers', 'service', 'email', 'staff', 'my_leave', 'reports', 'settings'],
+            'storekeeper'     => ['dashboard', 'inventory', 'staff', 'my_leave', 'reports', 'settings'],
+            'hr'              => ['dashboard', 'my_leave', 'hr_approvals', 'staff', 'reports', 'settings'],
+        ];
+
+        foreach ($grants as $roleName => $keys) {
+            if (! isset($roles[$roleName])) {
+                continue;
+            }
+            foreach ($keys as $key) {
+                $this->grantRolePermission($roles[$roleName], $screenPermissions[$key]);
+            }
+        }
     }
 
     private function grantRolePermission(Role $role, Permission $permission, string $scope = 'all'): void

@@ -91,6 +91,7 @@ Route::prefix('v1')->group(function () {
         // Dynamic access control (Phase 1) — see plan doc "Dynamic access
         // control — Phase 1: permission layer"
         Route::get('me/permissions',        [PermissionController::class, 'me']);
+        Route::get('permission-overrides',  [PermissionController::class, 'allOverrides']);
         Route::get('permissions',           [PermissionController::class, 'permissions']);
         Route::get('roles',                 [PermissionController::class, 'roles']);
         Route::post('roles',                [PermissionController::class, 'storeRole']);
