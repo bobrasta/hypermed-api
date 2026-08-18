@@ -2,47 +2,44 @@
 
 namespace App\Models;
 
+use App\Services\EffectivePermissionResolver;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, HasRoles, Notifiable;
 
     // Single source of truth for the role list — mirrors the users_role_check
-    // constraint. Keep both in sync when adding a role.
+    // constraint AND the seeded Spatie roles (see PermissionSeeder). Keep in
+    // sync when adding a role.
     public const ROLES = [
         'super_admin', 'admin', 'sales_manager', 'sales',
         'finance_manager', 'finance', 'technician', 'cs', 'storekeeper', 'hr',
         'cto', 'team_leader',
     ];
 
-    // System-wide full authority — supersedes every module-specific gate below.
+    // These tier lists are NOT used for the hasXAuthority() boolean checks
+    // below anymore (those now go through EffectivePermissionResolver) — they
+    // still back several controllers' `User::whereIn('role', User::CTO_TIER)`
+    // notification-recipient queries (StockOutRequestController, PerDiemController,
+    // ExpenseController, LeaveController, LateArrivalController, TaskController).
+    // Kept as-is deliberately: rewiring notification fan-out to query by
+    // Spatie permission instead of role string is real, separate work,
+    // out of scope for this pass. Known limitation: if the Role Builder is
+    // used to grant e.g. authority.cto_tier to a role NOT in CTO_TIER, that
+    // role's users will be able to approve but won't be notified — flag this
+    // to whoever uses the Role Builder until the notification queries are
+    // migrated too.
     public const ADMIN_TIER = ['super_admin', 'admin'];
-
-    // Cross-staff supervisory authority: task assignment/reassignment across
-    // any department, not just their own.
     public const MANAGER_ROLES = ['super_admin', 'admin', 'sales_manager', 'finance_manager'];
-
-    // Sales-specific approval authority (quotation/sales-order discount approval).
     public const SALES_APPROVAL_ROLES = ['super_admin', 'admin', 'sales_manager'];
-
-    // Finance-specific approval authority (period close, etc).
     public const FINANCE_APPROVAL_ROLES = ['super_admin', 'admin', 'finance_manager'];
-
-    // Leave/attendance approval authority.
     public const HR_APPROVAL_ROLES = ['super_admin', 'admin', 'hr'];
-
-    // CTO's approval authority (expenses, per-diem, stock-out, service
-    // assignment) — Director (admin/super_admin) implicitly inherits it,
-    // same layering ADMIN_TIER already does over every module-specific gate.
     public const CTO_TIER = ['super_admin', 'admin', 'cto'];
-
-    // Per-diem stage-1 (team lead) authority. Includes CTO_TIER so a request
-    // is never orphaned if no one currently holds 'team_leader' — CTO/Director
-    // can always act at the lower stage too.
     public const TEAM_LEAD_APPROVAL_ROLES = [...self::CTO_TIER, 'team_leader'];
 
     protected $fillable = [
@@ -86,44 +83,52 @@ class User extends Authenticatable
         return $this->hasMany(AppNotification::class);
     }
 
+    // Each of these now delegates to the permission resolver instead of a
+    // hardcoded role array — the *behavior* they gate is unchanged (same
+    // call sites, same roles hold them today, per PermissionSeeder's bridge
+    // permissions), but which roles hold them is now admin-editable data,
+    // not a code deploy. See the "authority.*" bridge permissions for why
+    // cto_tier/team_lead_tier/manager_tier/admin_tier aren't decomposed into
+    // fully atomic permissions yet — they each currently gate multiple
+    // distinct actions bundled together in the 3 existing approval flows.
     public function isAdminTier(): bool
     {
-        return in_array($this->role, self::ADMIN_TIER, true);
+        return app(EffectivePermissionResolver::class)->can($this, 'authority.admin_tier');
     }
 
     public function isManagerTier(): bool
     {
-        return in_array($this->role, self::MANAGER_ROLES, true);
+        return app(EffectivePermissionResolver::class)->can($this, 'authority.manager_tier');
     }
 
     public function hasSalesApprovalAuthority(): bool
     {
-        return in_array($this->role, self::SALES_APPROVAL_ROLES, true);
+        return app(EffectivePermissionResolver::class)->can($this, 'sales.approve_order');
     }
 
     public function hasFinanceApprovalAuthority(): bool
     {
-        return in_array($this->role, self::FINANCE_APPROVAL_ROLES, true);
+        return app(EffectivePermissionResolver::class)->can($this, 'finance.approve_step1');
     }
 
     public function hasHrAuthority(): bool
     {
-        return in_array($this->role, self::HR_APPROVAL_ROLES, true);
+        return app(EffectivePermissionResolver::class)->can($this, 'hr.approve_leave');
     }
 
     public function hasCtoApprovalAuthority(): bool
     {
-        return in_array($this->role, self::CTO_TIER, true);
+        return app(EffectivePermissionResolver::class)->can($this, 'authority.cto_tier');
     }
 
     public function hasTeamLeadAuthority(): bool
     {
-        return in_array($this->role, self::TEAM_LEAD_APPROVAL_ROLES, true);
+        return app(EffectivePermissionResolver::class)->can($this, 'authority.team_lead_tier');
     }
 
     // "Director" is a semantic alias for the existing admin tier, not a new
     // role or membership list — keeps intent readable at approval call sites
-    // without a second list that can drift from ADMIN_TIER.
+    // without a second list that can drift from authority.admin_tier.
     public function hasDirectorAuthority(): bool
     {
         return $this->isAdminTier();

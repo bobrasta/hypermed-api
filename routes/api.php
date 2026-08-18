@@ -38,6 +38,7 @@ use App\Http\Controllers\Api\PerDiemController;
 use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Api\LeaveController;
 use App\Http\Controllers\Api\PartCannibalizationController;
+use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\TicketAttachmentController;
 use App\Http\Controllers\Api\VendorBillController;
@@ -86,6 +87,16 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('expenses', ExpenseController::class);
         Route::get('settings', [SettingController::class, 'index']);
         Route::put('settings/{key}', [SettingController::class, 'update']);
+
+        // Dynamic access control (Phase 1) — see plan doc "Dynamic access
+        // control — Phase 1: permission layer"
+        Route::get('me/permissions',        [PermissionController::class, 'me']);
+        Route::get('permissions',           [PermissionController::class, 'permissions']);
+        Route::get('roles',                 [PermissionController::class, 'roles']);
+        Route::post('roles',                [PermissionController::class, 'storeRole']);
+        Route::put('roles/{role}',          [PermissionController::class, 'updateRole']);
+        Route::delete('roles/{role}',       [PermissionController::class, 'destroyRole']);
+        Route::put('roles/{role}/permissions', [PermissionController::class, 'syncRolePermissions']);
 
         // Vendor Bills (Accounts Payable)
         Route::post('vendor-bills/{vendorBill}/payments', [VendorBillController::class, 'recordPayment']);
