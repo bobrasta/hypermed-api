@@ -6,28 +6,39 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\HospitalResource;
 use App\Models\Hospital;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class HospitalController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Hospital::query();
-
-        if ($request->filled('type')) {
-            $query->where('type', $request->type);
-        }
-        if ($request->filled('region')) {
-            $query->where('region', $request->region);
-        }
-        if ($request->filled('zone')) {
-            $query->where('zone', $request->zone);
-        }
-
         // See InventoryController::index() — same reasoning: callers load a
         // big batch once and reveal/filter locally, don't silently truncate.
         $perPage = min($request->integer('per_page', 20), 1000);
+        $page    = $request->integer('page', 1);
+        $filters = $request->only(['type', 'region', 'zone']);
 
-        return HospitalResource::collection($query->paginate($perPage));
+        // Same TTL-cache pattern as DashboardController — this list barely
+        // changes between requests, and was a big chunk of the 2-3s load
+        // time on the Machines/Dashboard screens before this was added.
+        $cacheKey = 'hospitals:index:' . md5(json_encode($filters) . ":{$perPage}:{$page}");
+        $hospitals = Cache::remember($cacheKey, 60, function () use ($request, $perPage) {
+            $query = Hospital::query();
+
+            if ($request->filled('type')) {
+                $query->where('type', $request->type);
+            }
+            if ($request->filled('region')) {
+                $query->where('region', $request->region);
+            }
+            if ($request->filled('zone')) {
+                $query->where('zone', $request->zone);
+            }
+
+            return $query->paginate($perPage);
+        });
+
+        return HospitalResource::collection($hospitals);
     }
 
     public function store(Request $request)

@@ -6,34 +6,43 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\MachineResource;
 use App\Models\Machine;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class MachineController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Machine::with('hospital');
-
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
-        }
-        if ($request->filled('hospital_id')) {
-            $query->where('hospital_id', $request->hospital_id);
-        }
-        if ($request->filled('type')) {
-            $query->where('type', $request->type);
-        }
-        if ($request->filled('model')) {
-            $query->where('model', $request->model);
-        }
-        if ($request->filled('zone')) {
-            $zone = $request->zone;
-            $query->whereHas('hospital', fn ($q) => $q->where('zone', $zone));
-        }
-
         // See InventoryController::index() — same reasoning: callers load a
         // big batch once and reveal/filter locally, don't silently truncate.
         $perPage = min($request->integer('per_page', 20), 1000);
-        $machines = $query->paginate($perPage);
+        $page    = $request->integer('page', 1);
+        $filters = $request->only(['status', 'hospital_id', 'type', 'model', 'zone']);
+
+        // Same TTL-cache pattern as DashboardController/HospitalController —
+        // was a big chunk of the 2-3s load time on the Machines screen.
+        $cacheKey = 'machines:index:' . md5(json_encode($filters) . ":{$perPage}:{$page}");
+        $machines = Cache::remember($cacheKey, 60, function () use ($request, $perPage) {
+            $query = Machine::with('hospital');
+
+            if ($request->filled('status')) {
+                $query->where('status', $request->status);
+            }
+            if ($request->filled('hospital_id')) {
+                $query->where('hospital_id', $request->hospital_id);
+            }
+            if ($request->filled('type')) {
+                $query->where('type', $request->type);
+            }
+            if ($request->filled('model')) {
+                $query->where('model', $request->model);
+            }
+            if ($request->filled('zone')) {
+                $zone = $request->zone;
+                $query->whereHas('hospital', fn ($q) => $q->where('zone', $zone));
+            }
+
+            return $query->paginate($perPage);
+        });
 
         return MachineResource::collection($machines);
     }
@@ -92,9 +101,11 @@ class MachineController extends Controller
 
     public function map()
     {
-        $machines = Machine::with('hospital:id,name,short_code,latitude,longitude,zone')
-            ->select('id', 'serial_no', 'model', 'type', 'hospital_id', 'status')
-            ->get();
+        $machines = Cache::remember('machines:map', 60, function () {
+            return Machine::with('hospital:id,name,short_code,latitude,longitude,zone')
+                ->select('id', 'serial_no', 'model', 'type', 'hospital_id', 'status')
+                ->get();
+        });
 
         return MachineResource::collection($machines);
     }
