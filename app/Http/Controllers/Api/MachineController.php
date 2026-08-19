@@ -22,6 +22,13 @@ class MachineController extends Controller
         if ($request->filled('type')) {
             $query->where('type', $request->type);
         }
+        if ($request->filled('model')) {
+            $query->where('model', $request->model);
+        }
+        if ($request->filled('zone')) {
+            $zone = $request->zone;
+            $query->whereHas('hospital', fn ($q) => $q->where('zone', $zone));
+        }
 
         // See InventoryController::index() — same reasoning: callers load a
         // big batch once and reveal/filter locally, don't silently truncate.

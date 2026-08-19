@@ -28,8 +28,11 @@ class DashboardController extends Controller
         $kpi = Cache::remember('dashboard:kpi', 60, function () {
             // Two queries instead of five — PostgreSQL FILTER aggregation
             $machines = DB::selectOne("
-                SELECT COUNT(*)                                         AS total,
-                       COUNT(*) FILTER (WHERE status = 'operational')  AS operational
+                SELECT COUNT(*)                                          AS total,
+                       COUNT(*) FILTER (WHERE status = 'operational')    AS operational,
+                       COUNT(*) FILTER (WHERE status = 'needs_service')  AS needs_service,
+                       COUNT(*) FILTER (WHERE status = 'down')           AS down,
+                       COUNT(*) FILTER (WHERE status = 'warranty')       AS warranty
                 FROM machines
             ");
 
@@ -43,12 +46,22 @@ class DashboardController extends Controller
                 ->whereIn('status', ['paid', 'partial'])
                 ->sum('amount_paid');
 
+            $revenueLastMonth = Invoice::where('issue_date', '>=', Carbon::now()->subMonthNoOverflow()->startOfMonth()->toDateString())
+                ->where('issue_date', '<', Carbon::now()->startOfMonth()->toDateString())
+                ->whereIn('status', ['paid', 'partial'])
+                ->sum('amount_paid');
+
             return [
                 'total_machines'     => (int) $machines->total,
                 'operational'        => (int) $machines->operational,
+                'needs_service'      => (int) $machines->needs_service,
+                'down'               => (int) $machines->down,
+                'warranty'           => (int) $machines->warranty,
+                'total_hospitals'    => Hospital::count(),
                 'open_tickets'       => (int) $tickets->open_count,
                 'overdue_tickets'    => (int) $tickets->overdue_count,
                 'revenue_this_month' => (int) $revenueThisMonth,
+                'revenue_last_month' => (int) $revenueLastMonth,
             ];
         });
 

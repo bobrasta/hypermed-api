@@ -16,6 +16,7 @@ class DatabaseSeeder extends Seeder
             ExpenseCategorySeeder::class,
             HospitalSeeder::class,
             MachineSeeder::class,
+            RealFacilityImportSeeder::class,
             SupplierSeeder::class,
             CategorySeeder::class,
             LocationSeeder::class,
