@@ -17,6 +17,7 @@ class DatabaseSeeder extends Seeder
             HospitalSeeder::class,
             MachineSeeder::class,
             RealFacilityImportSeeder::class,
+            UpdateFacilityCoordinatesSeeder::class,
             RemoveDemoDataSeeder::class,
             SupplierSeeder::class,
             CategorySeeder::class,
