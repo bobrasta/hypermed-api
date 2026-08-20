@@ -24,6 +24,7 @@ class ServiceTicketResource extends JsonResource
             'description'      => $this->description,
             'resolution_notes' => $this->resolution_notes,
             'resolved_at'      => $this->resolved_at?->toIso8601String(),
+            'acknowledged_at'  => $this->acknowledged_at?->toIso8601String(),
             'checklist'        => ChecklistItemResource::collection($this->whenLoaded('checklistItems')),
             'parts_used'       => PartUsedResource::collection($this->whenLoaded('partsUsed')),
             'attachments'      => $this->whenLoaded('attachments', fn() => $this->attachments->map(fn($a) => [

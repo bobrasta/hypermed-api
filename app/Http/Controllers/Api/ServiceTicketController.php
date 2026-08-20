@@ -104,6 +104,12 @@ class ServiceTicketController extends Controller
 
         abort_if($reassignedTo && ! $request->user()->hasCtoApprovalAuthority(), 403, 'Only the CTO or Director can assign technicians to service tickets.');
 
+        // A reassignment means whoever acknowledged the old assignment no
+        // longer applies — the new assignee has to acknowledge afresh.
+        if ($reassignedTo) {
+            $data['acknowledged_at'] = null;
+        }
+
         $ticket->update($data);
 
         if ($reassignedTo) {
@@ -228,6 +234,21 @@ class ServiceTicketController extends Controller
                 $serial->update(['has_missing_parts' => true]);
             }
         });
+    }
+
+    // The assignee confirming they've seen and taken on the ticket.
+    // Idempotent: acknowledging twice just no-ops the second time.
+    public function acknowledge(Request $request, ServiceTicket $ticket)
+    {
+        abort_if($ticket->assigned_to !== $request->user()->id, 403, 'Only the assigned technician can acknowledge this ticket.');
+
+        if ($ticket->acknowledged_at === null) {
+            $ticket->update(['acknowledged_at' => now()]);
+        }
+
+        return response()->json([
+            'data' => new ServiceTicketResource($ticket->fresh()->load(['machine', 'hospital', 'assignee', 'checklistItems'])),
+        ]);
     }
 
     public function toggleChecklist(ServiceTicket $ticket, ChecklistItem $item)

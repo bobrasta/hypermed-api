@@ -12,11 +12,12 @@ class ServiceTicket extends Model
     protected $fillable = [
         'ticket_number', 'machine_id', 'hospital_id', 'ward',
         'assigned_to', 'status', 'description',
-        'resolution_notes', 'resolved_at',
+        'resolution_notes', 'resolved_at', 'acknowledged_at',
     ];
 
     protected $casts = [
-        'resolved_at' => 'datetime',
+        'resolved_at'      => 'datetime',
+        'acknowledged_at'  => 'datetime',
     ];
 
     public function machine()

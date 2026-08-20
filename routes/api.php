@@ -147,6 +147,7 @@ Route::prefix('v1')->group(function () {
 
         // Service Tickets
         Route::post('tickets/{ticket}/resolve', [ServiceTicketController::class, 'resolve']);
+        Route::post('tickets/{ticket}/acknowledge', [ServiceTicketController::class, 'acknowledge']);
         Route::post('tickets/{ticket}/parts', [ServiceTicketController::class, 'addPart']);
         Route::post('tickets/{ticket}/checklist/{item}', [ServiceTicketController::class, 'toggleChecklist']);
         Route::get('tickets/{ticket}/attachments', [TicketAttachmentController::class, 'index']);
