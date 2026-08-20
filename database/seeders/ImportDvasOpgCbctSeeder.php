@@ -15,27 +15,22 @@ use Illuminate\Database\Seeder;
  * real place, matched by name + region); the rest are new hospitals not
  * covered by that import.
  *
- * Also wipes every ServiceTicket (cascades to checklist items, attachments,
- * parts-used) and replaces them with tickets derived from the register's own
- * service history: completed preventive-maintenance visits (only where the
- * service date has actually passed -- future-scheduled ones aren't ticketed
- * since they haven't happened yet), and resolved/ongoing fault repairs. This
- * is real service history, not sample/demo data.
+ * Also derives ServiceTicket history from the register's own record:
+ * completed preventive-maintenance visits (only where the service date has
+ * actually passed -- future-scheduled ones aren't ticketed since they
+ * haven't happened yet), and resolved/ongoing fault repairs. This is real
+ * service history, not sample/demo data.
  *
- * Guarded -- no-ops once the first new hospital already exists -- but the
- * ServiceTicket wipe+reseed is tied to that same guard, so it's still safe
- * to leave in the deploy chain permanently.
+ * Fully idempotent row-by-row (Hospital/Machine via firstOrCreate, tickets
+ * rebuilt only for a machine whose ticket count doesn't match what it
+ * should have) rather than one top-level guard -- safe to re-run, retry, or
+ * leave in the deploy chain permanently; a partial failure on one row can
+ * never wipe or duplicate data belonging to another.
  */
 class ImportDvasOpgCbctSeeder extends Seeder
 {
     public function run(): void
     {
-        if (Hospital::where('short_code', 'KADH7')->exists()) {
-            return;
-        }
-
-        ServiceTicket::query()->delete();
-
         $newHospitals = [
             [
                 'name' => 'Kaliua DH', 'short_code' => 'KADH7', 'type' => 'public',
@@ -207,7 +202,7 @@ class ImportDvasOpgCbctSeeder extends Seeder
             ],
         ];
         foreach ($newHospitals as $h) {
-            Hospital::create($h);
+            Hospital::firstOrCreate(['short_code' => $h['short_code']], $h);
         }
 
         $hospitalIds = Hospital::whereIn('short_code', [
@@ -481,32 +476,41 @@ class ImportDvasOpgCbctSeeder extends Seeder
             ],
         ];
 
-        $ticketNum = 1000;
         $touchedHospitalIds = [];
         foreach ($machineDefs as $def) {
             $hospitalId = $hospitalIds[$def['short_code']];
             $touchedHospitalIds[] = $hospitalId;
-            $machine = Machine::create([
-                'hospital_id' => $hospitalId, 'serial_no' => $def['serial_no'],
-                'model' => $def['model'], 'type' => $def['type'],
-                'status' => $def['status'], 'install_date' => $def['install_date'],
-                'revenue_per_month' => 0,
-            ]);
+            $machine = Machine::firstOrCreate(
+                ['serial_no' => $def['serial_no']],
+                [
+                    'hospital_id' => $hospitalId, 'model' => $def['model'], 'type' => $def['type'],
+                    'status' => $def['status'], 'install_date' => $def['install_date'],
+                    'revenue_per_month' => 0,
+                ]
+            );
 
-            foreach ($def['tickets'] as $t) {
-                $ticketNum++;
-                $createdAt = ($t['created_at'] ?? now()->toDateString()) . ' 09:00:00';
-                ServiceTicket::create([
-                    'ticket_number'    => '#' . $ticketNum,
-                    'machine_id'       => $machine->id,
-                    'hospital_id'      => $hospitalId,
-                    'status'           => $t['status'],
-                    'description'      => $t['description'],
-                    'resolution_notes' => $t['resolution_notes'],
-                    'resolved_at'      => $t['resolved_at'] ? $t['resolved_at'] . ' 12:00:00' : null,
-                    'created_at'       => $createdAt,
-                    'updated_at'       => $createdAt,
-                ]);
+            // Idempotent per machine: if its ticket count doesn't match what this
+            // machine should have, clear just its own tickets and rebuild them --
+            // scoped to one machine, never a wholesale table wipe, so a retry or
+            // re-deploy can never lose tickets belonging to other machines.
+            $expected = count($def['tickets']);
+            if (ServiceTicket::where('machine_id', $machine->id)->count() !== $expected) {
+                ServiceTicket::where('machine_id', $machine->id)->delete();
+                foreach ($def['tickets'] as $t) {
+                    $lastNum = (int) ltrim(ServiceTicket::query()->max('ticket_number') ?? '#999', '#');
+                    $createdAt = ($t['created_at'] ?? now()->toDateString()) . ' 09:00:00';
+                    ServiceTicket::create([
+                        'ticket_number'    => '#' . ($lastNum + 1),
+                        'machine_id'       => $machine->id,
+                        'hospital_id'      => $hospitalId,
+                        'status'           => $t['status'],
+                        'description'      => $t['description'],
+                        'resolution_notes' => $t['resolution_notes'],
+                        'resolved_at'      => $t['resolved_at'] ? $t['resolved_at'] . ' 12:00:00' : null,
+                        'created_at'       => $createdAt,
+                        'updated_at'       => $createdAt,
+                    ]);
+                }
             }
         }
 
