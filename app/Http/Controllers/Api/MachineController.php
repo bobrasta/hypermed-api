@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\MachineResource;
+use App\Models\Hospital;
 use App\Models\Machine;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -62,6 +63,7 @@ class MachineController extends Controller
         ]);
 
         $machine = Machine::create($data);
+        $this->recomputeHospitalCounts($machine->hospital_id);
 
         return response()->json(['data' => new MachineResource($machine->load('hospital'))], 201);
     }
@@ -87,16 +89,35 @@ class MachineController extends Controller
             'revenue_per_month' => ['nullable', 'integer', 'min:0'],
         ]);
 
+        $previousHospitalId = $machine->getOriginal('hospital_id');
         $machine->update($data);
+
+        $this->recomputeHospitalCounts($machine->hospital_id);
+        if ($previousHospitalId !== $machine->hospital_id) {
+            $this->recomputeHospitalCounts($previousHospitalId);
+        }
 
         return response()->json(['data' => new MachineResource($machine->load('hospital'))]);
     }
 
     public function destroy(Machine $machine)
     {
+        $hospitalId = $machine->hospital_id;
         $machine->delete();
+        $this->recomputeHospitalCounts($hospitalId);
 
         return response()->json(null, 204);
+    }
+
+    // Hospital.machine_count/machines_operational are denormalized for the
+    // map/dashboard — recompute from the actual rows (not incremental math)
+    // so they can't drift out of sync.
+    private function recomputeHospitalCounts(int $hospitalId): void
+    {
+        Hospital::whereKey($hospitalId)->update([
+            'machine_count'        => Machine::where('hospital_id', $hospitalId)->count(),
+            'machines_operational' => Machine::where('hospital_id', $hospitalId)->where('status', 'operational')->count(),
+        ]);
     }
 
     public function map()
