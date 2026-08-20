@@ -217,14 +217,14 @@ class PermissionSeeder extends Seeder
     // step can be added after the initial bootstrap already ran in production.
     private function seedScreenPermissions(): void
     {
-        if (Permission::where('name', 'screens.dashboard')->exists()) {
+        if (Permission::where('name', 'screens.notifications')->exists()) {
             return;
         }
 
         $screenKeys = [
             'dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service',
             'inventory', 'finance', 'staff', 'my_leave', 'reports', 'settings',
-            'sales', 'customers', 'revenue', 'email', 'hr_approvals',
+            'sales', 'customers', 'revenue', 'email', 'hr_approvals', 'notifications',
         ];
 
         $roles = Role::whereIn('name', User::ROLES)->get()->keyBy('name');
@@ -240,16 +240,16 @@ class PermissionSeeder extends Seeder
         $grants = [
             'super_admin'     => $screenKeys,
             'admin'           => $screenKeys,
-            'cto'             => ['dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service', 'inventory', 'finance', 'staff', 'my_leave', 'reports', 'settings'],
-            'technician'      => ['dashboard', 'machines', 'detail', 'hospitals', 'service', 'inventory', 'staff', 'my_leave', 'reports', 'settings'],
-            'team_leader'     => ['dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service', 'staff', 'my_leave', 'reports', 'settings'],
-            'sales_manager'   => ['dashboard', 'machines', 'detail', 'sales', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings'],
-            'sales'           => ['dashboard', 'machines', 'detail', 'sales', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings'],
-            'finance_manager' => ['dashboard', 'revenue', 'finance', 'staff', 'my_leave', 'reports', 'settings'],
-            'finance'         => ['dashboard', 'revenue', 'finance', 'staff', 'my_leave', 'reports', 'settings'],
-            'cs'              => ['dashboard', 'customers', 'service', 'email', 'staff', 'my_leave', 'reports', 'settings'],
-            'storekeeper'     => ['dashboard', 'inventory', 'staff', 'my_leave', 'reports', 'settings'],
-            'hr'              => ['dashboard', 'my_leave', 'hr_approvals', 'staff', 'reports', 'settings'],
+            'cto'             => ['dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service', 'inventory', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'technician'      => ['dashboard', 'machines', 'detail', 'hospitals', 'service', 'inventory', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'team_leader'     => ['dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'sales_manager'   => ['dashboard', 'machines', 'detail', 'sales', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'sales'           => ['dashboard', 'machines', 'detail', 'sales', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'finance_manager' => ['dashboard', 'revenue', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'finance'         => ['dashboard', 'revenue', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'cs'              => ['dashboard', 'customers', 'service', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'storekeeper'     => ['dashboard', 'inventory', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'hr'              => ['dashboard', 'my_leave', 'hr_approvals', 'staff', 'reports', 'settings', 'notifications'],
         ];
 
         foreach ($grants as $roleName => $keys) {
