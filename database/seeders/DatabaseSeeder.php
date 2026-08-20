@@ -20,6 +20,7 @@ class DatabaseSeeder extends Seeder
             UpdateFacilityCoordinatesSeeder::class,
             RemoveDemoDataSeeder::class,
             ImportDvasOpgCbctSeeder::class,
+            NormalizeKilimanjaroDistrictsSeeder::class,
             SupplierSeeder::class,
             CategorySeeder::class,
             LocationSeeder::class,

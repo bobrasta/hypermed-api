@@ -7,7 +7,7 @@ builder = "nixpacks"
 # (all three seeders guard themselves and no-op on every deploy after their
 # first successful run), then starts the built-in PHP server. Railway gives
 # each service a $PORT — artisan serve binds to it automatically.
-startCommand = "php artisan config:cache && php artisan route:cache && php artisan migrate --force && php artisan db:seed --class=PermissionSeeder --force && php artisan db:seed --class=TestAccessControlSeeder --force && php artisan db:seed --class=RealFacilityImportSeeder --force && php artisan db:seed --class=UpdateFacilityCoordinatesSeeder --force && php artisan db:seed --class=RemoveDemoDataSeeder --force && php artisan db:seed --class=ImportDvasOpgCbctSeeder --force && php artisan serve --host=0.0.0.0 --port=$PORT"
+startCommand = "php artisan config:cache && php artisan route:cache && php artisan migrate --force && php artisan db:seed --class=PermissionSeeder --force && php artisan db:seed --class=TestAccessControlSeeder --force && php artisan db:seed --class=RealFacilityImportSeeder --force && php artisan db:seed --class=UpdateFacilityCoordinatesSeeder --force && php artisan db:seed --class=RemoveDemoDataSeeder --force && php artisan db:seed --class=ImportDvasOpgCbctSeeder --force && php artisan db:seed --class=NormalizeKilimanjaroDistrictsSeeder --force && php artisan serve --host=0.0.0.0 --port=$PORT"
 healthcheckPath = "/up"
 healthcheckTimeout = 30
 restartPolicyType = "on_failure"
