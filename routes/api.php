@@ -26,6 +26,7 @@ use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RevenueController;
 use App\Http\Controllers\Api\SalesLeadController;
 use App\Http\Controllers\Api\SalesOrderController;
+use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\SerialNumberController;
 use App\Http\Controllers\Api\ServiceTicketController;
 use App\Http\Controllers\Api\StaffController;
@@ -66,6 +67,9 @@ Route::prefix('v1')->group(function () {
         Route::get('auth/me', [AuthController::class, 'me']);
         Route::put('auth/profile', [AuthController::class, 'updateProfile']);
         Route::post('auth/change-password', [AuthController::class, 'changePassword']);
+
+        // Global search — cross-entity, permission-filtered
+        Route::get('search', [SearchController::class, 'index']);
 
         // Dashboard
         Route::get('dashboard', [DashboardController::class, 'index']);
