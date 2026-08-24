@@ -118,6 +118,8 @@ Route::prefix('v1')->group(function () {
         Route::get('finance-reports/trial-balance', [FinanceReportController::class, 'trialBalance']);
         Route::get('finance-reports/balance-sheet', [FinanceReportController::class, 'balanceSheet']);
         Route::get('finance-reports/ar-aging',      [FinanceReportController::class, 'arAging']);
+        Route::get('finance-reports/ap-aging',      [FinanceReportController::class, 'apAging']);
+        Route::get('finance-reports/stock-valuation', [FinanceReportController::class, 'stockValuation']);
         Route::get('finance-reports/cash-flow',     [FinanceReportController::class, 'cashFlow']);
         Route::get('finance-reports/monthly-trend', [FinanceReportController::class, 'monthlyTrend']);
 

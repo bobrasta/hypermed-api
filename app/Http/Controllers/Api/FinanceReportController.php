@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ChartOfAccount;
 use App\Models\Expense;
+use App\Models\InventoryItem;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\StockMovement;
@@ -235,6 +236,88 @@ class FinanceReportController extends Controller
             'buckets'      => $buckets,
             'total_outstanding' => array_sum($buckets),
             'invoices'     => $items,
+        ]]);
+    }
+
+    // Unpaid/partially-paid vendor bills bucketed by days overdue — the AP
+    // mirror of arAging() above, same bucket boundaries so the two reports
+    // read side by side.
+    public function apAging()
+    {
+        $today = Carbon::today();
+
+        $bills = VendorBill::with('supplier:id,name')
+            ->whereIn('status', ['pending', 'partial'])
+            ->get(['id', 'bill_number', 'supplier_id', 'due_date', 'total', 'amount_paid']);
+
+        $buckets = ['current' => 0, 'days_1_30' => 0, 'days_31_60' => 0, 'days_61_90' => 0, 'days_90_plus' => 0];
+        $items = [];
+
+        foreach ($bills as $bill) {
+            $balance = $bill->total - $bill->amount_paid;
+            if ($balance <= 0) {
+                continue;
+            }
+
+            $daysOverdue = Carbon::parse($bill->due_date)->diffInDays($today, false);
+            $bucket = match (true) {
+                $daysOverdue <= 0  => 'current',
+                $daysOverdue <= 30 => 'days_1_30',
+                $daysOverdue <= 60 => 'days_31_60',
+                $daysOverdue <= 90 => 'days_61_90',
+                default            => 'days_90_plus',
+            };
+
+            $buckets[$bucket] += $balance;
+            $items[] = [
+                'bill_id' => $bill->id, 'bill_number' => $bill->bill_number,
+                'supplier_name' => $bill->supplier?->name ?? '—',
+                'due_date' => $bill->due_date?->toDateString(),
+                'balance_due' => $balance, 'days_overdue' => max($daysOverdue, 0), 'bucket' => $bucket,
+            ];
+        }
+
+        return response()->json(['data' => [
+            'buckets'      => $buckets,
+            'total_outstanding' => array_sum($buckets),
+            'bills'        => $items,
+        ]]);
+    }
+
+    // Inventory valued at cost (qty on hand x unit cost) — the year-end stock
+    // valuation the accountant currently rebuilds by hand from a raw export;
+    // this reads straight from the live catalog instead. Zero-quantity items
+    // are excluded (nothing to value); inactive items are excluded too.
+    public function stockValuation()
+    {
+        $items = InventoryItem::with('category:id,name')
+            ->where('is_active', true)
+            ->where('stock_qty', '>', 0)
+            ->orderByDesc(DB::raw('stock_qty * unit_cost'))
+            ->get(['id', 'sku', 'name', 'category_id', 'unit_of_measure', 'stock_qty', 'unit_cost']);
+
+        $rows = $items->map(fn ($i) => [
+            'id'          => $i->id,
+            'sku'         => $i->sku,
+            'name'        => $i->name,
+            'category'    => $i->category?->name,
+            'uom'         => $i->unit_of_measure,
+            'qty'         => $i->stock_qty,
+            'unit_cost'   => $i->unit_cost,
+            'stock_value' => $i->stock_qty * $i->unit_cost,
+        ]);
+
+        $byCategory = $rows->groupBy('category')->map(fn ($group, $cat) => [
+            'category' => $cat ?: 'Uncategorized',
+            'total'    => (int) $group->sum('stock_value'),
+        ])->values()->sortByDesc('total')->values();
+
+        return response()->json(['data' => [
+            'as_of'          => Carbon::today()->toDateString(),
+            'item_count'     => $rows->count(),
+            'total_value'    => (int) $rows->sum('stock_value'),
+            'by_category'    => $byCategory,
+            'items'          => $rows,
         ]]);
     }
 
