@@ -31,6 +31,7 @@ class PerDiemRequestResource extends JsonResource
             'reviewed_at'                 => $this->reviewed_at?->toIso8601String(),
             'rejection_reason'            => $this->rejection_reason,
             'created_at'                  => $this->created_at?->toIso8601String(),
+            'lines'                       => PerDiemLineResource::collection($this->whenLoaded('lines')),
         ];
     }
 }

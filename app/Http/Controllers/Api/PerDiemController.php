@@ -8,6 +8,7 @@ use App\Models\AppNotification;
 use App\Models\PerDiemRequest;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class PerDiemController extends Controller
 {
@@ -15,7 +16,7 @@ class PerDiemController extends Controller
     {
         $user = $request->user();
 
-        $query = PerDiemRequest::with(['user', 'teamLeadReviewer', 'reviewer']);
+        $query = PerDiemRequest::with(['user', 'teamLeadReviewer', 'reviewer', 'lines']);
 
         if (! $user->hasTeamLeadAuthority()) {
             $query->where('user_id', $user->id);
@@ -28,28 +29,88 @@ class PerDiemController extends Controller
         return PerDiemRequestResource::collection($query->latest()->get());
     }
 
+    /**
+     * Creates a per-diem request — either a simple single-destination request
+     * (destination/start_date/end_date/amount) or a full day-by-day travel
+     * plan (a `lines` itinerary: one row per day with region/district/site/
+     * activity and its own labor/per-diem/transport cost). When `lines` is
+     * given, the summary fields (amount, start/end date, days_count,
+     * destination) are derived server-side from the itinerary — never
+     * trusted from the client — so the two can't drift apart.
+     */
     public function store(Request $request)
     {
         $data = $request->validate([
             'service_ticket_id' => ['nullable', 'exists:service_tickets,id'],
-            'destination'       => ['required', 'string'],
-            'start_date'        => ['required', 'date'],
-            'end_date'          => ['required', 'date', 'after_or_equal:start_date'],
+            'destination'       => ['nullable', 'string'],
+            'start_date'        => ['nullable', 'date'],
+            'end_date'          => ['nullable', 'date', 'after_or_equal:start_date'],
             'daily_rate'        => ['nullable', 'integer', 'min:0'],
-            'amount'            => ['required', 'integer', 'min:0'],
+            'amount'            => ['nullable', 'integer', 'min:0'],
             'purpose'           => ['nullable', 'string'],
+            'lines'                   => ['nullable', 'array', 'min:1'],
+            'lines.*.date'            => ['required_with:lines', 'date'],
+            'lines.*.region'          => ['nullable', 'string'],
+            'lines.*.district'        => ['nullable', 'string'],
+            'lines.*.site_name'       => ['nullable', 'string'],
+            'lines.*.activity'        => ['nullable', 'string'],
+            'lines.*.labor_cost'      => ['nullable', 'integer', 'min:0'],
+            'lines.*.per_diem_cost'   => ['nullable', 'integer', 'min:0'],
+            'lines.*.transport_fare'  => ['nullable', 'integer', 'min:0'],
         ]);
 
-        $data['user_id']    = $request->user()->id;
-        $data['days_count'] = \Carbon\Carbon::parse($data['start_date'])
-            ->diffInDays(\Carbon\Carbon::parse($data['end_date'])) + 1;
-        $data['status'] = 'pending_team_lead';
+        $lines = $data['lines'] ?? [];
+        unset($data['lines']);
 
-        $perDiem = PerDiemRequest::create($data);
+        if (count($lines) > 0) {
+            $dates = collect($lines)->map(fn ($l) => \Carbon\Carbon::parse($l['date']));
+            $data['start_date'] = $dates->min()->toDateString();
+            $data['end_date']   = $dates->max()->toDateString();
+            $data['days_count'] = $dates->map(fn ($d) => $d->toDateString())->unique()->count();
+            $data['amount']     = collect($lines)->sum(fn ($l) =>
+                ($l['labor_cost'] ?? 0) + ($l['per_diem_cost'] ?? 0) + ($l['transport_fare'] ?? 0));
+
+            if (empty($data['destination'])) {
+                $sites = collect($lines)->pluck('site_name')->filter()->unique();
+                $data['destination'] = $sites->isNotEmpty()
+                    ? $sites->implode(', ')
+                    : collect($lines)->pluck('district')->filter()->unique()->implode(', ');
+            }
+        } else {
+            $request->validate([
+                'destination' => ['required', 'string'],
+                'start_date'  => ['required', 'date'],
+                'end_date'    => ['required', 'date', 'after_or_equal:start_date'],
+                'amount'      => ['required', 'integer', 'min:0'],
+            ]);
+            $data['days_count'] = \Carbon\Carbon::parse($data['start_date'])
+                ->diffInDays(\Carbon\Carbon::parse($data['end_date'])) + 1;
+        }
+
+        $data['user_id'] = $request->user()->id;
+        $data['status']  = 'pending_team_lead';
+
+        $perDiem = DB::transaction(function () use ($data, $lines) {
+            $perDiem = PerDiemRequest::create($data);
+            foreach ($lines as $i => $line) {
+                $perDiem->lines()->create([
+                    'seq_no'         => $i + 1,
+                    'date'           => $line['date'],
+                    'region'         => $line['region'] ?? null,
+                    'district'       => $line['district'] ?? null,
+                    'site_name'      => $line['site_name'] ?? null,
+                    'activity'       => $line['activity'] ?? null,
+                    'labor_cost'     => $line['labor_cost'] ?? 0,
+                    'per_diem_cost'  => $line['per_diem_cost'] ?? 0,
+                    'transport_fare' => $line['transport_fare'] ?? 0,
+                ]);
+            }
+            return $perDiem;
+        });
 
         $this->notifyTeamLead($perDiem);
 
-        return response()->json(['data' => new PerDiemRequestResource($perDiem->load('user'))], 201);
+        return response()->json(['data' => new PerDiemRequestResource($perDiem->load(['user', 'lines']))], 201);
     }
 
     public function approveTeamLead(Request $request, PerDiemRequest $perDiemRequest)
@@ -66,7 +127,7 @@ class PerDiemController extends Controller
         $this->notifyCto($perDiemRequest);
 
         return response()->json(['data' => new PerDiemRequestResource(
-            $perDiemRequest->load(['user', 'teamLeadReviewer'])
+            $perDiemRequest->load(['user', 'teamLeadReviewer', 'lines'])
         )]);
     }
 
@@ -87,7 +148,7 @@ class PerDiemController extends Controller
         $this->notifyRequester($perDiemRequest, approved: false, rejectedAtTeamLead: true);
 
         return response()->json(['data' => new PerDiemRequestResource(
-            $perDiemRequest->load(['user', 'teamLeadReviewer'])
+            $perDiemRequest->load(['user', 'teamLeadReviewer', 'lines'])
         )]);
     }
 
@@ -106,7 +167,7 @@ class PerDiemController extends Controller
         $this->notifyFinance($perDiemRequest);
 
         return response()->json(['data' => new PerDiemRequestResource(
-            $perDiemRequest->load(['user', 'teamLeadReviewer', 'reviewer'])
+            $perDiemRequest->load(['user', 'teamLeadReviewer', 'reviewer', 'lines'])
         )]);
     }
 
@@ -127,7 +188,7 @@ class PerDiemController extends Controller
         $this->notifyRequester($perDiemRequest, approved: false, rejectedAtTeamLead: false);
 
         return response()->json(['data' => new PerDiemRequestResource(
-            $perDiemRequest->load(['user', 'teamLeadReviewer', 'reviewer'])
+            $perDiemRequest->load(['user', 'teamLeadReviewer', 'reviewer', 'lines'])
         )]);
     }
 
@@ -139,7 +200,7 @@ class PerDiemController extends Controller
 
         $perDiemRequest->update(['status' => 'cancelled']);
 
-        return response()->json(['data' => new PerDiemRequestResource($perDiemRequest->load('user'))]);
+        return response()->json(['data' => new PerDiemRequestResource($perDiemRequest->load(['user', 'lines']))]);
     }
 
     private function notifyTeamLead(PerDiemRequest $perDiem): void

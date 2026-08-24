@@ -39,4 +39,9 @@ class PerDiemRequest extends Model
     {
         return $this->belongsTo(User::class, 'reviewed_by');
     }
+
+    public function lines()
+    {
+        return $this->hasMany(PerDiemLine::class)->orderBy('seq_no');
+    }
 }
