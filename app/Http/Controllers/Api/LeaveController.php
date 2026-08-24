@@ -95,7 +95,7 @@ class LeaveController extends Controller
     {
         $user = $request->user();
         abort_if($leaveRequest->user_id !== $user->id && ! $user->hasHrAuthority(), 403, 'Not authorised.');
-        abort_if(! in_array($leaveRequest->status, ['pending', 'approved']), 422, 'Only pending or approved requests can be cancelled.');
+        abort_if($leaveRequest->status !== 'pending', 422, 'Only pending requests can be cancelled.');
 
         $leaveRequest->update(['status' => 'cancelled']);
 
