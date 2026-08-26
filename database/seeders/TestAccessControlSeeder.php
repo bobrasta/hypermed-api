@@ -51,6 +51,9 @@ class TestAccessControlSeeder extends Seeder
             'cs'              => 'Test Customer Service',
             'storekeeper'     => 'Test Storekeeper',
             'hr'              => 'Test HR',
+            'procurement_manager' => 'Test Procurement Manager',
+            'accountant'      => 'Test Accountant Role',
+            'logistics'       => 'Test Logistics',
         ];
 
         foreach ($roles as $roleName => $displayName) {

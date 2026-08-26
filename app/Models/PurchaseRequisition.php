@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class PurchaseRequisition extends Model
 {
     protected $fillable = [
-        'pr_number', 'status', 'requested_by', 'approved_by',
+        'pr_number', 'status', 'origin', 'requested_by', 'approved_by',
         'submitted_at', 'approved_at', 'required_by',
         'department', 'justification', 'rejection_reason',
     ];

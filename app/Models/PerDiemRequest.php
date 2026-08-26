@@ -11,6 +11,7 @@ class PerDiemRequest extends Model
         'days_count', 'daily_rate', 'amount', 'purpose', 'status',
         'team_lead_reviewed_by', 'team_lead_reviewed_at', 'team_lead_rejection_reason',
         'reviewed_by', 'reviewed_at', 'rejection_reason',
+        'paid_by', 'paid_at',
     ];
 
     protected $casts = [
@@ -18,6 +19,7 @@ class PerDiemRequest extends Model
         'end_date'               => 'date',
         'team_lead_reviewed_at'  => 'datetime',
         'reviewed_at'            => 'datetime',
+        'paid_at'                => 'datetime',
     ];
 
     public function user()
@@ -38,6 +40,11 @@ class PerDiemRequest extends Model
     public function reviewer()
     {
         return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    public function paidBy()
+    {
+        return $this->belongsTo(User::class, 'paid_by');
     }
 
     public function lines()

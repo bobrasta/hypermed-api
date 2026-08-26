@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Category;
 use App\Models\InventoryItem;
 use Illuminate\Database\Seeder;
 
@@ -9,6 +10,12 @@ class SparePartSeeder extends Seeder
 {
     public function run(): void
     {
+        // 'category' was a plain string column pre-2026-08-07; the schema
+        // moved to category_id (see
+        // 2026_08_07_000002_replace_category_enum_with_category_id...), but
+        // this seeder was never updated to match.
+        $categoryId = Category::where('slug', 'spare-parts')->value('id');
+
         $parts = [
             ['sku' => 'VEN-FILTER-01',  'name' => 'Ventilator HEPA Filter',           'unit_cost' => 185000,  'stock_qty' => 12, 'reorder_level' => 5,  'supplier' => 'Mindray East Africa',   'models' => ['Mindray SV300', 'Hamilton C6']],
             ['sku' => 'DIA-CART-01',    'name' => 'Dialysate Bicarbonate Cartridge',   'unit_cost' => 320000,  'stock_qty' => 3,  'reorder_level' => 5,  'supplier' => 'Fresenius Medical Care', 'models' => ['Siemens ADVIA']],
@@ -25,7 +32,7 @@ class SparePartSeeder extends Seeder
             unset($p['models']);
             $item = InventoryItem::create(array_merge($p, [
                 'currency'        => 'TZS',
-                'category'        => 'machine_part',
+                'category_id'     => $categoryId,
                 'unit_of_measure' => 'piece',
                 'description'     => null,
             ]));

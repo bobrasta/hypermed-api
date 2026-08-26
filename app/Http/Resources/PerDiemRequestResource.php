@@ -30,6 +30,9 @@ class PerDiemRequestResource extends JsonResource
             'reviewer_name'               => $this->reviewer?->name,
             'reviewed_at'                 => $this->reviewed_at?->toIso8601String(),
             'rejection_reason'            => $this->rejection_reason,
+            'paid_by'                     => $this->paid_by,
+            'paid_by_name'                => $this->paidBy?->name,
+            'paid_at'                     => $this->paid_at?->toIso8601String(),
             'created_at'                  => $this->created_at?->toIso8601String(),
             'lines'                       => PerDiemLineResource::collection($this->whenLoaded('lines')),
         ];

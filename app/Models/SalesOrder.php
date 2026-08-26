@@ -11,7 +11,7 @@ class SalesOrder extends Model
         'status', 'currency',
         'subtotal', 'discount_amount', 'tax_amount', 'total_amount',
         'notes', 'expected_delivery_date',
-        'created_by', 'confirmed_by', 'confirmed_at', 'delivered_at',
+        'created_by', 'confirmed_by', 'confirmed_at', 'delivered_at', 'delivered_by',
         'approval_status', 'approval_reason', 'approved_by', 'approved_at', 'rejection_reason',
         'commission_agent_id', 'commission_percent', 'commission_amount',
     ];
@@ -52,6 +52,11 @@ class SalesOrder extends Model
     public function confirmedBy()
     {
         return $this->belongsTo(User::class, 'confirmed_by');
+    }
+
+    public function deliveredBy()
+    {
+        return $this->belongsTo(User::class, 'delivered_by');
     }
 
     public function approvedBy()

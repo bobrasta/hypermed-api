@@ -16,7 +16,7 @@ class InventoryItem extends Model
         'has_ce', 'has_fda', 'has_tbs',
         'weight_kg', 'dimensions', 'voltage', 'specifications',
         'shelf_life_days', 'preferred_supplier_id',
-        'unit_cost', 'cost_currency', 'stock_qty', 'reorder_level',
+        'unit_cost', 'cost_currency', 'stock_qty', 'reorder_level', 'reorder_notified_at',
         'supplier', 'is_active', 'creates_machine_record', 'warranty_months',
         'needs_review',
     ];
@@ -25,6 +25,7 @@ class InventoryItem extends Model
         'unit_cost'      => 'integer',
         'stock_qty'      => 'integer',
         'reorder_level'  => 'integer',
+        'reorder_notified_at' => 'datetime',
         'shelf_life_days'=> 'integer',
         'is_active'      => 'boolean',
         'has_ce'         => 'boolean',

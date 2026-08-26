@@ -29,6 +29,7 @@ class PurchaseRequisitionController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
+            'origin'        => 'nullable|in:manual,reorder,new_product',
             'required_by'   => 'nullable|date',
             'department'    => 'nullable|string|max:100',
             'justification' => 'nullable|string',
@@ -44,6 +45,7 @@ class PurchaseRequisitionController extends Controller
             $pr = PurchaseRequisition::create([
                 'pr_number'    => $this->nextPrNumber(),
                 'status'       => 'draft',
+                'origin'       => $data['origin'] ?? 'manual',
                 'requested_by' => $request->user()->id,
                 'required_by'  => $data['required_by'] ?? null,
                 'department'   => $data['department'] ?? null,
@@ -108,6 +110,7 @@ class PurchaseRequisitionController extends Controller
 
     public function approve(Request $request, PurchaseRequisition $purchaseRequisition)
     {
+        abort_if(! $request->user()->hasProcurementApprovalAuthority(), 403, 'You are not authorised to approve purchase requisitions.');
         abort_if($purchaseRequisition->status !== 'submitted', 422, 'Only submitted requisitions can be approved.');
 
         $data = $request->validate([
@@ -135,6 +138,7 @@ class PurchaseRequisitionController extends Controller
 
     public function reject(Request $request, PurchaseRequisition $purchaseRequisition)
     {
+        abort_if(! $request->user()->hasProcurementApprovalAuthority(), 403, 'You are not authorised to review purchase requisitions.');
         abort_if($purchaseRequisition->status !== 'submitted', 422, 'Only submitted requisitions can be rejected.');
 
         $data = $request->validate([

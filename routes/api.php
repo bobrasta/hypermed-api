@@ -239,6 +239,14 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('requisitions', PurchaseRequisitionController::class);
 
         // Purchase Orders
+        Route::post('purchase-orders/{purchaseOrder}/submit-for-approval',     [PurchaseOrderController::class, 'submitForApproval']);
+        Route::post('purchase-orders/{purchaseOrder}/approve-sales-manager',   [PurchaseOrderController::class, 'approveSalesManager']);
+        Route::post('purchase-orders/{purchaseOrder}/reject-sales-manager',    [PurchaseOrderController::class, 'rejectSalesManager']);
+        Route::post('purchase-orders/{purchaseOrder}/approve-director-review', [PurchaseOrderController::class, 'approveDirectorReview']);
+        Route::post('purchase-orders/{purchaseOrder}/reject-director-review',  [PurchaseOrderController::class, 'rejectDirectorReview']);
+        Route::post('purchase-orders/{purchaseOrder}/initiate-payment',        [PurchaseOrderController::class, 'initiatePayment']);
+        Route::post('purchase-orders/{purchaseOrder}/approve-director-final',  [PurchaseOrderController::class, 'approveDirectorFinal']);
+        Route::post('purchase-orders/{purchaseOrder}/reject-director-final',   [PurchaseOrderController::class, 'rejectDirectorFinal']);
         Route::post('purchase-orders/{purchaseOrder}/send',    [PurchaseOrderController::class, 'send']);
         Route::post('purchase-orders/{purchaseOrder}/receive', [PurchaseOrderController::class, 'receive']);
         Route::post('purchase-orders/{purchaseOrder}/cancel',  [PurchaseOrderController::class, 'cancel']);
@@ -255,6 +263,7 @@ Route::prefix('v1')->group(function () {
         Route::put('staff/{user}', [StaffController::class, 'update']);
         Route::delete('staff/{user}', [StaffController::class, 'destroy']);
         Route::patch('staff/{user}/avail_status', [StaffController::class, 'updateAvailStatus']);
+        Route::post('staff/{user}/reset-password', [StaffController::class, 'resetPassword']);
 
         // Tasks (general — separate from service tickets)
         Route::apiResource('tasks', TaskController::class)->except(['show']);
@@ -284,6 +293,7 @@ Route::prefix('v1')->group(function () {
         Route::post('per-diem-requests/{perDiemRequest}/reject-team-lead', [PerDiemController::class, 'rejectTeamLead']);
         Route::post('per-diem-requests/{perDiemRequest}/approve', [PerDiemController::class, 'approve']);
         Route::post('per-diem-requests/{perDiemRequest}/reject', [PerDiemController::class, 'reject']);
+        Route::post('per-diem-requests/{perDiemRequest}/mark-paid', [PerDiemController::class, 'markPaid']);
         Route::post('per-diem-requests/{perDiemRequest}/cancel', [PerDiemController::class, 'cancel']);
 
         // Part cannibalizations (parts pulled from stocked units to fix field machines)

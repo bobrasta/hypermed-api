@@ -16,9 +16,12 @@ class PerDiemController extends Controller
     {
         $user = $request->user();
 
-        $query = PerDiemRequest::with(['user', 'teamLeadReviewer', 'reviewer', 'lines']);
+        $query = PerDiemRequest::with(['user', 'teamLeadReviewer', 'reviewer', 'paidBy', 'lines']);
 
-        if (! $user->hasTeamLeadAuthority()) {
+        // Accountant needs visibility into everyone's approved-awaiting-payment
+        // requests to act on markPaid() — same self-scoping exemption as
+        // team-lead/cto authority, otherwise they'd only ever see their own.
+        if (! $user->hasTeamLeadAuthority() && ! $user->hasAccountantAuthority()) {
             $query->where('user_id', $user->id);
         }
 
@@ -192,6 +195,35 @@ class PerDiemController extends Controller
         )]);
     }
 
+    // Closes the loop left dangling by approve()'s "ready for payment"
+    // notification — status stays 'approved' (no new status value), this
+    // just records who actually paid it and when.
+    public function markPaid(Request $request, PerDiemRequest $perDiemRequest)
+    {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to mark per-diem requests as paid.');
+        abort_if($perDiemRequest->status !== 'approved', 422, 'Only approved requests can be marked paid.');
+        abort_if($perDiemRequest->paid_at !== null, 422, 'This request has already been marked paid.');
+
+        $perDiemRequest->update([
+            'paid_by' => $request->user()->id,
+            'paid_at' => now(),
+        ]);
+
+        AppNotification::create([
+            'user_id'     => $perDiemRequest->user_id,
+            'type'        => 'per_diem_paid',
+            'title'       => 'Per-Diem Paid',
+            'body'        => "Your per-diem request for {$perDiemRequest->destination} has been paid.",
+            'entity_type' => 'per_diem_request',
+            'entity_id'   => $perDiemRequest->id,
+            'is_read'     => false,
+        ]);
+
+        return response()->json(['data' => new PerDiemRequestResource(
+            $perDiemRequest->load(['user', 'teamLeadReviewer', 'reviewer', 'paidBy', 'lines'])
+        )]);
+    }
+
     public function cancel(Request $request, PerDiemRequest $perDiemRequest)
     {
         $user = $request->user();
@@ -242,7 +274,7 @@ class PerDiemController extends Controller
     {
         $name = $perDiem->user?->name ?? 'A staff member';
 
-        User::whereIn('role', ['finance_manager', 'finance'])
+        User::whereIn('role', ['finance_manager', 'finance', 'accountant'])
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,

@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class StockOutRequest extends Model
 {
     protected $fillable = [
-        'inventory_item_id', 'location_id', 'type', 'quantity', 'reason',
+        'inventory_item_id', 'location_id', 'service_ticket_id', 'type', 'quantity', 'reason',
         'requested_by', 'status', 'reviewed_by', 'reviewed_at',
         'rejection_reason', 'stock_movement_id',
     ];
@@ -24,6 +24,11 @@ class StockOutRequest extends Model
     public function location()
     {
         return $this->belongsTo(Location::class);
+    }
+
+    public function serviceTicket()
+    {
+        return $this->belongsTo(ServiceTicket::class);
     }
 
     public function requester()

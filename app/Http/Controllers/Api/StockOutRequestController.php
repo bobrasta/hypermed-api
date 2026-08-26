@@ -19,7 +19,7 @@ class StockOutRequestController extends Controller
     {
         $user = $request->user();
 
-        $query = StockOutRequest::with(['inventoryItem', 'location', 'requester', 'reviewer']);
+        $query = StockOutRequest::with(['inventoryItem', 'location', 'serviceTicket', 'requester', 'reviewer']);
 
         if (! $user->hasCtoApprovalAuthority()) {
             $query->where('requested_by', $user->id);
@@ -37,6 +37,7 @@ class StockOutRequestController extends Controller
         $data = $request->validate([
             'inventory_item_id' => ['required', 'exists:inventory_items,id'],
             'location_id'       => ['required', 'exists:locations,id'],
+            'service_ticket_id' => ['nullable', 'exists:service_tickets,id'],
             'type'              => ['required', 'in:issue,write_off'],
             'quantity'          => ['required', 'integer', 'min:1'],
             'reason'            => ['required', 'string'],
@@ -50,7 +51,7 @@ class StockOutRequestController extends Controller
         $this->notifyCto($stockOutRequest);
 
         return response()->json(['data' => new StockOutRequestResource(
-            $stockOutRequest->load(['inventoryItem', 'location', 'requester'])
+            $stockOutRequest->load(['inventoryItem', 'location', 'serviceTicket', 'requester'])
         )], 201);
     }
 
@@ -79,7 +80,7 @@ class StockOutRequestController extends Controller
         $this->notifyRequester($stockOutRequest, approved: true);
 
         return response()->json(['data' => new StockOutRequestResource(
-            $stockOutRequest->load(['inventoryItem', 'location', 'requester', 'reviewer'])
+            $stockOutRequest->load(['inventoryItem', 'location', 'serviceTicket', 'requester', 'reviewer'])
         )]);
     }
 
@@ -100,7 +101,7 @@ class StockOutRequestController extends Controller
         $this->notifyRequester($stockOutRequest, approved: false);
 
         return response()->json(['data' => new StockOutRequestResource(
-            $stockOutRequest->load(['inventoryItem', 'location', 'requester', 'reviewer'])
+            $stockOutRequest->load(['inventoryItem', 'location', 'serviceTicket', 'requester', 'reviewer'])
         )]);
     }
 
@@ -113,7 +114,7 @@ class StockOutRequestController extends Controller
         $stockOutRequest->update(['status' => 'cancelled']);
 
         return response()->json(['data' => new StockOutRequestResource(
-            $stockOutRequest->load(['inventoryItem', 'location', 'requester'])
+            $stockOutRequest->load(['inventoryItem', 'location', 'serviceTicket', 'requester'])
         )]);
     }
 

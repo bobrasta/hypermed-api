@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Hospital;
 use App\Models\ServiceTicket;
 use Illuminate\Database\Seeder;
 
@@ -9,13 +10,24 @@ class ServiceTicketSeeder extends Seeder
 {
     public function run(): void
     {
+        // hospital_id/machine_id used to be hardcoded 1-11, but those
+        // belonged to the original demo hospitals RemoveDemoDataSeeder
+        // deletes (cascading to their machines) in favor of the real
+        // facility import — this seeder was never updated to match, so it
+        // always failed on its first record. Pick real hospitals that
+        // actually have machines instead. assigned_to (2/3/4/8) stays as-is
+        // — those are UserSeeder's real technician user IDs, unaffected.
+        $hospitals = Hospital::has('machines')->with('machines')->orderBy('id')->limit(6)->get();
+        $h = fn (int $i) => $hospitals[$i % max($hospitals->count(), 1)] ?? null;
+        $m = fn (int $i) => $h($i)?->machines->first()?->id;
+
         $tickets = [
-            ['ticket_number' => '#1042', 'machine_id' => 3,  'hospital_id' => 1, 'ward' => 'Renal Unit',  'assigned_to' => 2, 'status' => 'in_progress', 'description' => 'Dialysis machine showing error code E-04. Patient sessions disrupted.'],
-            ['ticket_number' => '#1043', 'machine_id' => 9,  'hospital_id' => 4, 'ward' => 'Radiology',   'assigned_to' => 3, 'status' => 'open',        'description' => 'X-Ray unit not powering on. Checked fuses — all intact.'],
-            ['ticket_number' => '#1044', 'machine_id' => 11, 'hospital_id' => 5, 'ward' => 'ICU',         'assigned_to' => 4, 'status' => 'overdue',     'description' => 'Ventilator alarm intermittently triggered. Needs calibration.'],
-            ['ticket_number' => '#1045', 'machine_id' => 1,  'hospital_id' => 1, 'ward' => 'ICU',         'assigned_to' => 2, 'status' => 'open',        'description' => 'Routine 6-month preventive maintenance due.'],
-            ['ticket_number' => '#1040', 'machine_id' => 6,  'hospital_id' => 3, 'ward' => 'Obstetrics',  'assigned_to' => 8, 'status' => 'resolved',    'description' => 'Ultrasound probe replaced. Unit fully operational.'],
-            ['ticket_number' => '#1039', 'machine_id' => 10, 'hospital_id' => 4, 'ward' => 'Radiology',   'assigned_to' => 3, 'status' => 'resolved',    'description' => 'GE Ultrasound firmware update applied successfully.'],
+            ['ticket_number' => '#1042', 'machine_id' => $m(0), 'hospital_id' => $h(0)?->id, 'ward' => 'Renal Unit',  'assigned_to' => 2, 'status' => 'in_progress', 'description' => 'Dialysis machine showing error code E-04. Patient sessions disrupted.'],
+            ['ticket_number' => '#1043', 'machine_id' => $m(1), 'hospital_id' => $h(1)?->id, 'ward' => 'Radiology',   'assigned_to' => 3, 'status' => 'open',        'description' => 'X-Ray unit not powering on. Checked fuses — all intact.'],
+            ['ticket_number' => '#1044', 'machine_id' => $m(2), 'hospital_id' => $h(2)?->id, 'ward' => 'ICU',         'assigned_to' => 4, 'status' => 'overdue',     'description' => 'Ventilator alarm intermittently triggered. Needs calibration.'],
+            ['ticket_number' => '#1045', 'machine_id' => $m(0), 'hospital_id' => $h(0)?->id, 'ward' => 'ICU',         'assigned_to' => 2, 'status' => 'open',        'description' => 'Routine 6-month preventive maintenance due.'],
+            ['ticket_number' => '#1040', 'machine_id' => $m(3), 'hospital_id' => $h(3)?->id, 'ward' => 'Obstetrics',  'assigned_to' => 8, 'status' => 'resolved',    'description' => 'Ultrasound probe replaced. Unit fully operational.'],
+            ['ticket_number' => '#1039', 'machine_id' => $m(1), 'hospital_id' => $h(1)?->id, 'ward' => 'Radiology',   'assigned_to' => 3, 'status' => 'resolved',    'description' => 'GE Ultrasound firmware update applied successfully.'],
         ];
 
         foreach ($tickets as $t) {

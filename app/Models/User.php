@@ -19,7 +19,7 @@ class User extends Authenticatable
     public const ROLES = [
         'super_admin', 'admin', 'sales_manager', 'sales',
         'finance_manager', 'finance', 'technician', 'cs', 'storekeeper', 'hr',
-        'cto', 'team_leader',
+        'cto', 'team_leader', 'procurement_manager', 'accountant', 'logistics',
     ];
 
     // These tier lists are NOT used for the hasXAuthority() boolean checks
@@ -124,6 +124,45 @@ class User extends Authenticatable
     public function hasTeamLeadAuthority(): bool
     {
         return app(EffectivePermissionResolver::class)->can($this, 'authority.team_lead_tier');
+    }
+
+    public function hasProcurementApprovalAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'procurement.approve_requisition');
+    }
+
+    public function hasStaffManageAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'staff.manage');
+    }
+
+    public function hasProcurementCreateAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'procurement.create_po');
+    }
+
+    public function hasProcurementSalesStageAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'procurement.approve_po_sales_stage');
+    }
+
+    public function hasAccountantAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'procurement.initiate_payment');
+    }
+
+    // Deliberately two separate checks, not one — the logistics role holds
+    // both permissions, but storekeeper only holds receive_order (they
+    // already receive shipments today with no gate at all; this preserves
+    // that without also letting them mark customer orders delivered).
+    public function hasLogisticsDeliverAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'logistics.deliver_order');
+    }
+
+    public function hasLogisticsReceiveAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'logistics.receive_order');
     }
 
     // "Director" is a semantic alias for the existing admin tier, not a new

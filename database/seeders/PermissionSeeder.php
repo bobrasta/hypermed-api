@@ -123,6 +123,19 @@ class PermissionSeeder extends Seeder
             ],
             'admin' => [
                 'roles.manage'                 => ['Manage Roles & Permissions', 'Create/edit roles and their permission grants'],
+                'staff.manage'                 => ['Manage Staff', 'Create, edit, and deactivate staff accounts, including changing a member\'s role'],
+            ],
+            'procurement' => [
+                'procurement.create_po'             => ['Create Purchase Orders', 'Draft a purchase order and pick a vendor/supplier'],
+                'procurement.approve_requisition'   => ['Approve Purchase Requisitions', 'Approve a submitted purchase requisition'],
+                'procurement.approve_po_sales_stage'=> ['Approve PO — Sales Stage', 'First-stage purchase-order approval (sales/commercial review)'],
+                'procurement.approve_po_director_stage' => ['Approve PO — Director Stage', 'Second-stage purchase-order approval (director review)'],
+                'procurement.initiate_payment'      => ['Initiate PO Payment', 'Mark a purchase order as ready for/undergoing payment'],
+                'procurement.approve_payment_final'=> ['Final PO Payment Approval', 'Final director sign-off after payment has been initiated'],
+            ],
+            'logistics' => [
+                'logistics.deliver_order' => ['Deliver Sales Orders', 'Mark a sales order delivered to the customer'],
+                'logistics.receive_order' => ['Receive Purchase Orders', 'Mark a purchase order received from the vendor'],
             ],
         ];
 
@@ -185,16 +198,19 @@ class PermissionSeeder extends Seeder
         }
 
         $grants = [
-            'sales_manager' => ['sales.create', 'sales.edit', 'sales.issue_quotation', 'sales.view_full_numbers', 'sales.create_subordinate_user'],
+            'sales_manager' => ['sales.create', 'sales.edit', 'sales.issue_quotation', 'sales.view_full_numbers', 'sales.create_subordinate_user', 'procurement.approve_po_sales_stage'],
             'sales'         => ['sales.create', 'sales.edit', 'sales.issue_quotation'],
             'finance_manager'=> ['finance.view_revenue', 'finance.approve_step2', 'finance.export_reports'],
             'finance'       => [], // scoped grant below — 'masked' revenue view only
             'technician'    => ['services.issue_ticket', 'services.close_ticket', 'equipment.schedule_maintenance'],
             'cs'            => ['services.issue_ticket'],
-            'storekeeper'   => ['inventory.adjust_stock', 'inventory.transfer_stock', 'inventory.view_valuation'],
-            'hr'            => ['hr.view_team_attendance'],
+            'storekeeper'   => ['inventory.adjust_stock', 'inventory.transfer_stock', 'inventory.view_valuation', 'logistics.receive_order'],
+            'hr'            => ['hr.view_team_attendance', 'staff.manage', 'roles.manage'],
             'cto'           => ['services.assign_ticket', 'services.add_engineer', 'services.view_team_metrics', 'inventory.approve_writeoff'],
-            'team_leader'   => ['services.view_team_metrics'],
+            'team_leader'   => ['services.view_team_metrics', 'services.assign_ticket'],
+            'procurement_manager' => ['procurement.create_po', 'procurement.approve_requisition'],
+            'accountant'    => ['procurement.initiate_payment'],
+            'logistics'     => ['logistics.deliver_order', 'logistics.receive_order'],
         ];
 
         foreach ($grants as $roleName => $permKeys) {
@@ -250,6 +266,9 @@ class PermissionSeeder extends Seeder
             'cs'              => ['dashboard', 'customers', 'service', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'storekeeper'     => ['dashboard', 'inventory', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'hr'              => ['dashboard', 'my_leave', 'hr_approvals', 'staff', 'reports', 'settings', 'notifications'],
+            'procurement_manager' => ['dashboard', 'approvals', 'inventory', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'accountant'      => ['dashboard', 'approvals', 'revenue', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'logistics'       => ['dashboard', 'inventory', 'sales', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
         ];
 
         foreach ($grants as $roleName => $keys) {

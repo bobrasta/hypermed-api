@@ -21,7 +21,7 @@ class SalesOrderController extends Controller
 {
     public function index(Request $request)
     {
-        $orders = SalesOrder::with(['createdBy', 'quotation', 'location', 'hospital', 'commissionAgent'])
+        $orders = SalesOrder::with(['createdBy', 'deliveredBy', 'quotation', 'location', 'hospital', 'commissionAgent'])
             ->when($request->status, fn ($q, $s) => $q->where('status', $s))
             ->when($request->search, fn ($q, $s) => $q->where(function ($q) use ($s) {
                 $q->where('client_name', 'like', "%$s%")
@@ -103,7 +103,7 @@ class SalesOrderController extends Controller
 
     public function show(SalesOrder $salesOrder)
     {
-        $salesOrder->load(['createdBy', 'confirmedBy', 'items.inventoryItem', 'quotation', 'location', 'hospital', 'commissionAgent']);
+        $salesOrder->load(['createdBy', 'confirmedBy', 'deliveredBy', 'items.inventoryItem', 'quotation', 'location', 'hospital', 'commissionAgent']);
         return new SalesOrderResource($salesOrder);
     }
 
@@ -192,6 +192,7 @@ class SalesOrderController extends Controller
     // Deliver items — per-item quantities, auto-issues stock movements
     public function deliver(Request $request, SalesOrder $salesOrder, StockService $stockService, MachineRegistrationService $machineRegistration)
     {
+        abort_if(! $request->user()->hasLogisticsDeliverAuthority(), 403, 'You are not authorised to deliver sales orders.');
         abort_if(!in_array($salesOrder->status, ['confirmed', 'delivering']), 422, 'Order must be confirmed before delivery.');
         abort_if(!$salesOrder->location_id, 422, 'This sales order has no source location set.');
 
@@ -202,7 +203,7 @@ class SalesOrderController extends Controller
             'notes'                           => 'nullable|string',
         ]);
 
-        return DB::transaction(function () use ($data, $salesOrder, $stockService, $machineRegistration) {
+        return DB::transaction(function () use ($data, $salesOrder, $stockService, $machineRegistration, $request) {
             $allDelivered = true;
             $location = $salesOrder->location;
             $machinesCreated = [];
@@ -241,10 +242,11 @@ class SalesOrderController extends Controller
             $salesOrder->update([
                 'status'       => $allDelivered ? 'delivered' : 'delivering',
                 'delivered_at' => $allDelivered ? now() : null,
+                'delivered_by' => $allDelivered ? $request->user()->id : null,
             ]);
 
             return response()->json([
-                'data' => new SalesOrderResource($salesOrder->load(['createdBy', 'confirmedBy', 'items.inventoryItem', 'location', 'hospital'])),
+                'data' => new SalesOrderResource($salesOrder->load(['createdBy', 'confirmedBy', 'deliveredBy', 'items.inventoryItem', 'location', 'hospital'])),
                 'machines_created' => collect($machinesCreated)->map(fn ($m) => [
                     'id' => $m->id, 'serial_no' => $m->serial_no, 'model' => $m->model,
                 ]),

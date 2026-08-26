@@ -16,6 +16,8 @@ class StockOutRequestResource extends JsonResource
             'item_sku'           => $this->inventoryItem?->sku,
             'location_id'        => $this->location_id,
             'location_name'      => $this->location?->name,
+            'service_ticket_id'  => $this->service_ticket_id,
+            'service_ticket_number' => $this->serviceTicket?->ticket_number,
             'type'               => $this->type,
             'quantity'           => $this->quantity,
             'reason'             => $this->reason,

@@ -16,6 +16,8 @@ class SalesLeadResource extends JsonResource
             'hospital_name_raw'  => $this->hospital_name_raw,
             'contact_id'         => $this->contact_id,
             'contact_name_raw'   => $this->contact_name_raw,
+            'source'             => $this->source,
+            'source_notes'       => $this->source_notes,
             'machine_type'       => $this->machine_type,
             'deal_value'         => $this->deal_value,
             'days_in_stage'      => $this->days_in_stage,

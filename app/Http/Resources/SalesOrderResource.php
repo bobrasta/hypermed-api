@@ -41,6 +41,7 @@ class SalesOrderResource extends JsonResource
             'commission_amount'      => $this->commission_amount,
             'confirmed_at'           => $this->confirmed_at?->toIso8601String(),
             'delivered_at'           => $this->delivered_at?->toIso8601String(),
+            'delivered_by_name'      => $this->deliveredBy?->name,
             'created_at'             => $this->created_at->toIso8601String(),
             'items'                  => $this->whenLoaded('items', fn () =>
                 $this->items->map(fn ($item) => [
