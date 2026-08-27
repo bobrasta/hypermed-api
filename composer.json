@@ -11,6 +11,7 @@
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.3",
         "laravel/tinker": "^2.10.1",
+        "phpoffice/phpspreadsheet": "^5.9",
         "spatie/laravel-permission": "*",
         "webklex/laravel-imap": "^4.1"
     },

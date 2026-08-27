@@ -49,6 +49,9 @@ use App\Http\Controllers\Api\DisciplinaryCaseController;
 use App\Http\Controllers\Api\PositionChangeController;
 use App\Http\Controllers\Api\HrReportController;
 use App\Http\Controllers\Api\VacancyController;
+use App\Http\Controllers\Api\PayrollController;
+use App\Http\Controllers\Api\SalaryAdjustmentController;
+use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\ApplicantController;
 use App\Http\Controllers\Api\ApplicationController;
 use App\Http\Controllers\Api\InterviewController;
@@ -331,6 +334,27 @@ Route::prefix('v1')->group(function () {
         Route::put('applications/{application}/stage', [ApplicationController::class, 'updateStage']);
         Route::post('applications/{application}/interviews', [InterviewController::class, 'store']);
         Route::put('interviews/{interview}', [InterviewController::class, 'update']);
+
+        // Payroll — data model + manual entry this round, see PayrollController.
+        Route::get('payroll-runs', [PayrollController::class, 'index']);
+        Route::post('payroll-runs', [PayrollController::class, 'store']);
+        Route::get('payroll-runs/{payrollRun}', [PayrollController::class, 'show']);
+        Route::get('payroll-runs/{payrollRun}/eligible-staff', [PayrollController::class, 'eligibleStaff']);
+        Route::post('payroll-runs/{payrollRun}/items', [PayrollController::class, 'upsertItem']);
+        Route::delete('payroll-runs/{payrollRun}/items/{item}', [PayrollController::class, 'destroyItem']);
+        Route::post('payroll-runs/{payrollRun}/review', [PayrollController::class, 'review']);
+        Route::post('payroll-runs/{payrollRun}/approve', [PayrollController::class, 'approve']);
+        Route::post('payroll-runs/{payrollRun}/mark-paid', [PayrollController::class, 'markPaid']);
+        Route::get('staff/{user}/salary-adjustments', [SalaryAdjustmentController::class, 'index']);
+        Route::post('staff/{user}/salary-adjustments', [SalaryAdjustmentController::class, 'store']);
+
+        // Attendance — manual marking is the primary path; import is a
+        // best-effort bulk path, see AttendanceController.
+        Route::get('attendance', [AttendanceController::class, 'index']);
+        Route::post('attendance/mark', [AttendanceController::class, 'mark']);
+        Route::post('attendance/bulk-mark', [AttendanceController::class, 'bulkMark']);
+        Route::post('attendance/import', [AttendanceController::class, 'import']);
+        Route::get('attendance/imports', [AttendanceController::class, 'imports']);
 
         // Positions
         Route::get('positions', [PositionController::class, 'index']);

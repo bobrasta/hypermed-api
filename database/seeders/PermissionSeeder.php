@@ -242,7 +242,8 @@ class PermissionSeeder extends Seeder
             'dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service',
             'inventory', 'finance', 'staff', 'my_leave', 'reports', 'settings',
             'sales', 'customers', 'revenue', 'email', 'hr_approvals', 'hr_settings',
-            'hr_staff', 'notifications',
+            'hr_dashboard', 'hr_directory', 'hr_recruitment', 'hr_leave_calendar',
+            'hr_attendance', 'hr_payroll', 'hr_reports', 'notifications',
         ];
 
         $roles = Role::whereIn('name', User::ROLES)->get()->keyBy('name');
@@ -268,7 +269,11 @@ class PermissionSeeder extends Seeder
             'cs'              => ['dashboard', 'customers', 'service', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'storekeeper'     => ['dashboard', 'inventory', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             // No 'staff' (the task-assignment board) — that's Operations' job.
-            'hr'              => ['dashboard', 'my_leave', 'hr_approvals', 'hr_settings', 'hr_staff', 'reports', 'settings', 'notifications'],
+            'hr'              => [
+                'dashboard', 'my_leave', 'hr_dashboard', 'hr_directory', 'hr_recruitment',
+                'hr_leave_calendar', 'hr_attendance', 'hr_payroll', 'hr_approvals',
+                'hr_reports', 'hr_settings', 'reports', 'settings', 'notifications',
+            ],
             'procurement_manager' => ['dashboard', 'approvals', 'inventory', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'accountant'      => ['dashboard', 'approvals', 'revenue', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'logistics'       => ['dashboard', 'inventory', 'sales', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],

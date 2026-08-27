@@ -217,6 +217,16 @@ class User extends Authenticatable
         return $this->hasMany(DisciplinaryCase::class);
     }
 
+    public function salaryAdjustments()
+    {
+        return $this->hasMany(SalaryAdjustment::class);
+    }
+
+    public function attendanceRecords()
+    {
+        return $this->hasMany(AttendanceRecord::class);
+    }
+
     public function positionChanges()
     {
         return $this->hasMany(PositionChange::class);
