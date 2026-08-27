@@ -175,7 +175,12 @@ class HrReportController extends Controller
             ->where('status', 'open')->get();
 
         $pipeline = $vacancies->map(function (Vacancy $v) {
-            $stages = $v->applications()->selectRaw('status, count(*) as c')->groupBy('status')->pluck('c', 'status');
+            // Postgres/PDO returns raw COUNT(*) as a numeric *string*, not
+            // a native int — json_encode then emits a JSON string ("3"),
+            // which fails Flutter's `(v as num)` cast in VacancyPipelineEntry.
+            // Cast explicitly rather than relying on PDO/driver behavior.
+            $stages = $v->applications()->selectRaw('status, count(*) as c')->groupBy('status')
+                ->pluck('c', 'status')->map(fn ($c) => (int) $c);
             $daysOpen = $v->opened_at->diffInDays(now());
             return [
                 'vacancy_id' => $v->id, 'position_title' => $v->position?->title,
@@ -234,7 +239,9 @@ class HrReportController extends Controller
             ->groupBy('user_id')
             ->havingRaw('count(*) > 1')
             ->get()
-            ->map(fn ($row) => ['user_name' => $row->user?->name, 'case_count' => $row->case_count]);
+            // Same Postgres/PDO string-vs-int issue as recruitmentSummary()'s
+            // by_stage counts — cast explicitly, don't trust the raw value's type.
+            ->map(fn ($row) => ['user_name' => $row->user?->name, 'case_count' => (int) $row->case_count]);
 
         return response()->json(['data' => [
             'active_count' => $active->count(),
