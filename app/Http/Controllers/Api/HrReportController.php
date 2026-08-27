@@ -88,10 +88,16 @@ class HrReportController extends Controller
 
         return response()->json(['data' => [
             'total'        => $staff->count(),
-            'by_department'=> $byDept,
-            'by_position'  => $byPosition,
-            'by_gender'    => $byGender,
-            'by_location'  => $byZone,
+            // Cast every keyed map to (object) — PHP's json_encode has no
+            // way to tell an *empty* associative array from an empty list,
+            // so an empty $byDept etc. would otherwise serialize as JSON
+            // `[]` instead of `{}` and fail Flutter's Map<String,dynamic>
+            // cast. Non-empty maps already serialize correctly either way,
+            // so this cast is safe/a no-op for them.
+            'by_department'=> (object) $byDept->toArray(),
+            'by_position'  => (object) $byPosition->toArray(),
+            'by_gender'    => (object) $byGender->toArray(),
+            'by_location'  => (object) $byZone->toArray(),
         ]]);
     }
 
@@ -185,7 +191,11 @@ class HrReportController extends Controller
             return [
                 'vacancy_id' => $v->id, 'position_title' => $v->position?->title,
                 'days_open' => $daysOpen, 'total_applications' => $v->applications_count,
-                'by_stage' => $stages,
+                // (object) cast — an empty $stages (no applications yet)
+                // would otherwise serialize as JSON `[]`, not `{}`, and
+                // fail Flutter's Map<String,dynamic> cast. Same fix as
+                // headcountBreakdown() above.
+                'by_stage' => (object) $stages->toArray(),
             ];
         });
 
@@ -199,7 +209,7 @@ class HrReportController extends Controller
             'open_vacancies'   => $vacancies->count(),
             'pipeline'         => $pipeline,
             'talent_pool_count'=> $talentPoolCount,
-            'hires_by_source'  => $hiredBySource,
+            'hires_by_source'  => (object) $hiredBySource->toArray(),
         ]]);
     }
 
@@ -245,7 +255,7 @@ class HrReportController extends Controller
 
         return response()->json(['data' => [
             'active_count' => $active->count(),
-            'by_stage'     => $byStage,
+            'by_stage'     => (object) $byStage->toArray(),
             'repeat_offenders' => $repeatOffenders,
         ]]);
     }
