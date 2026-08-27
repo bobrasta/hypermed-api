@@ -5,10 +5,14 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PayrollItemResource;
 use App\Http\Resources\PayrollRunResource;
+use App\Models\Expense;
+use App\Models\ExpenseCategory;
 use App\Models\PayrollItem;
 use App\Models\PayrollRun;
 use App\Models\User;
+use App\Services\FinancePostingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class PayrollController extends Controller
 {
@@ -161,14 +165,57 @@ class PayrollController extends Controller
         return new PayrollRunResource($payrollRun->load(['createdBy', 'approvedBy']));
     }
 
-    public function markPaid(Request $request, PayrollRun $payrollRun)
+    // Marking a run paid used to just flip a status flag — the money it
+    // represents was invisible everywhere else in Finance (Expenses, Cash
+    // Flow, P&L all read from the ledger, and payroll never posted to it).
+    // Now it creates a real Expense under "Salaries & Wages" and posts it
+    // through the same FinancePostingService every other cash-out event in
+    // this app already uses, rather than inventing a parallel path.
+    public function markPaid(Request $request, PayrollRun $payrollRun, FinancePostingService $financePosting)
     {
         $this->authorize($request);
         abort_if($payrollRun->status !== 'approved', 422, 'Only an approved run can be marked paid.');
 
-        $payrollRun->update(['status' => 'paid', 'paid_at' => now()]);
+        $payrollRun = DB::transaction(function () use ($payrollRun, $request, $financePosting) {
+            $category = ExpenseCategory::where('name', 'Salaries & Wages')->firstOrFail();
+            static $months = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-        return new PayrollRunResource($payrollRun);
+            // Payroll's own draft → reviewed → approved chain already is the
+            // approval — this posts straight to 'approved', bypassing the
+            // separate pending_cto/pending_director expense workflow rather
+            // than making the accountant approve the same spend twice.
+            // Posts net pay (the actual bank outflow) as the expense, not
+            // gross — a fully rigorous ledger would book gross as the
+            // expense and split PAYE/NSSF/HESLB out as separate payable
+            // liabilities (money withheld, owed to TRA/NSSF, not yet an
+            // expense reduction). That needs those liability accounts to
+            // exist first — deliberately out of scope alongside the rest of
+            // "no statutory auto-calc engine yet" for this round; net-only
+            // is simpler and still correctly reflects money actually leaving
+            // the bank, which is what was missing.
+            $expense = Expense::create([
+                'name'         => "Payroll — {$months[$payrollRun->period_month]} {$payrollRun->period_year}",
+                'category_id'  => $category->id,
+                'amount'       => $payrollRun->net_total,
+                'tax_rate'     => 0,
+                'tax_amount'   => 0,
+                'payment_mode' => 'bank',
+                'expense_date' => now()->toDateString(),
+                'reference'    => "Payroll Run #{$payrollRun->id}",
+                'created_by'   => $request->user()->id,
+                'status'       => 'approved',
+                'requires_director_approval' => false,
+                'reviewed_by'  => $request->user()->id,
+                'reviewed_at'  => now(),
+            ]);
+            $financePosting->postExpense($expense);
+
+            $payrollRun->update(['status' => 'paid', 'paid_at' => now(), 'expense_id' => $expense->id]);
+
+            return $payrollRun;
+        });
+
+        return new PayrollRunResource($payrollRun->fresh()->load('expense'));
     }
 
     // Staff picker for the item-entry grid — active staff not yet on this run.

@@ -23,6 +23,7 @@ class PayrollRunResource extends JsonResource
             'approved_by_name'  => $this->whenLoaded('approvedBy', fn () => $this->approvedBy?->name),
             'approved_at'       => $this->approved_at?->toIso8601String(),
             'paid_at'           => $this->paid_at?->toIso8601String(),
+            'expense_id'        => $this->expense_id,
             'created_at'        => $this->created_at?->toIso8601String(),
         ];
     }

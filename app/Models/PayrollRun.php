@@ -9,7 +9,7 @@ class PayrollRun extends Model
     protected $fillable = [
         'period_month', 'period_year', 'status',
         'gross_total', 'deductions_total', 'net_total',
-        'created_by', 'approved_by', 'approved_at', 'paid_at',
+        'created_by', 'approved_by', 'approved_at', 'paid_at', 'expense_id',
     ];
 
     protected $casts = [
@@ -30,5 +30,10 @@ class PayrollRun extends Model
     public function approvedBy()
     {
         return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function expense()
+    {
+        return $this->belongsTo(Expense::class);
     }
 }
