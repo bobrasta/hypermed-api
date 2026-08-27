@@ -92,6 +92,7 @@ class StaffController extends Controller
 
         $data = $request->validate([
             'name'         => ['sometimes', 'string'],
+            'email'        => ['sometimes', 'email', 'unique:users,email,' . $user->id],
             'phone'        => ['nullable', 'string'],
             'region'       => ['nullable', 'string'],
             'role'         => ['sometimes', 'in:' . implode(',', User::ROLES)],
@@ -120,6 +121,16 @@ class StaffController extends Controller
 
         if (array_key_exists('manager_id', $data) && $data['manager_id'] === $user->id) {
             abort(422, 'A staff member cannot be their own manager.');
+        }
+
+        // Position changes are a director-level call (org structure), not a
+        // routine HR edit — HR can see/manage everything else on this form,
+        // but only admin tier can move someone's position. Also covers
+        // career-progression style changes made through this endpoint
+        // directly rather than PositionChangeController.
+        if (array_key_exists('position_id', $data) && $data['position_id'] !== $user->position_id
+            && ! $request->user()->hasDirectorAuthority()) {
+            abort(403, 'Only a Director/Admin can change a staff member\'s position.');
         }
 
         $user->update($data);

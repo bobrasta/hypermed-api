@@ -48,6 +48,10 @@ use App\Http\Controllers\Api\ContractController;
 use App\Http\Controllers\Api\DisciplinaryCaseController;
 use App\Http\Controllers\Api\PositionChangeController;
 use App\Http\Controllers\Api\HrReportController;
+use App\Http\Controllers\Api\VacancyController;
+use App\Http\Controllers\Api\ApplicantController;
+use App\Http\Controllers\Api\ApplicationController;
+use App\Http\Controllers\Api\InterviewController;
 use App\Http\Controllers\Api\PartCannibalizationController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\TaskController;
@@ -304,6 +308,29 @@ Route::prefix('v1')->group(function () {
         // HR reports
         Route::get('hr-reports/org-chart', [HrReportController::class, 'orgChart']);
         Route::get('hr-reports/turnover', [HrReportController::class, 'turnover']);
+        Route::get('hr-reports/headcount', [HrReportController::class, 'headcountBreakdown']);
+        Route::get('hr-reports/staff-directory', [HrReportController::class, 'staffDirectory']);
+        Route::get('hr-reports/leave-balances', [HrReportController::class, 'leaveBalances']);
+        Route::get('hr-reports/leave-calendar', [HrReportController::class, 'leaveCalendar']);
+        Route::get('hr-reports/recruitment-summary', [HrReportController::class, 'recruitmentSummary']);
+        Route::get('hr-reports/contracts-expiring', [HrReportController::class, 'contractsExpiring']);
+        Route::get('hr-reports/disciplinary-summary', [HrReportController::class, 'disciplinarySummary']);
+        Route::get('hr-reports/career-progressions', [HrReportController::class, 'careerProgressions']);
+
+        // Recruitment
+        Route::get('vacancies', [VacancyController::class, 'index']);
+        Route::post('vacancies', [VacancyController::class, 'store']);
+        Route::put('vacancies/{vacancy}', [VacancyController::class, 'update']);
+        Route::get('vacancies/{vacancy}/applications', [ApplicationController::class, 'index']);
+        Route::post('vacancies/{vacancy}/applications', [ApplicationController::class, 'store']);
+        Route::get('applicants', [ApplicantController::class, 'index']);
+        Route::post('applicants', [ApplicantController::class, 'store']);
+        Route::get('applicants/{applicant}', [ApplicantController::class, 'show']);
+        Route::put('applicants/{applicant}', [ApplicantController::class, 'update']);
+        Route::post('applicants/{applicant}/cv', [ApplicantController::class, 'uploadCv']);
+        Route::put('applications/{application}/stage', [ApplicationController::class, 'updateStage']);
+        Route::post('applications/{application}/interviews', [InterviewController::class, 'store']);
+        Route::put('interviews/{interview}', [InterviewController::class, 'update']);
 
         // Positions
         Route::get('positions', [PositionController::class, 'index']);

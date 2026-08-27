@@ -241,7 +241,8 @@ class PermissionSeeder extends Seeder
         $screenKeys = [
             'dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service',
             'inventory', 'finance', 'staff', 'my_leave', 'reports', 'settings',
-            'sales', 'customers', 'revenue', 'email', 'hr_approvals', 'hr_settings', 'notifications',
+            'sales', 'customers', 'revenue', 'email', 'hr_approvals', 'hr_settings',
+            'hr_staff', 'notifications',
         ];
 
         $roles = Role::whereIn('name', User::ROLES)->get()->keyBy('name');
@@ -266,7 +267,8 @@ class PermissionSeeder extends Seeder
             'finance'         => ['dashboard', 'revenue', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'cs'              => ['dashboard', 'customers', 'service', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'storekeeper'     => ['dashboard', 'inventory', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
-            'hr'              => ['dashboard', 'my_leave', 'hr_approvals', 'hr_settings', 'staff', 'reports', 'settings', 'notifications'],
+            // No 'staff' (the task-assignment board) — that's Operations' job.
+            'hr'              => ['dashboard', 'my_leave', 'hr_approvals', 'hr_settings', 'hr_staff', 'reports', 'settings', 'notifications'],
             'procurement_manager' => ['dashboard', 'approvals', 'inventory', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'accountant'      => ['dashboard', 'approvals', 'revenue', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'logistics'       => ['dashboard', 'inventory', 'sales', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
