@@ -84,6 +84,7 @@ class PermissionSeeder extends Seeder
                 'services.assign_ticket'       => ['Assign Service Tickets', 'Assign or reassign a technician to a ticket'],
                 'services.close_ticket'        => ['Close Service Tickets', 'Mark a service ticket resolved'],
                 'services.view_team_metrics'   => ['View Team Metrics', "See the wider team's ticket/workload stats"],
+                'services.sign_off_installation' => ['Sign Off Equipment Installation', 'Confirm a newly delivered unit was installed correctly (not the installer themselves)'],
             ],
             'finance' => [
                 'finance.view_revenue'         => ['View Revenue Figures', 'See ledger revenue and profit numbers'],
@@ -206,8 +207,8 @@ class PermissionSeeder extends Seeder
             'cs'            => ['services.issue_ticket'],
             'storekeeper'   => ['inventory.adjust_stock', 'inventory.transfer_stock', 'inventory.view_valuation', 'logistics.receive_order'],
             'hr'            => ['hr.view_team_attendance', 'staff.manage', 'roles.manage'],
-            'cto'           => ['services.assign_ticket', 'services.add_engineer', 'services.view_team_metrics', 'inventory.approve_writeoff'],
-            'team_leader'   => ['services.view_team_metrics', 'services.assign_ticket'],
+            'cto'           => ['services.assign_ticket', 'services.add_engineer', 'services.view_team_metrics', 'inventory.approve_writeoff', 'services.sign_off_installation'],
+            'team_leader'   => ['services.view_team_metrics', 'services.assign_ticket', 'services.sign_off_installation'],
             'procurement_manager' => ['procurement.create_po', 'procurement.approve_requisition'],
             'accountant'    => ['procurement.initiate_payment'],
             'logistics'     => ['logistics.deliver_order', 'logistics.receive_order'],
@@ -240,7 +241,7 @@ class PermissionSeeder extends Seeder
         $screenKeys = [
             'dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service',
             'inventory', 'finance', 'staff', 'my_leave', 'reports', 'settings',
-            'sales', 'customers', 'revenue', 'email', 'hr_approvals', 'notifications',
+            'sales', 'customers', 'revenue', 'email', 'hr_approvals', 'hr_settings', 'notifications',
         ];
 
         $roles = Role::whereIn('name', User::ROLES)->get()->keyBy('name');
@@ -265,7 +266,7 @@ class PermissionSeeder extends Seeder
             'finance'         => ['dashboard', 'revenue', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'cs'              => ['dashboard', 'customers', 'service', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'storekeeper'     => ['dashboard', 'inventory', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
-            'hr'              => ['dashboard', 'my_leave', 'hr_approvals', 'staff', 'reports', 'settings', 'notifications'],
+            'hr'              => ['dashboard', 'my_leave', 'hr_approvals', 'hr_settings', 'staff', 'reports', 'settings', 'notifications'],
             'procurement_manager' => ['dashboard', 'approvals', 'inventory', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'accountant'      => ['dashboard', 'approvals', 'revenue', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'logistics'       => ['dashboard', 'inventory', 'sales', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],

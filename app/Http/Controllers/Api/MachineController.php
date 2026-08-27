@@ -109,6 +109,26 @@ class MachineController extends Controller
         return response()->json(null, 204);
     }
 
+    // Closes the chain-of-custody loop: a supervisor/technician (not the
+    // installer themselves — no self-sign-off) confirms the installation was
+    // done right. Only reachable once the installation ticket has been
+    // resolved (see ServiceTicketController::resolve()).
+    public function signOff(Request $request, Machine $machine)
+    {
+        abort_if(! $request->user()->hasEquipmentSignOffAuthority(), 403,
+            'You are not authorised to sign off equipment installations.');
+        abort_if($machine->status !== 'pending_signoff', 422,
+            'This machine is not awaiting sign-off.');
+
+        $machine->update([
+            'signed_off_by' => $request->user()->id,
+            'signed_off_at' => now(),
+            'status'        => 'operational',
+        ]);
+
+        return response()->json(['data' => new MachineResource($machine->load(['hospital', 'installedBy', 'signedOffBy']))]);
+    }
+
     // Hospital.machine_count/machines_operational are denormalized for the
     // map/dashboard — recompute from the actual rows (not incremental math)
     // so they can't drift out of sync.

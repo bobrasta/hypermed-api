@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class LeaveRequest extends Model
 {
     protected $fillable = [
-        'user_id', 'type', 'start_date', 'end_date', 'days_count', 'reason',
+        'user_id', 'type', 'leave_type_id', 'start_date', 'end_date', 'days_count', 'reason',
         'status', 'reviewed_by', 'reviewed_at', 'rejection_reason',
     ];
 
@@ -26,5 +26,10 @@ class LeaveRequest extends Model
     public function reviewer()
     {
         return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    public function leaveType()
+    {
+        return $this->belongsTo(LeaveType::class);
     }
 }

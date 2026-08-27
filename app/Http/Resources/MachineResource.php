@@ -23,6 +23,14 @@ class MachineResource extends JsonResource
             'status'           => $this->status,
             'status_code'      => Machine::$statusCodes[$this->status] ?? $this->status,
             'revenue_per_month' => $this->revenue_per_month,
+            'sales_order_id'         => $this->sales_order_id,
+            'installation_ticket_id' => $this->installation_ticket_id,
+            'installed_by'      => $this->installed_by,
+            'installed_by_name' => $this->whenLoaded('installedBy', fn () => $this->installedBy?->name),
+            'installed_at'      => $this->installed_at?->toIso8601String(),
+            'signed_off_by'      => $this->signed_off_by,
+            'signed_off_by_name' => $this->whenLoaded('signedOffBy', fn () => $this->signedOffBy?->name),
+            'signed_off_at'      => $this->signed_off_at?->toIso8601String(),
             'tickets'          => ServiceTicketResource::collection($this->whenLoaded('tickets')),
         ];
     }

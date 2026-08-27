@@ -22,6 +22,7 @@ class MachineRegistrationService
         string $orderNumber,
         int $priorQtyDelivered,
         int $qtyJustDelivered,
+        ?int $salesOrderId = null,
     ): array {
         if (! $item->creates_machine_record) {
             return [];
@@ -38,14 +39,14 @@ class MachineRegistrationService
             ->exists();
 
         return $isTracked
-            ? $this->registerFromTrackedUnits($item, $hospitalId, $qtyJustDelivered)
-            : $this->registerWithFabricatedSerials($item, $hospitalId, $orderNumber, $priorQtyDelivered, $qtyJustDelivered);
+            ? $this->registerFromTrackedUnits($item, $hospitalId, $qtyJustDelivered, $salesOrderId)
+            : $this->registerWithFabricatedSerials($item, $hospitalId, $orderNumber, $priorQtyDelivered, $qtyJustDelivered, $salesOrderId);
     }
 
     /**
      * @return Machine[]
      */
-    private function registerFromTrackedUnits(InventoryItem $item, int $hospitalId, int $qtyJustDelivered): array
+    private function registerFromTrackedUnits(InventoryItem $item, int $hospitalId, int $qtyJustDelivered, ?int $salesOrderId): array
     {
         $warrantyMonths = $item->warranty_months ?? 12;
 
@@ -68,9 +69,14 @@ class MachineRegistrationService
                 'model'           => $item->name,
                 'type'            => $item->category?->name ?? 'Equipment',
                 'hospital_id'     => $hospitalId,
+                'sales_order_id'  => $salesOrderId,
                 'install_date'    => now()->toDateString(),
                 'warranty_expiry' => now()->addMonths($warrantyMonths)->toDateString(),
-                'status'          => 'operational',
+                // Delivered doesn't mean installed — a technician still has to
+                // go commission it (see ServiceTicketController::resolve()'s
+                // 'installation' ticket handling) and a supervisor sign off
+                // before this moves to 'operational'.
+                'status'          => 'pending_installation',
             ]);
 
             $serial->update(['status' => 'in_service', 'assigned_to_machine_id' => $machine->id]);
@@ -90,6 +96,7 @@ class MachineRegistrationService
         string $orderNumber,
         int $priorQtyDelivered,
         int $qtyJustDelivered,
+        ?int $salesOrderId,
     ): array {
         $warrantyMonths = $item->warranty_months ?? 12;
         $machines = [];
@@ -101,9 +108,10 @@ class MachineRegistrationService
                 'model'           => $item->name,
                 'type'            => $item->category?->name ?? 'Equipment',
                 'hospital_id'     => $hospitalId,
+                'sales_order_id'  => $salesOrderId,
                 'install_date'    => now()->toDateString(),
                 'warranty_expiry' => now()->addMonths($warrantyMonths)->toDateString(),
-                'status'          => 'operational',
+                'status'          => 'pending_installation',
             ]);
         }
 

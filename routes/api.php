@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\FinanceReportController;
 use App\Http\Controllers\Api\HospitalController;
 use App\Http\Controllers\Api\InventoryController;
 use App\Http\Controllers\Api\InvoiceController;
+use App\Http\Controllers\Api\CreditNoteController;
 use App\Http\Controllers\Api\LicenseController;
 use App\Http\Controllers\Api\LocationController;
 use App\Http\Controllers\Api\MachineController;
@@ -38,6 +39,15 @@ use App\Http\Controllers\Api\StockOutRequestController;
 use App\Http\Controllers\Api\PerDiemController;
 use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Api\LeaveController;
+use App\Http\Controllers\Api\LeaveTypeController;
+use App\Http\Controllers\Api\LeaveBalanceController;
+use App\Http\Controllers\Api\PublicHolidayController;
+use App\Http\Controllers\Api\HrSettingController;
+use App\Http\Controllers\Api\PositionController;
+use App\Http\Controllers\Api\ContractController;
+use App\Http\Controllers\Api\DisciplinaryCaseController;
+use App\Http\Controllers\Api\PositionChangeController;
+use App\Http\Controllers\Api\HrReportController;
 use App\Http\Controllers\Api\PartCannibalizationController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\TaskController;
@@ -147,6 +157,7 @@ Route::prefix('v1')->group(function () {
 
         // Machines (map is registered above in cache group)
         Route::apiResource('machines', MachineController::class);
+        Route::post('machines/{machine}/sign-off', [MachineController::class, 'signOff']);
 
         // Hospitals
         Route::apiResource('hospitals', HospitalController::class);
@@ -167,6 +178,10 @@ Route::prefix('v1')->group(function () {
         Route::post('invoices/{invoice}/payments',[InvoiceController::class, 'recordPayment']);
         Route::get('invoices/{invoice}/pdf',        [InvoiceController::class, 'pdf']);
         Route::post('invoices/{invoice}/share-link',[InvoiceController::class, 'shareLink']);
+        Route::get('invoices/{invoice}/credit-notes',  [CreditNoteController::class, 'index']);
+        Route::post('invoices/{invoice}/credit-notes', [CreditNoteController::class, 'store']);
+        Route::post('credit-notes/{creditNote}/approve', [CreditNoteController::class, 'approve']);
+        Route::post('credit-notes/{creditNote}/apply',   [CreditNoteController::class, 'apply']);
         Route::apiResource('invoices', InvoiceController::class);
 
         // Sales Leads
@@ -204,6 +219,7 @@ Route::prefix('v1')->group(function () {
 
         // Inventory
         Route::patch('inventory/{inventoryItem}/adjust', [InventoryController::class, 'adjust']);
+        Route::get('inventory/{inventoryItem}/history', [InventoryController::class, 'history']);
         Route::get('inventory/{inventoryItem}/movements',  [StockMovementController::class, 'index']);
         Route::get('inventory/{inventoryItem}/batches',    [BatchLotController::class, 'index']);
         Route::post('inventory/{inventoryItem}/batches',   [BatchLotController::class, 'store']);
@@ -265,6 +281,36 @@ Route::prefix('v1')->group(function () {
         Route::patch('staff/{user}/avail_status', [StaffController::class, 'updateAvailStatus']);
         Route::post('staff/{user}/reset-password', [StaffController::class, 'resetPassword']);
 
+        // Contracts
+        Route::get('staff/{user}/contracts', [ContractController::class, 'index']);
+        Route::post('staff/{user}/contracts', [ContractController::class, 'store']);
+        Route::post('contracts/{contract}/renew', [ContractController::class, 'renew']);
+        Route::post('contracts/{contract}/end', [ContractController::class, 'end']);
+        Route::post('contracts/{contract}/resign', [ContractController::class, 'resign']);
+        Route::post('contracts/{contract}/allowances', [ContractController::class, 'addAllowance']);
+        Route::delete('contracts/{contract}/allowances/{allowance}', [ContractController::class, 'removeAllowance']);
+
+        // Disciplinary cases
+        Route::get('staff/{user}/disciplinary-cases', [DisciplinaryCaseController::class, 'index']);
+        Route::post('staff/{user}/disciplinary-cases', [DisciplinaryCaseController::class, 'store']);
+        Route::post('disciplinary-cases/{disciplinaryCase}/notes', [DisciplinaryCaseController::class, 'addNote']);
+        Route::post('disciplinary-cases/{disciplinaryCase}/advance', [DisciplinaryCaseController::class, 'advanceStage']);
+        Route::post('disciplinary-cases/{disciplinaryCase}/close', [DisciplinaryCaseController::class, 'close']);
+
+        // Career progression
+        Route::get('staff/{user}/position-changes', [PositionChangeController::class, 'index']);
+        Route::post('staff/{user}/position-changes', [PositionChangeController::class, 'store']);
+
+        // HR reports
+        Route::get('hr-reports/org-chart', [HrReportController::class, 'orgChart']);
+        Route::get('hr-reports/turnover', [HrReportController::class, 'turnover']);
+
+        // Positions
+        Route::get('positions', [PositionController::class, 'index']);
+        Route::post('positions', [PositionController::class, 'store']);
+        Route::put('positions/{position}', [PositionController::class, 'update']);
+        Route::delete('positions/{position}', [PositionController::class, 'destroy']);
+
         // Tasks (general — separate from service tickets)
         Route::apiResource('tasks', TaskController::class)->except(['show']);
 
@@ -274,6 +320,14 @@ Route::prefix('v1')->group(function () {
         Route::post('leave-requests/{leaveRequest}/approve', [LeaveController::class, 'approve']);
         Route::post('leave-requests/{leaveRequest}/reject', [LeaveController::class, 'reject']);
         Route::post('leave-requests/{leaveRequest}/cancel', [LeaveController::class, 'cancel']);
+
+        // Leave types, balances, holiday calendar, HR settings
+        Route::get('leave-types', [LeaveTypeController::class, 'index']);
+        Route::put('leave-types/{leaveType}', [LeaveTypeController::class, 'update']);
+        Route::get('leave-balances', [LeaveBalanceController::class, 'index']);
+        Route::apiResource('public-holidays', PublicHolidayController::class)->except(['show']);
+        Route::get('hr-settings', [HrSettingController::class, 'index']);
+        Route::put('hr-settings', [HrSettingController::class, 'update']);
 
         // Late arrivals
         Route::get('late-arrivals', [LateArrivalController::class, 'index']);

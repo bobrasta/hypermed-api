@@ -10,7 +10,7 @@ class ServiceTicket extends Model
     use HasFactory;
 
     protected $fillable = [
-        'ticket_number', 'machine_id', 'hospital_id', 'ward',
+        'ticket_number', 'machine_id', 'hospital_id', 'ward', 'type',
         'assigned_to', 'status', 'description',
         'resolution_notes', 'resolved_at', 'acknowledged_at',
     ];

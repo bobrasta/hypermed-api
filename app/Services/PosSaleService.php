@@ -117,7 +117,7 @@ class PosSaleService
 
                     if ($order->hospital_id) {
                         $this->machineRegistration->registerForDelivery(
-                            $soItem->inventoryItem, $order->hospital_id, $order->order_number, 0, $qty,
+                            $soItem->inventoryItem, $order->hospital_id, $order->order_number, 0, $qty, $order->id,
                         );
                     }
                 }

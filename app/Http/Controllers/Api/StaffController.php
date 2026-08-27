@@ -13,7 +13,7 @@ class StaffController extends Controller
 {
     public function index()
     {
-        $staff = User::with('currentTask')
+        $staff = User::with(['currentTask', 'position'])
             ->where('is_active', true)
             ->get();
 
@@ -34,6 +34,17 @@ class StaffController extends Controller
             'avail_status' => ['nullable', 'in:Available,On task,Assigned,At desk,Busy'],
             'workload'     => ['nullable', 'numeric', 'min:0'],
             'is_active'    => ['nullable', 'boolean'],
+            'manager_id'   => ['nullable', 'exists:users,id'],
+            'position_id'  => ['nullable', 'exists:positions,id'],
+            'gender'       => ['nullable', 'in:male,female'],
+            'hire_date'    => ['nullable', 'date'],
+            'next_of_kin_name'         => ['nullable', 'string'],
+            'next_of_kin_phone'        => ['nullable', 'string'],
+            'next_of_kin_relationship' => ['nullable', 'string'],
+            'nssf_number'  => ['nullable', 'string'],
+            'tin_number'   => ['nullable', 'string'],
+            'nida_number'  => ['nullable', 'string'],
+            'biometric_id' => ['nullable', 'string', 'unique:users,biometric_id'],
         ]);
 
         $user = User::create([
@@ -47,6 +58,17 @@ class StaffController extends Controller
             'avail_status' => $data['avail_status'] ?? 'Available',
             'workload'     => $data['workload'] ?? 0.0,
             'is_active'    => $data['is_active'] ?? true,
+            'manager_id'   => $data['manager_id'] ?? null,
+            'position_id'  => $data['position_id'] ?? null,
+            'gender'       => $data['gender'] ?? null,
+            'hire_date'    => $data['hire_date'] ?? null,
+            'next_of_kin_name'         => $data['next_of_kin_name'] ?? null,
+            'next_of_kin_phone'        => $data['next_of_kin_phone'] ?? null,
+            'next_of_kin_relationship' => $data['next_of_kin_relationship'] ?? null,
+            'nssf_number'  => $data['nssf_number'] ?? null,
+            'tin_number'   => $data['tin_number'] ?? null,
+            'nida_number'  => $data['nida_number'] ?? null,
+            'biometric_id' => $data['biometric_id'] ?? null,
             'avatar_initials' => collect(explode(' ', trim($data['name'])))->map(fn ($p) => strtoupper($p[0] ?? ''))->implode(''),
         ]);
 
@@ -59,7 +81,7 @@ class StaffController extends Controller
 
     public function show(User $user)
     {
-        $user->load('currentTask');
+        $user->load(['currentTask', 'position']);
 
         return response()->json(['data' => new UserResource($user)]);
     }
@@ -78,11 +100,26 @@ class StaffController extends Controller
             'avail_status' => ['sometimes', 'in:Available,On task,Assigned,At desk,Busy'],
             'workload'     => ['nullable', 'numeric', 'min:0'],
             'is_active'    => ['sometimes', 'boolean'],
+            'manager_id'   => ['nullable', 'exists:users,id'],
+            'position_id'  => ['nullable', 'exists:positions,id'],
+            'gender'       => ['nullable', 'in:male,female'],
+            'hire_date'    => ['nullable', 'date'],
+            'next_of_kin_name'         => ['nullable', 'string'],
+            'next_of_kin_phone'        => ['nullable', 'string'],
+            'next_of_kin_relationship' => ['nullable', 'string'],
+            'nssf_number'  => ['nullable', 'string'],
+            'tin_number'   => ['nullable', 'string'],
+            'nida_number'  => ['nullable', 'string'],
+            'biometric_id' => ['nullable', 'string', 'unique:users,biometric_id,' . $user->id],
         ]);
 
         if (isset($data['group'])) {
             $data['staff_group'] = $data['group'];
             unset($data['group']);
+        }
+
+        if (array_key_exists('manager_id', $data) && $data['manager_id'] === $user->id) {
+            abort(422, 'A staff member cannot be their own manager.');
         }
 
         $user->update($data);
@@ -92,7 +129,7 @@ class StaffController extends Controller
             app(\App\Services\EffectivePermissionResolver::class)->invalidate($user);
         }
 
-        return response()->json(['data' => new UserResource($user->load('currentTask'))]);
+        return response()->json(['data' => new UserResource($user->load(['currentTask', 'position']))]);
     }
 
     public function destroy(Request $request, User $user)

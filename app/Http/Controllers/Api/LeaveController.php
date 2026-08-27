@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\LeaveRequestResource;
 use App\Models\AppNotification;
+use App\Models\LeaveBalance;
 use App\Models\LeaveRequest;
+use App\Models\LeaveType;
 use App\Models\User;
 use Illuminate\Http\Request;
 
@@ -15,7 +17,7 @@ class LeaveController extends Controller
     {
         $user = $request->user();
 
-        $query = LeaveRequest::with(['user', 'reviewer']);
+        $query = LeaveRequest::with(['user', 'reviewer', 'leaveType']);
 
         if ($user->hasHrAuthority()) {
             if ($request->filled('user_id')) {
@@ -28,7 +30,9 @@ class LeaveController extends Controller
         if ($request->filled('status')) {
             $query->where('status', $request->status);
         }
-        if ($request->filled('type')) {
+        if ($request->filled('leave_type_id')) {
+            $query->where('leave_type_id', $request->leave_type_id);
+        } elseif ($request->filled('type')) {
             $query->where('type', $request->type);
         }
 
@@ -38,12 +42,18 @@ class LeaveController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'type'       => ['required', 'in:sick,vacation,other'],
-            'start_date' => ['required', 'date'],
-            'end_date'   => ['required', 'date', 'after_or_equal:start_date'],
-            'reason'     => ['nullable', 'string'],
+            'leave_type_id' => ['required', 'exists:leave_types,id'],
+            'start_date'    => ['required', 'date'],
+            'end_date'      => ['required', 'date', 'after_or_equal:start_date'],
+            'reason'        => ['nullable', 'string'],
         ]);
 
+        $leaveType = LeaveType::findOrFail($data['leave_type_id']);
+        abort_if(! $leaveType->active, 422, 'This leave type is not currently available.');
+        abort_if($leaveType->auto_from_calendar, 422,
+            'Public Holiday leave is populated automatically from the holiday calendar and cannot be requested directly.');
+
+        $data['type']       = $leaveType->key;
         $data['user_id']    = $request->user()->id;
         $data['days_count'] = \Carbon\Carbon::parse($data['start_date'])
             ->diffInDays(\Carbon\Carbon::parse($data['end_date'])) + 1;
@@ -53,7 +63,7 @@ class LeaveController extends Controller
 
         $this->notifyHr($leave);
 
-        return response()->json(['data' => new LeaveRequestResource($leave->load('user'))], 201);
+        return response()->json(['data' => new LeaveRequestResource($leave->load(['user', 'leaveType']))], 201);
     }
 
     public function approve(Request $request, LeaveRequest $leaveRequest)
@@ -61,15 +71,50 @@ class LeaveController extends Controller
         abort_if(! $request->user()->hasHrAuthority(), 403, 'You are not authorised to review leave requests.');
         abort_if($leaveRequest->status !== 'pending', 422, 'Only pending requests can be approved.');
 
+        $leaveType = $leaveRequest->leaveType;
+
+        $data = $request->validate([
+            // Compassionate: the approver sets the final day count here
+            // rather than trusting the requester's own date-range math.
+            'days_count' => [$leaveType?->requires_manual_days ? 'required' : 'nullable', 'integer', 'min:1'],
+        ]);
+
+        $finalDays = $leaveType?->requires_manual_days && isset($data['days_count'])
+            ? $data['days_count']
+            : $leaveRequest->days_count;
+
         $leaveRequest->update([
             'status'      => 'approved',
+            'days_count'  => $finalDays,
             'reviewed_by' => $request->user()->id,
             'reviewed_at' => now(),
         ]);
 
+        if ($leaveType && $leaveType->deducts_balance) {
+            $this->applyBalanceDeduction($leaveRequest, $leaveType, $finalDays);
+        }
+
         $this->notifyRequester($leaveRequest, approved: true);
 
-        return response()->json(['data' => new LeaveRequestResource($leaveRequest->load(['user', 'reviewer']))]);
+        return response()->json(['data' => new LeaveRequestResource($leaveRequest->load(['user', 'reviewer', 'leaveType']))]);
+    }
+
+    // Lazily creates the staff member's balance row for this type/year (no
+    // carry-over by design — each calendar year starts fresh), then debits
+    // it. allocated_days defaults from the type's catalog value; HR can
+    // still hand-adjust an individual's allocated_days directly on the
+    // leave_balances row later without this logic overwriting it, since
+    // firstOrCreate only sets allocated_days on first creation.
+    private function applyBalanceDeduction(LeaveRequest $leaveRequest, LeaveType $leaveType, int $days): void
+    {
+        $year = $leaveRequest->start_date->year;
+
+        $balance = LeaveBalance::firstOrCreate(
+            ['user_id' => $leaveRequest->user_id, 'leave_type_id' => $leaveType->id, 'year' => $year],
+            ['allocated_days' => $leaveType->default_days_per_year, 'used_days' => 0],
+        );
+
+        $balance->increment('used_days', $days);
     }
 
     public function reject(Request $request, LeaveRequest $leaveRequest)
@@ -88,7 +133,7 @@ class LeaveController extends Controller
 
         $this->notifyRequester($leaveRequest, approved: false);
 
-        return response()->json(['data' => new LeaveRequestResource($leaveRequest->load(['user', 'reviewer']))]);
+        return response()->json(['data' => new LeaveRequestResource($leaveRequest->load(['user', 'reviewer', 'leaveType']))]);
     }
 
     public function cancel(Request $request, LeaveRequest $leaveRequest)
@@ -99,7 +144,7 @@ class LeaveController extends Controller
 
         $leaveRequest->update(['status' => 'cancelled']);
 
-        return response()->json(['data' => new LeaveRequestResource($leaveRequest->load(['user', 'reviewer']))]);
+        return response()->json(['data' => new LeaveRequestResource($leaveRequest->load(['user', 'reviewer', 'leaveType']))]);
     }
 
     private function notifyHr(LeaveRequest $leave): void

@@ -25,7 +25,7 @@ class SerialNumberController extends Controller
     {
         $data = $request->validate([
             'serial_number'          => ['required', 'string', 'max:255', 'unique:serial_numbers'],
-            'status'                 => ['nullable', 'in:available,assigned,in_service,damaged,disposed'],
+            'status'                 => ['nullable', 'in:available,assigned,in_service,sold,damaged,disposed'],
             'location_id'            => ['nullable', 'exists:locations,id'],
             'assigned_to_machine_id' => ['nullable', 'exists:machines,id'],
             'purchase_date'          => ['nullable', 'date'],
@@ -47,7 +47,7 @@ class SerialNumberController extends Controller
 
         $data = $request->validate([
             'serial_number'          => ['sometimes', 'string', 'max:255', 'unique:serial_numbers,serial_number,' . $serialNumber->id],
-            'status'                 => ['nullable', 'in:available,assigned,in_service,damaged,disposed'],
+            'status'                 => ['nullable', 'in:available,assigned,in_service,sold,damaged,disposed'],
             'location_id'            => ['nullable', 'exists:locations,id'],
             'assigned_to_machine_id' => ['nullable', 'exists:machines,id'],
             'purchase_date'          => ['nullable', 'date'],

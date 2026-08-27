@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\ServiceTicketResource;
 use App\Models\AppNotification;
 use App\Models\ChecklistItem;
+use App\Models\Machine;
 use App\Models\PartCannibalization;
 use App\Models\SerialNumber;
 use App\Models\ServiceTicket;
@@ -45,6 +46,7 @@ class ServiceTicketController extends Controller
             'machine_id'        => ['required', 'exists:machines,id'],
             'hospital_id'       => ['required', 'exists:hospitals,id'],
             'ward'              => ['nullable', 'string'],
+            'type'              => ['nullable', 'in:repair,installation'],
             'assigned_to'       => ['nullable', 'exists:users,id'],
             'status'            => ['required', 'in:open,in_progress,resolved,overdue'],
             'description'       => ['nullable', 'string'],
@@ -57,6 +59,14 @@ class ServiceTicketController extends Controller
             403, 'Only the CTO or Director can assign technicians to service tickets.',
         );
 
+        $data['type'] = $data['type'] ?? 'repair';
+
+        if ($data['type'] === 'installation') {
+            $machine = Machine::findOrFail($data['machine_id']);
+            abort_if($machine->status !== 'pending_installation', 422,
+                'This machine is not awaiting installation.');
+        }
+
         $lastTicket = ServiceTicket::orderByDesc('id')->first();
         $nextNum = $lastTicket ? ((int) ltrim($lastTicket->ticket_number, '#') + 1) : 1000;
         $data['ticket_number'] = '#' . $nextNum;
@@ -65,6 +75,10 @@ class ServiceTicketController extends Controller
         unset($data['checklist']);
 
         $ticket = ServiceTicket::create($data);
+
+        if ($ticket->type === 'installation') {
+            $ticket->machine->update(['installation_ticket_id' => $ticket->id]);
+        }
 
         foreach ($checklist as $item) {
             $ticket->checklistItems()->create(['label' => $item['label'], 'is_checked' => false]);
@@ -176,6 +190,17 @@ class ServiceTicketController extends Controller
 
         foreach ($data['parts_used'] ?? [] as $part) {
             $this->createPartUsed($ticket, $part, $request->user()->id);
+        }
+
+        // Resolving the technician's installation ticket confirms the unit is
+        // physically installed — it still needs a supervisor sign-off
+        // (MachineController::signOff()) before it's truly 'operational'.
+        if ($ticket->type === 'installation' && $ticket->machine->status === 'pending_installation') {
+            $ticket->machine->update([
+                'installed_by' => $ticket->assigned_to ?? $request->user()->id,
+                'installed_at' => now(),
+                'status'       => 'pending_signoff',
+            ]);
         }
 
         return response()->json([

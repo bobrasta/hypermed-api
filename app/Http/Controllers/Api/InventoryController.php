@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\InventoryItemResource;
 use App\Models\InventoryItem;
 use App\Models\Location;
+use App\Models\SerialNumber;
 use App\Services\StockService;
 use Illuminate\Http\Request;
 
@@ -153,5 +154,84 @@ class InventoryController extends Controller
         return response()->json(['data' => new InventoryItemResource(
             $inventoryItem->fresh()->load(['compatibleModels', 'category', 'stockLevels.location'])
         )]);
+    }
+
+    // One row per individually tracked unit, oldest-received first — the
+    // "20 X-rays: track each one sold where / installed by / signed off by
+    // whom, until the count reaches zero" case. Assembled server-side from
+    // SerialNumber (received) + Machine (sold/installed/signed-off), since
+    // those already carry the full chain (see MachineRegistrationService /
+    // ServiceTicketController::resolve() / MachineController::signOff()).
+    public function history(InventoryItem $inventoryItem)
+    {
+        $serials = $inventoryItem->serialNumbers()
+            ->with([
+                'assignedMachine.hospital',
+                'assignedMachine.salesOrder',
+                'assignedMachine.installedBy',
+                'assignedMachine.signedOffBy',
+            ])
+            ->orderBy('id')
+            ->get();
+
+        $history = $serials->map(function (SerialNumber $serial) {
+            $machine = $serial->assignedMachine;
+
+            return [
+                'serial_number' => $serial->serial_number,
+                'status'        => $serial->status,
+                'received_at'   => ($serial->purchase_date ?? $serial->created_at)?->toDateString(),
+                'sold' => $machine?->salesOrder ? [
+                    'sales_order_id'     => $machine->salesOrder->id,
+                    'sales_order_number' => $machine->salesOrder->order_number,
+                    'hospital_name'      => $machine->hospital?->name,
+                    'delivered_at'       => $machine->created_at?->toDateString(),
+                ] : $this->genericConsumption($serial),
+                'installed' => $machine?->installed_at ? [
+                    'by'   => $machine->installedBy?->name,
+                    'at'   => $machine->installed_at?->toIso8601String(),
+                ] : null,
+                'signed_off' => $machine?->signed_off_at ? [
+                    'by' => $machine->signedOffBy?->name,
+                    'at' => $machine->signed_off_at?->toIso8601String(),
+                ] : null,
+                // Equipment (has a Machine record) goes through install/sign-off;
+                // everything else just has received/sold, so the Flutter card
+                // knows not to render steps that will never apply.
+                'is_equipment'   => $machine !== null,
+                'machine_status' => $machine?->status,
+            ];
+        });
+
+        return response()->json(['data' => $history]);
+    }
+
+    // Non-equipment items (no Machine record) still get a lightweight
+    // "sold/issued" entry from SerialNumber's own consumed_reference_*
+    // columns (see StockService::consumeSerials()) — resolves a couple of
+    // known reference types for a readable label, falls back to a generic
+    // one for anything else so a new reference type never breaks History.
+    private function genericConsumption(SerialNumber $serial): ?array
+    {
+        if (! $serial->consumed_reference_type) {
+            return null;
+        }
+
+        $label = match ($serial->consumed_reference_type) {
+            \App\Models\SalesOrder::class => optional(
+                \App\Models\SalesOrder::find($serial->consumed_reference_id)
+            )->order_number,
+            \App\Models\ServiceTicket::class => optional(
+                \App\Models\ServiceTicket::find($serial->consumed_reference_id)
+            )->ticket_number,
+            default => class_basename($serial->consumed_reference_type) . ' #' . $serial->consumed_reference_id,
+        };
+
+        return [
+            'sales_order_id'     => null,
+            'sales_order_number' => $label,
+            'hospital_name'      => null,
+            'delivered_at'       => $serial->consumed_at?->toDateString(),
+        ];
     }
 }

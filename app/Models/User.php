@@ -46,6 +46,9 @@ class User extends Authenticatable
         'name', 'email', 'password', 'role', 'staff_group', 'zone',
         'phone', 'region', 'avatar_initials', 'avail_status',
         'workload', 'is_active', 'max_discount_percent', 'commission_percent',
+        'manager_id', 'position_id', 'gender', 'hire_date',
+        'next_of_kin_name', 'next_of_kin_phone', 'next_of_kin_relationship',
+        'nssf_number', 'tin_number', 'nida_number', 'biometric_id',
     ];
 
     protected $hidden = ['password', 'remember_token'];
@@ -58,7 +61,23 @@ class User extends Authenticatable
             'workload'  => 'float',
             'max_discount_percent' => 'float',
             'commission_percent'   => 'float',
+            'hire_date' => 'date',
         ];
+    }
+
+    public function manager()
+    {
+        return $this->belongsTo(User::class, 'manager_id');
+    }
+
+    public function directReports()
+    {
+        return $this->hasMany(User::class, 'manager_id');
+    }
+
+    public function position()
+    {
+        return $this->belongsTo(Position::class);
     }
 
     public function tickets()
@@ -165,6 +184,11 @@ class User extends Authenticatable
         return app(EffectivePermissionResolver::class)->can($this, 'logistics.receive_order');
     }
 
+    public function hasEquipmentSignOffAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'services.sign_off_installation');
+    }
+
     // "Director" is a semantic alias for the existing admin tier, not a new
     // role or membership list — keeps intent readable at approval call sites
     // without a second list that can drift from authority.admin_tier.
@@ -176,5 +200,25 @@ class User extends Authenticatable
     public function leaveRequests()
     {
         return $this->hasMany(LeaveRequest::class);
+    }
+
+    public function contracts()
+    {
+        return $this->hasMany(Contract::class);
+    }
+
+    public function activeContract()
+    {
+        return $this->hasOne(Contract::class)->where('status', 'active')->latestOfMany('start_date');
+    }
+
+    public function disciplinaryCases()
+    {
+        return $this->hasMany(DisciplinaryCase::class);
+    }
+
+    public function positionChanges()
+    {
+        return $this->hasMany(PositionChange::class);
     }
 }

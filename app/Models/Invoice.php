@@ -51,8 +51,14 @@ class Invoice extends Model
         return $this->hasMany(Payment::class);
     }
 
+    public function creditNotes()
+    {
+        return $this->hasMany(CreditNote::class);
+    }
+
     public function getBalanceDueAttribute(): int
     {
-        return max(0, $this->total - $this->amount_paid);
+        $applied = $this->creditNotes()->where('status', 'applied')->sum('amount');
+        return max(0, $this->total - $this->amount_paid - $applied);
     }
 }

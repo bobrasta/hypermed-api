@@ -11,12 +11,14 @@ class SerialNumber extends Model
         'inventory_item_id', 'serial_number', 'status', 'has_missing_parts',
         'location_id', 'assigned_to_machine_id',
         'purchase_date', 'warranty_expires_at', 'notes',
+        'consumed_reference_type', 'consumed_reference_id', 'consumed_at',
     ];
 
     protected $casts = [
         'purchase_date'      => 'date',
         'warranty_expires_at'=> 'date',
         'has_missing_parts'  => 'boolean',
+        'consumed_at'        => 'datetime',
     ];
 
     public function inventoryItem(): BelongsTo

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\AppNotification;
 use App\Models\InventoryItem;
 use App\Models\Location;
+use App\Models\SerialNumber;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
 use App\Models\User;
@@ -65,10 +66,32 @@ class StockService
                 'performed_by' => auth()->id(),
             ]);
 
+            $this->createSerialsForReceipt($item, $location, $qty, $movement);
+
             $this->syncReorderAlert($item->id);
 
             return $movement;
         });
+    }
+
+    // Per-unit tracking for every product (2026-08-26 — previously adopted
+    // per-item, mostly for capital equipment). One SerialNumber row per unit
+    // received, auto-numbered off this movement's id so it's unique without
+    // a separate per-item counter. Equipment (creates_machine_record) still
+    // gets its richer chain via MachineRegistrationService when sold; every
+    // other item gets the lighter consumed_reference_* chain in deduct()
+    // below — both read back through the same /inventory/{item}/history.
+    private function createSerialsForReceipt(InventoryItem $item, Location $location, int $qty, StockMovement $movement): void
+    {
+        for ($i = 1; $i <= $qty; $i++) {
+            SerialNumber::create([
+                'inventory_item_id' => $item->id,
+                'serial_number'     => "{$item->sku}-{$movement->id}-{$i}",
+                'status'            => 'available',
+                'location_id'       => $location->id,
+                'purchase_date'     => now()->toDateString(),
+            ]);
+        }
     }
 
     public function deduct(
@@ -109,10 +132,42 @@ class StockService
                 'performed_by' => auth()->id(),
             ]);
 
+            $this->consumeSerials($item, $qty, $reference);
+
             $this->syncReorderAlert($item->id);
 
             return $movement;
         });
+    }
+
+    // Equipment (creates_machine_record) keeps its own richer consumption
+    // path via MachineRegistrationService — skip here to avoid double-
+    // consuming the same 'available' serials. Everything else gets this
+    // lighter generic chain: oldest-available-first, stamped with whatever
+    // deduct() was called for (sales order, stock-out request, etc.) via
+    // the same reference_type/reference_id shape stock_movements already
+    // uses. Doesn't hard-fail when fewer tracked units exist than $qty —
+    // per-unit tracking started 2026-08-26, so older stock may predate it.
+    private function consumeSerials(InventoryItem $item, int $qty, ?Model $reference): void
+    {
+        if ($item->creates_machine_record) {
+            return;
+        }
+
+        $serials = SerialNumber::where('inventory_item_id', $item->id)
+            ->where('status', 'available')
+            ->oldest('id')
+            ->limit($qty)
+            ->get();
+
+        foreach ($serials as $serial) {
+            $serial->update([
+                'status' => 'sold',
+                'consumed_reference_type' => $reference?->getMorphClass(),
+                'consumed_reference_id'   => $reference?->getKey(),
+                'consumed_at'             => now(),
+            ]);
+        }
     }
 
     public function transfer(

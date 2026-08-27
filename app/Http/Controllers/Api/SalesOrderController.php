@@ -234,7 +234,7 @@ class SalesOrderController extends Controller
                 if ($salesOrder->hospital_id && $soItem->inventoryItem) {
                     $machinesCreated = array_merge($machinesCreated, $machineRegistration->registerForDelivery(
                         $soItem->inventoryItem, $salesOrder->hospital_id, $salesOrder->order_number,
-                        $priorQtyDelivered, $qty,
+                        $priorQtyDelivered, $qty, $salesOrder->id,
                     ));
                 }
             }
