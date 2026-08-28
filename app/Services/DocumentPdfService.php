@@ -41,6 +41,13 @@ class DocumentPdfService
         ])->setPaper('a4');
     }
 
+    public function hrReportPdf(array $data): PdfInstance
+    {
+        return Pdf::loadView('pdf.hr_report', array_merge($data, [
+            'company' => config('company'),
+        ]))->setPaper('a4');
+    }
+
     // Matches the "TSh" prefix used throughout the Flutter UI's money formatting
     // — only for TZS, so a genuinely different currency code still shows correctly.
     private function currencyLabel(?string $currency): string

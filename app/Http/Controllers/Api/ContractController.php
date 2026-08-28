@@ -122,6 +122,26 @@ class ContractController extends Controller
         return new ContractResource($contract->load(['createdBy', 'allowances']));
     }
 
+    // Overwrites any previous document — a contract has one current signed
+    // copy on file, not a version history (unlike applicant CVs, which are
+    // deliberately versioned across reapplications).
+    public function uploadDocument(Request $request, Contract $contract)
+    {
+        abort_if(! $request->user()->hasStaffManageAuthority(), 403, 'You are not authorised to manage contracts.');
+        $request->validate(['file' => ['required', 'file', 'max:10240']]);
+
+        $file = $request->file('file');
+        $path = $file->store('contract-documents/' . $contract->id, 'public');
+
+        $contract->update([
+            'document_path'        => $path,
+            'document_name'        => $file->getClientOriginalName(),
+            'document_uploaded_at' => now(),
+        ]);
+
+        return new ContractResource($contract->load(['createdBy', 'allowances']));
+    }
+
     public function addAllowance(Request $request, Contract $contract)
     {
         abort_if(! $request->user()->hasStaffManageAuthority(), 403, 'You are not authorised to manage contracts.');

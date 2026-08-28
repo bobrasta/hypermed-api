@@ -11,6 +11,7 @@ class Contract extends Model
         'probation_period_days', 'probation_end_date', 'base_salary',
         'status', 'resignation_date', 'resignation_reason',
         'renewed_from_contract_id', 'expiry_notified_at', 'probation_notified_at',
+        'document_path', 'document_name', 'document_uploaded_at',
         'created_by',
     ];
 
@@ -21,6 +22,7 @@ class Contract extends Model
         'resignation_date'    => 'date',
         'expiry_notified_at'  => 'datetime',
         'probation_notified_at' => 'datetime',
+        'document_uploaded_at' => 'datetime',
         'base_salary'         => 'integer',
     ];
 

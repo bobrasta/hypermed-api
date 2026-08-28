@@ -5,15 +5,19 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Applicant;
 use App\Models\Application;
+use App\Models\AttendanceRecord;
 use App\Models\Contract;
 use App\Models\DisciplinaryCase;
 use App\Models\LeaveBalance;
 use App\Models\LeaveRequest;
 use App\Models\LeaveType;
+use App\Models\PayrollRun;
 use App\Models\PositionChange;
 use App\Models\User;
 use App\Models\Vacancy;
+use App\Services\DocumentPdfService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\URL;
 
 // All HR report endpoints are gated the same way as the rest of this HR
 // module — hasStaffManageAuthority() (hr/admin). A finer HR-clerk-vs-
@@ -235,6 +239,22 @@ class HrReportController extends Controller
         ])]);
     }
 
+    // Company-wide contract mix — active count by type, for the Reports
+    // donut. Distinct from contractsExpiring() above, which is a filtered
+    // list rather than a total breakdown.
+    public function contractsSummary(Request $request)
+    {
+        $this->authorize($request);
+
+        $active = Contract::where('status', 'active')->get();
+        $byType = $active->groupBy('contract_type')->map->count();
+
+        return response()->json(['data' => [
+            'active_count' => $active->count(),
+            'by_type'      => (object) $byType->toArray(),
+        ]]);
+    }
+
     // Active cases grouped by stage, plus repeat-offender detection (staff
     // with more than one case, active or historical).
     public function disciplinarySummary(Request $request)
@@ -273,5 +293,89 @@ class HrReportController extends Controller
             'to_position' => $c->toPosition?->title, 'change_type' => $c->change_type,
             'effective_date' => $c->effective_date->toDateString(),
         ])]);
+    }
+
+    // Same authenticated → signed-URL → public-stream shape as
+    // QuotationController's pdf()/shareLink() pair — the Flutter "Export
+    // PDF" button calls this to get a short-lived link it can hand to
+    // launchUrl() without needing to carry an auth header through the
+    // system browser.
+    public function exportPdfLink(Request $request)
+    {
+        $this->authorize($request);
+
+        $expiresAt = now()->addMinutes(10);
+        $url = URL::temporarySignedRoute('hr-reports.pdf-public', $expiresAt);
+
+        return response()->json(['data' => [
+            'url'        => $url,
+            'expires_at' => $expiresAt->toIso8601String(),
+        ]]);
+    }
+
+    // Streamed by both the signed public route (Export PDF button) and
+    // reachable directly by an authenticated HR/admin session — the
+    // 'signed' middleware is what actually gates the public route, this
+    // method itself doesn't need to branch on which one called it.
+    public function exportPdf(Request $request, DocumentPdfService $pdfService)
+    {
+        $year = now()->year;
+        $monthStart = now()->startOfMonth();
+        $monthEnd = now()->endOfMonth();
+
+        $staff = User::with('position')->where('is_active', true)->get();
+        $byDepartment = $staff->groupBy(fn (User $u) => $u->position?->department ?? 'Unassigned')->map->count();
+
+        $departed = Contract::whereIn('status', ['ended', 'resigned'])
+            ->where(fn ($q) => $q->whereYear('end_date', $year)->orWhereYear('resignation_date', $year))
+            ->count();
+        $turnoverRate = $staff->count() > 0 ? round(($departed / $staff->count()) * 100, 1) : 0.0;
+
+        $leaveTypes = LeaveType::where('active', true)->where('deducts_balance', true)->get();
+        $leaveBalances = LeaveBalance::with('leaveType')->where('year', $year)->get();
+        $leaveByType = $leaveTypes->map(fn (LeaveType $t) => [
+            'label'     => $t->label,
+            'allocated' => $leaveBalances->where('leave_type_id', $t->id)->sum(fn ($b) => $b->allocated_days ?? $t->default_days_per_year),
+            'used'      => $leaveBalances->where('leave_type_id', $t->id)->sum('used_days'),
+        ]);
+
+        $activeContracts = Contract::where('status', 'active')->get();
+        $contractsByType = $activeContracts->groupBy('contract_type')->map->count();
+        $expiring = Contract::with('user')->where('status', 'active')->whereNotNull('end_date')
+            ->whereDate('end_date', '<=', now()->addDays(90))->orderBy('end_date')->get();
+
+        $monthAttendance = AttendanceRecord::whereBetween('date', [$monthStart, $monthEnd])->get();
+        $attendanceByStatus = $monthAttendance->groupBy('status')->map->count();
+
+        $openVacancies = Vacancy::where('status', 'open')->withCount('applications')->get();
+        $talentPoolCount = Applicant::where('talent_pool', true)->count();
+        $hiresBySource = Application::with('applicant')->where('status', 'hired')->get()
+            ->groupBy(fn (Application $a) => $a->applicant?->source_channel ?? 'Unknown')->map->count();
+
+        $openCases = DisciplinaryCase::with('user')->where('status', 'open')->get();
+
+        $ytdRuns = PayrollRun::whereYear('created_at', $year)->get();
+
+        $pdf = $pdfService->hrReportPdf([
+            'generatedAt'      => now(),
+            'year'             => $year,
+            'headcount'        => $staff->count(),
+            'byDepartment'     => $byDepartment,
+            'turnoverRate'     => $turnoverRate,
+            'leaveByType'      => $leaveByType,
+            'contractsByType'  => $contractsByType,
+            'activeContracts'  => $activeContracts->count(),
+            'expiringContracts'=> $expiring,
+            'attendanceByStatus' => $attendanceByStatus,
+            'attendanceMonthLabel' => $monthStart->format('F Y'),
+            'openVacancies'    => $openVacancies,
+            'talentPoolCount'  => $talentPoolCount,
+            'hiresBySource'    => $hiresBySource,
+            'openCases'        => $openCases,
+            'payrollRunsYtd'   => $ytdRuns->count(),
+            'payrollNetYtd'    => $ytdRuns->sum('net_total'),
+        ]);
+
+        return $pdf->stream('hr-report-' . now()->format('Y-m-d') . '.pdf');
     }
 }

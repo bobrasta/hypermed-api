@@ -15,7 +15,7 @@ class ApplicationController extends Controller
     public function index(Request $request, Vacancy $vacancy)
     {
         return ApplicationResource::collection(
-            $vacancy->applications()->with(['applicant', 'vacancy.position', 'interviews.interviewer'])->latest('applied_at')->get()
+            $vacancy->applications()->with(['applicant.latestCv', 'vacancy.position', 'interviews.interviewer'])->latest('applied_at')->get()
         );
     }
 
@@ -35,7 +35,7 @@ class ApplicationController extends Controller
             'applied_at'   => $data['applied_at'] ?? now()->toDateString(),
         ]);
 
-        return (new ApplicationResource($application->load(['applicant', 'vacancy.position'])))
+        return (new ApplicationResource($application->load(['applicant.latestCv', 'vacancy.position'])))
             ->response()->setStatusCode(201);
     }
 
@@ -50,6 +50,6 @@ class ApplicationController extends Controller
 
         $application->update($data);
 
-        return new ApplicationResource($application->load(['applicant', 'vacancy.position', 'interviews.interviewer']));
+        return new ApplicationResource($application->load(['applicant.latestCv', 'vacancy.position', 'interviews.interviewer']));
     }
 }

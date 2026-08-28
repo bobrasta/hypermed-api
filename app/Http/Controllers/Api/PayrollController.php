@@ -28,6 +28,37 @@ class PayrollController extends Controller
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to manage payroll.');
     }
 
+    // One staff member's pay lines across every run, newest first — the
+    // Directory profile's Payroll tab. Viewable by HR too (not just the
+    // accountant), since it's read-only history on a staff record rather
+    // than a payroll-management action.
+    public function historyForUser(Request $request, User $user)
+    {
+        abort_if(! $request->user()->hasStaffManageAuthority() && ! $request->user()->hasAccountantAuthority(),
+            403, 'You are not authorised to view payroll history.');
+
+        $items = PayrollItem::with('payrollRun')->where('user_id', $user->id)->get()
+            ->sortByDesc(fn (PayrollItem $i) => $i->payrollRun->period_year * 100 + $i->payrollRun->period_month)
+            ->values();
+
+        return response()->json(['data' => $items->map(fn (PayrollItem $i) => [
+            'id'               => $i->id,
+            'period_month'     => $i->payrollRun->period_month,
+            'period_year'      => $i->payrollRun->period_year,
+            'status'           => $i->payrollRun->status,
+            'base_salary'      => $i->base_salary,
+            'allowances_total' => $i->allowances_total,
+            'overtime_amount'  => $i->overtime_amount,
+            'paye_amount'      => $i->paye_amount,
+            'nssf_amount'      => $i->nssf_amount,
+            'heslb_amount'     => $i->heslb_amount,
+            'other_deductions' => $i->other_deductions,
+            'gross_pay'        => $i->gross_pay,
+            'net_pay'          => $i->net_pay,
+            'paid_at'          => $i->payrollRun->paid_at?->toIso8601String(),
+        ])]);
+    }
+
     public function index(Request $request)
     {
         $this->authorize($request);

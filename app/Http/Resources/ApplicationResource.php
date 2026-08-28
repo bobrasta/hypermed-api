@@ -13,6 +13,9 @@ class ApplicationResource extends JsonResource
             'id'             => $this->id,
             'applicant_id'   => $this->applicant_id,
             'applicant_name' => $this->whenLoaded('applicant', fn () => $this->applicant?->name),
+            'applicant_source' => $this->whenLoaded('applicant', fn () => $this->applicant?->source_channel),
+            'applicant_cv'   => $this->whenLoaded('applicant', fn () => $this->applicant?->relationLoaded('latestCv') && $this->applicant->latestCv
+                ? new ApplicantCvVersionResource($this->applicant->latestCv) : null),
             'vacancy_id'     => $this->vacancy_id,
             'vacancy_title'  => $this->whenLoaded('vacancy', fn () => $this->vacancy?->position?->title),
             'status'         => $this->status,

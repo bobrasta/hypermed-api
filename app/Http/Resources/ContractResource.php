@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Storage;
 
 class ContractResource extends JsonResource
 {
@@ -22,6 +23,9 @@ class ContractResource extends JsonResource
             'resignation_date'         => $this->resignation_date?->toDateString(),
             'resignation_reason'       => $this->resignation_reason,
             'renewed_from_contract_id' => $this->renewed_from_contract_id,
+            'document_url'             => $this->document_path ? Storage::disk('public')->url($this->document_path) : null,
+            'document_name'            => $this->document_name,
+            'document_uploaded_at'     => $this->document_uploaded_at?->toIso8601String(),
             'created_by'               => $this->created_by,
             'created_by_name'          => $this->whenLoaded('createdBy', fn () => $this->createdBy?->name),
             'allowances'               => AllowanceResource::collection($this->whenLoaded('allowances')),

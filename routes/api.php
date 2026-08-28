@@ -77,6 +77,8 @@ Route::prefix('v1')->group(function () {
         ->name('quotations.pdf-public')->middleware('signed');
     Route::get('public/invoices/{invoice}/pdf', [InvoiceController::class, 'pdf'])
         ->name('invoices.pdf-public')->middleware('signed');
+    Route::get('public/hr-reports/pdf', [HrReportController::class, 'exportPdf'])
+        ->name('hr-reports.pdf-public')->middleware('signed');
 
     Route::middleware('auth:sanctum')->group(function () {
 
@@ -294,8 +296,10 @@ Route::prefix('v1')->group(function () {
         Route::post('contracts/{contract}/renew', [ContractController::class, 'renew']);
         Route::post('contracts/{contract}/end', [ContractController::class, 'end']);
         Route::post('contracts/{contract}/resign', [ContractController::class, 'resign']);
+        Route::post('contracts/{contract}/document', [ContractController::class, 'uploadDocument']);
         Route::post('contracts/{contract}/allowances', [ContractController::class, 'addAllowance']);
         Route::delete('contracts/{contract}/allowances/{allowance}', [ContractController::class, 'removeAllowance']);
+        Route::get('staff/{user}/payroll-history', [PayrollController::class, 'historyForUser']);
 
         // Disciplinary cases
         Route::get('staff/{user}/disciplinary-cases', [DisciplinaryCaseController::class, 'index']);
@@ -317,8 +321,10 @@ Route::prefix('v1')->group(function () {
         Route::get('hr-reports/leave-calendar', [HrReportController::class, 'leaveCalendar']);
         Route::get('hr-reports/recruitment-summary', [HrReportController::class, 'recruitmentSummary']);
         Route::get('hr-reports/contracts-expiring', [HrReportController::class, 'contractsExpiring']);
+        Route::get('hr-reports/contracts-summary', [HrReportController::class, 'contractsSummary']);
         Route::get('hr-reports/disciplinary-summary', [HrReportController::class, 'disciplinarySummary']);
         Route::get('hr-reports/career-progressions', [HrReportController::class, 'careerProgressions']);
+        Route::get('hr-reports/export-pdf-link', [HrReportController::class, 'exportPdfLink']);
 
         // Recruitment
         Route::get('vacancies', [VacancyController::class, 'index']);
