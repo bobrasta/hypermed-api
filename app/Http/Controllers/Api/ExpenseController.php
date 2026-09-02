@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ExpenseResource;
 use App\Models\AppNotification;
+use App\Models\ApprovalLog;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
 use App\Models\User;
@@ -15,19 +16,82 @@ use Illuminate\Support\Facades\DB;
 
 class ExpenseController extends Controller
 {
+    private function categoryPayload(ExpenseCategory $c): array
+    {
+        return [
+            'id' => $c->id, 'name' => $c->name, 'account_id' => $c->account_id,
+            'account_code' => $c->account?->code, 'account_name' => $c->account?->name,
+            'parent_id' => $c->parent_id, 'parent_name' => $c->parent?->name,
+            'requires_director_approval' => $c->requires_director_approval,
+        ];
+    }
+
     public function categories()
     {
-        return response()->json(['data' => ExpenseCategory::orderBy('name')->get(['id', 'name', 'account_id', 'requires_director_approval'])]);
+        $categories = ExpenseCategory::with(['account:id,code,name', 'parent:id,name'])->orderBy('name')->get();
+        return response()->json(['data' => $categories->map(fn ($c) => $this->categoryPayload($c))]);
+    }
+
+    // A subcategory always posts to its parent's GL account — parent_id is
+    // purely a reporting tree, not a second ledger dimension, so the chart
+    // of accounts doesn't grow one line per subcategory.
+    public function storeCategory(Request $request)
+    {
+        abort_if(! $request->user()->hasFinanceApprovalAuthority(), 403, 'You are not authorised to manage expense categories.');
+
+        $data = $request->validate([
+            'name'       => ['required', 'string', 'max:150'],
+            'account_id' => ['required_without:parent_id', 'nullable', 'exists:chart_of_accounts,id'],
+            'parent_id'  => ['nullable', 'exists:expense_categories,id'],
+        ]);
+
+        $accountId = $data['account_id'] ?? null;
+        if (empty($accountId) && ! empty($data['parent_id'])) {
+            $accountId = ExpenseCategory::findOrFail($data['parent_id'])->account_id;
+        }
+
+        $category = ExpenseCategory::create([
+            'name'       => $data['name'],
+            'account_id' => $accountId,
+            'parent_id'  => $data['parent_id'] ?? null,
+        ]);
+
+        return response()->json(['data' => $this->categoryPayload($category->load(['account', 'parent']))], 201);
     }
 
     public function updateCategory(Request $request, ExpenseCategory $expenseCategory)
     {
-        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can change approval routing.');
+        if ($request->has('requires_director_approval') && count($request->all()) === 1) {
+            abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can change approval routing.');
+            $expenseCategory->update($request->validate(['requires_director_approval' => ['required', 'boolean']]));
+            return response()->json(['data' => $this->categoryPayload($expenseCategory->load(['account', 'parent']))]);
+        }
 
-        $data = $request->validate(['requires_director_approval' => ['required', 'boolean']]);
+        abort_if(! $request->user()->hasFinanceApprovalAuthority(), 403, 'You are not authorised to manage expense categories.');
+
+        $data = $request->validate([
+            'name'                       => ['sometimes', 'string', 'max:150'],
+            'account_id'                 => ['sometimes', 'exists:chart_of_accounts,id'],
+            'parent_id'                  => ['sometimes', 'nullable', 'exists:expense_categories,id'],
+            'requires_director_approval' => ['sometimes', 'boolean'],
+        ]);
+
+        abort_if(($data['parent_id'] ?? null) === $expenseCategory->id, 422, 'A category cannot be its own parent.');
+
         $expenseCategory->update($data);
 
-        return response()->json(['data' => $expenseCategory->only(['id', 'name', 'account_id', 'requires_director_approval'])]);
+        return response()->json(['data' => $this->categoryPayload($expenseCategory->load(['account', 'parent']))]);
+    }
+
+    public function destroyCategory(Request $request, ExpenseCategory $expenseCategory)
+    {
+        abort_if(! $request->user()->hasFinanceApprovalAuthority(), 403, 'You are not authorised to manage expense categories.');
+        abort_if($expenseCategory->expenses()->exists(), 422, 'Expenses are recorded against this category — reassign them first.');
+        abort_if($expenseCategory->children()->exists(), 422, 'This category has subcategories — delete or reassign them first.');
+
+        $expenseCategory->delete();
+
+        return response()->noContent();
     }
 
     public function index(Request $request)
@@ -151,10 +215,12 @@ class ExpenseController extends Controller
         } else {
             abort(422, 'Only pending expenses can be approved.');
         }
+        abort_if($expense->created_by === $user->id, 403, 'You cannot approve your own expense submission.');
 
         DB::transaction(function () use ($expense, $user, $financePosting) {
             $expense->update(['status' => 'approved', 'reviewed_by' => $user->id, 'reviewed_at' => now()]);
             $financePosting->postExpense($expense->fresh());
+            ApprovalLog::record($expense, 'approved', $user);
         });
 
         $this->notifyRequester($expense, approved: true);
@@ -175,6 +241,7 @@ class ExpenseController extends Controller
             'escalated_at'      => now(),
             'escalation_reason' => $data['escalation_reason'] ?? $expense->escalation_reason ?? 'Escalated by CTO for Director review.',
         ]);
+        ApprovalLog::record($expense, 'escalated', $request->user(), $data['escalation_reason'] ?? null);
 
         $this->notifyDirector($expense);
 
@@ -201,6 +268,7 @@ class ExpenseController extends Controller
             'reviewed_at'       => now(),
             'rejection_reason'  => $data['rejection_reason'] ?? null,
         ]);
+        ApprovalLog::record($expense, 'rejected', $user, $data['rejection_reason'] ?? null);
 
         $this->notifyRequester($expense, approved: false);
 

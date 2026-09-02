@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\VendorBillResource;
+use App\Models\ApprovalLog;
 use App\Models\VendorBill;
 use App\Models\VendorBillPayment;
 use App\Services\FinancePostingService;
@@ -14,7 +15,7 @@ class VendorBillController extends Controller
 {
     public function index(Request $request)
     {
-        $query = VendorBill::with(['supplier', 'purchaseOrder', 'category', 'payments']);
+        $query = VendorBill::with(['supplier', 'purchaseOrder', 'category', 'payments', 'approvedBy']);
 
         if ($request->filled('supplier_id')) {
             $query->where('supplier_id', $request->supplier_id);
@@ -35,6 +36,8 @@ class VendorBillController extends Controller
 
     public function store(Request $request, FinancePostingService $financePosting)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to record vendor bills.');
+
         $data = $request->validate([
             'supplier_id'        => ['required', 'exists:suppliers,id'],
             'purchase_order_id'  => ['nullable', 'exists:purchase_orders,id'],
@@ -79,24 +82,27 @@ class VendorBillController extends Controller
             }
 
             $financePosting->postVendorBillIssued($bill);
+            ApprovalLog::record($bill, 'initiated', $request->user());
 
             return $bill;
         });
 
         return response()->json([
-            'data' => new VendorBillResource($bill->load(['supplier', 'purchaseOrder', 'category', 'lineItems', 'payments'])),
+            'data' => new VendorBillResource($bill->load(['supplier', 'purchaseOrder', 'category', 'lineItems', 'payments', 'approvedBy'])),
         ], 201);
     }
 
     public function show(VendorBill $vendorBill)
     {
-        $vendorBill->load(['supplier', 'purchaseOrder', 'category', 'lineItems', 'payments.recordedBy']);
+        $vendorBill->load(['supplier', 'purchaseOrder', 'category', 'lineItems', 'payments.recordedBy', 'approvedBy']);
 
         return response()->json(['data' => new VendorBillResource($vendorBill)]);
     }
 
     public function update(Request $request, VendorBill $vendorBill)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to edit vendor bills.');
+
         $data = $request->validate([
             'due_date' => ['sometimes', 'date'],
             'notes'    => ['nullable', 'string'],
@@ -104,11 +110,13 @@ class VendorBillController extends Controller
 
         $vendorBill->update($data);
 
-        return response()->json(['data' => new VendorBillResource($vendorBill->load(['supplier', 'purchaseOrder', 'category', 'lineItems', 'payments']))]);
+        return response()->json(['data' => new VendorBillResource($vendorBill->load(['supplier', 'purchaseOrder', 'category', 'lineItems', 'payments', 'approvedBy']))]);
     }
 
-    public function destroy(VendorBill $vendorBill, FinancePostingService $financePosting)
+    public function destroy(Request $request, VendorBill $vendorBill, FinancePostingService $financePosting)
     {
+        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can delete a vendor bill.');
+
         DB::transaction(function () use ($vendorBill, $financePosting) {
             $financePosting->reverseVendorBill($vendorBill->load('payments'));
             $vendorBill->delete();
@@ -117,8 +125,9 @@ class VendorBillController extends Controller
         return response()->json(null, 204);
     }
 
-    public function cancel(VendorBill $vendorBill, FinancePostingService $financePosting)
+    public function cancel(Request $request, VendorBill $vendorBill, FinancePostingService $financePosting)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to cancel vendor bills.');
         if ($vendorBill->status === 'paid') {
             return response()->json(['message' => 'Paid bills cannot be cancelled.'], 422);
         }
@@ -127,14 +136,37 @@ class VendorBillController extends Controller
             $financePosting->reverseVendorBill($vendorBill->load('payments'));
             $vendorBill->update(['status' => 'cancelled']);
         });
+        ApprovalLog::record($vendorBill, 'cancelled', $request->user());
 
-        return response()->json(['data' => new VendorBillResource($vendorBill->load(['supplier', 'purchaseOrder', 'category', 'lineItems', 'payments']))]);
+        return response()->json(['data' => new VendorBillResource($vendorBill->load(['supplier', 'purchaseOrder', 'category', 'lineItems', 'payments', 'approvedBy']))]);
+    }
+
+    // Director approval, required before any payment can be recorded — the
+    // accountant who entered the bill (store()) cannot also approve it.
+    public function approve(Request $request, VendorBill $vendorBill)
+    {
+        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can approve vendor bills for payment.');
+        abort_if($vendorBill->status !== 'pending', 422, 'Only a pending bill can be approved.');
+        abort_if($vendorBill->created_by === $request->user()->id, 403, 'You cannot approve a vendor bill you recorded.');
+
+        $vendorBill->update([
+            'status'      => 'approved',
+            'approved_by' => $request->user()->id,
+            'approved_at' => now(),
+        ]);
+        ApprovalLog::record($vendorBill, 'approved', $request->user());
+
+        return response()->json(['data' => new VendorBillResource($vendorBill->load(['supplier', 'purchaseOrder', 'category', 'lineItems', 'payments', 'approvedBy']))]);
     }
 
     public function recordPayment(Request $request, VendorBill $vendorBill, FinancePostingService $financePosting)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to record vendor bill payments.');
         if (in_array($vendorBill->status, ['paid', 'cancelled'])) {
             return response()->json(['message' => 'Cannot record payment on a ' . $vendorBill->status . ' bill.'], 422);
+        }
+        if (! in_array($vendorBill->status, ['approved', 'partial'])) {
+            return response()->json(['message' => 'This bill needs Director approval before a payment can be recorded.'], 422);
         }
 
         $data = $request->validate([
@@ -163,12 +195,13 @@ class VendorBillController extends Controller
             $vendorBill->update(['amount_paid' => $totalPaid, 'status' => $newStatus]);
 
             $financePosting->postVendorBillPayment($vendorBill, $payment);
+            ApprovalLog::record($vendorBill, 'paid', $request->user(), "Payment {$payment->payment_number}");
 
             return $payment;
         });
 
         return response()->json([
-            'data' => new VendorBillResource($vendorBill->fresh()->load(['supplier', 'purchaseOrder', 'category', 'lineItems', 'payments'])),
+            'data' => new VendorBillResource($vendorBill->fresh()->load(['supplier', 'purchaseOrder', 'category', 'lineItems', 'payments', 'approvedBy'])),
             'payment_id' => $payment->id,
         ], 201);
     }

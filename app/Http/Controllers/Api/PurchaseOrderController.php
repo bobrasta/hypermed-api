@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppNotification;
+use App\Models\ApprovalLog;
 use App\Models\Location;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequisition;
@@ -158,6 +159,7 @@ class PurchaseOrderController extends Controller
             'sales_approved_by' => $request->user()->id,
             'sales_approved_at' => now(),
         ]);
+        ApprovalLog::record($purchaseOrder, 'sales_approved', $request->user());
 
         $this->notifyStage($purchaseOrder, 'director', 'po_sales_approved', 'Purchase Order — Director Review',
             "{$purchaseOrder->po_number} passed sales review and needs director review.");
@@ -188,6 +190,7 @@ class PurchaseOrderController extends Controller
             'director_reviewed_by'  => $request->user()->id,
             'director_reviewed_at'  => now(),
         ]);
+        ApprovalLog::record($purchaseOrder, 'director_reviewed', $request->user());
 
         $this->notifyStage($purchaseOrder, 'accountant', 'po_director_reviewed', 'Purchase Order — Payment Needed',
             "{$purchaseOrder->po_number} was approved by the director and needs payment initiated.");
@@ -221,6 +224,7 @@ class PurchaseOrderController extends Controller
             'payment_status'       => 'partial', // existing enum has no 'initiated' — 'partial' covers "payment underway"; approveDirectorFinal() moves it to 'paid'
             'amount_paid'          => $data['amount_paid'] ?? $purchaseOrder->total_amount,
         ]);
+        ApprovalLog::record($purchaseOrder, 'payment_initiated', $request->user());
 
         $this->notifyStage($purchaseOrder, 'director', 'po_payment_initiated', 'Purchase Order — Final Approval',
             "Payment was initiated for {$purchaseOrder->po_number} — needs final director approval.");
@@ -232,6 +236,7 @@ class PurchaseOrderController extends Controller
     {
         abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the director can give final approval on this purchase order.');
         abort_if($purchaseOrder->status !== 'pending_director_final', 422, 'Only orders awaiting final director approval can be actioned at this stage.');
+        abort_if($purchaseOrder->payment_initiated_by === $request->user()->id, 403, 'The same person cannot both initiate payment and give final approval on it.');
 
         $purchaseOrder->update([
             'status'                => 'approved',
@@ -239,6 +244,7 @@ class PurchaseOrderController extends Controller
             'director_approved_at'  => now(),
             'payment_status'        => 'paid',
         ]);
+        ApprovalLog::record($purchaseOrder, 'approved', $request->user());
 
         $this->notifyStage($purchaseOrder, 'ordered_by', 'po_approved', 'Purchase Order Approved',
             "{$purchaseOrder->po_number} is fully approved and ready to send to the supplier.");

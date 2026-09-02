@@ -23,4 +23,14 @@ class ExpenseCategory extends Model
     {
         return $this->hasMany(Expense::class, 'category_id');
     }
+
+    public function parent()
+    {
+        return $this->belongsTo(ExpenseCategory::class, 'parent_id');
+    }
+
+    public function children()
+    {
+        return $this->hasMany(ExpenseCategory::class, 'parent_id');
+    }
 }

@@ -19,6 +19,8 @@ class BankReconciliationController extends Controller
 
     public function store(Request $request, BankReconciliationService $service)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to manage bank reconciliations.');
+
         $data = $request->validate([
             'period_from' => ['required', 'date'],
             'period_to'   => ['required', 'date', 'after_or_equal:period_from'],
@@ -41,6 +43,8 @@ class BankReconciliationController extends Controller
 
     public function update(Request $request, BankReconciliation $bankReconciliation)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to manage bank reconciliations.');
+
         $data = $request->validate([
             'statement_closing_balance' => ['sometimes', 'integer'],
             'notes' => ['nullable', 'string'],
@@ -51,8 +55,9 @@ class BankReconciliationController extends Controller
         return response()->json(['data' => new BankReconciliationResource($bankReconciliation->load('lines'))]);
     }
 
-    public function destroy(BankReconciliation $bankReconciliation)
+    public function destroy(Request $request, BankReconciliation $bankReconciliation)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to manage bank reconciliations.');
         abort_if($bankReconciliation->status === 'complete', 422, 'Cannot delete a completed reconciliation — reopen it first.');
         $bankReconciliation->delete();
         return response()->json(null, 204);
@@ -60,6 +65,7 @@ class BankReconciliationController extends Controller
 
     public function importStatement(Request $request, BankReconciliation $bankReconciliation, BankReconciliationService $service)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to manage bank reconciliations.');
         $request->validate(['csv_file' => ['required', 'file']]);
 
         $result = $service->importStatement($bankReconciliation, $request->file('csv_file'));
@@ -67,14 +73,16 @@ class BankReconciliationController extends Controller
         return response()->json(['data' => $result]);
     }
 
-    public function clearStatement(BankReconciliation $bankReconciliation, BankReconciliationService $service)
+    public function clearStatement(Request $request, BankReconciliation $bankReconciliation, BankReconciliationService $service)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to manage bank reconciliations.');
         $service->clearStatement($bankReconciliation);
         return response()->json(['data' => new BankReconciliationResource($bankReconciliation->fresh()->load('lines'))]);
     }
 
     public function matchLine(Request $request, BankReconciliation $bankReconciliation, BankStatementLine $line, BankReconciliationService $service)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to manage bank reconciliations.');
         abort_if($line->reconciliation_id !== $bankReconciliation->id, 404);
 
         $data = $request->validate([
@@ -87,8 +95,9 @@ class BankReconciliationController extends Controller
         return response()->json(['data' => new BankReconciliationResource($bankReconciliation->fresh()->load('lines'))]);
     }
 
-    public function unmatchLine(BankReconciliation $bankReconciliation, BankStatementLine $line, BankReconciliationService $service)
+    public function unmatchLine(Request $request, BankReconciliation $bankReconciliation, BankStatementLine $line, BankReconciliationService $service)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to manage bank reconciliations.');
         abort_if($line->reconciliation_id !== $bankReconciliation->id, 404);
 
         $service->unmatch($line);
@@ -96,21 +105,24 @@ class BankReconciliationController extends Controller
         return response()->json(['data' => new BankReconciliationResource($bankReconciliation->fresh()->load('lines'))]);
     }
 
-    public function autoMatch(BankReconciliation $bankReconciliation, BankReconciliationService $service)
+    public function autoMatch(Request $request, BankReconciliation $bankReconciliation, BankReconciliationService $service)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to manage bank reconciliations.');
         $matched = $service->autoMatch($bankReconciliation);
 
         return response()->json(['data' => ['matched' => $matched], 'reconciliation' => new BankReconciliationResource($bankReconciliation->fresh()->load('lines'))]);
     }
 
-    public function complete(BankReconciliation $bankReconciliation, BankReconciliationService $service)
+    public function complete(Request $request, BankReconciliation $bankReconciliation, BankReconciliationService $service)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to manage bank reconciliations.');
         $service->complete($bankReconciliation);
         return response()->json(['data' => new BankReconciliationResource($bankReconciliation->fresh()->load('lines'))]);
     }
 
-    public function reopen(BankReconciliation $bankReconciliation, BankReconciliationService $service)
+    public function reopen(Request $request, BankReconciliation $bankReconciliation, BankReconciliationService $service)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to manage bank reconciliations.');
         $service->reopen($bankReconciliation);
         return response()->json(['data' => new BankReconciliationResource($bankReconciliation->fresh()->load('lines'))]);
     }

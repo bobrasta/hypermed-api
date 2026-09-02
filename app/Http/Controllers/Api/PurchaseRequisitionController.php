@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ApprovalLog;
 use App\Models\PurchaseRequisition;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -112,6 +113,7 @@ class PurchaseRequisitionController extends Controller
     {
         abort_if(! $request->user()->hasProcurementApprovalAuthority(), 403, 'You are not authorised to approve purchase requisitions.');
         abort_if($purchaseRequisition->status !== 'submitted', 422, 'Only submitted requisitions can be approved.');
+        abort_if($purchaseRequisition->requested_by === $request->user()->id, 403, 'You cannot approve a requisition you requested.');
 
         $data = $request->validate([
             'items'                        => 'sometimes|array',
@@ -124,6 +126,7 @@ class PurchaseRequisitionController extends Controller
             'approved_by' => $request->user()->id,
             'approved_at' => now(),
         ]);
+        ApprovalLog::record($purchaseRequisition, 'approved', $request->user());
 
         if (isset($data['items'])) {
             foreach ($data['items'] as $item) {

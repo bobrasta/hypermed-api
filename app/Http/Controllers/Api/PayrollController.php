@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PayrollItemResource;
 use App\Http\Resources\PayrollRunResource;
+use App\Models\ApprovalLog;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
 use App\Models\PayrollItem;
@@ -175,10 +176,17 @@ class PayrollController extends Controller
         return new PayrollRunResource($payrollRun);
     }
 
+    // Approval is deliberately gated to Director authority, not the same
+    // hasAccountantAuthority() check as every other stage in this
+    // controller — the accountant who drafted and reviewed a run should
+    // not also be the one who signs off on paying it (segregation of
+    // duties). See the finance-approval-policy pass this method was split
+    // out of.
     public function approve(Request $request, PayrollRun $payrollRun)
     {
-        $this->authorize($request);
+        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can approve a payroll run.');
         abort_if($payrollRun->status !== 'reviewed', 422, 'Only a reviewed run can be approved.');
+        abort_if($payrollRun->created_by === $request->user()->id, 403, 'You cannot approve a payroll run you created.');
 
         $totals = $payrollRun->items()->selectRaw(
             'SUM(gross_pay) as gross, SUM(gross_pay - net_pay) as deductions, SUM(net_pay) as net'
@@ -192,6 +200,7 @@ class PayrollController extends Controller
             'approved_by'      => $request->user()->id,
             'approved_at'      => now(),
         ]);
+        ApprovalLog::record($payrollRun, 'approved', $request->user());
 
         return new PayrollRunResource($payrollRun->load(['createdBy', 'approvedBy']));
     }
@@ -242,6 +251,7 @@ class PayrollController extends Controller
             $financePosting->postExpense($expense);
 
             $payrollRun->update(['status' => 'paid', 'paid_at' => now(), 'expense_id' => $expense->id]);
+            ApprovalLog::record($payrollRun, 'paid', $request->user());
 
             return $payrollRun;
         });

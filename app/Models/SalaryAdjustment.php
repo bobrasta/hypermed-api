@@ -8,11 +8,12 @@ class SalaryAdjustment extends Model
 {
     protected $fillable = [
         'user_id', 'contract_id', 'previous_salary', 'new_salary',
-        'reason', 'effective_date', 'approved_by', 'created_by',
+        'reason', 'effective_date', 'status', 'approved_by', 'approved_at', 'created_by',
     ];
 
     protected $casts = [
         'effective_date' => 'date',
+        'approved_at'    => 'datetime',
     ];
 
     public function user()

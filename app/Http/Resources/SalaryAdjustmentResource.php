@@ -17,7 +17,9 @@ class SalaryAdjustmentResource extends JsonResource
             'new_salary'       => $this->new_salary,
             'reason'           => $this->reason,
             'effective_date'   => $this->effective_date?->toDateString(),
+            'status'           => $this->status,
             'approved_by_name' => $this->whenLoaded('approvedBy', fn () => $this->approvedBy?->name),
+            'approved_at'      => $this->approved_at?->toIso8601String(),
             'created_by_name'  => $this->whenLoaded('createdBy', fn () => $this->createdBy?->name),
             'created_at'       => $this->created_at?->toIso8601String(),
         ];

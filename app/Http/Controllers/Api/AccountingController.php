@@ -56,6 +56,71 @@ class AccountingController extends Controller
         return ChartOfAccountResource::collection($accounts);
     }
 
+    // The 5 fixed account types (asset/liability/equity/revenue/expense) —
+    // lets the "new account" form populate a category picker without
+    // hardcoding category ids client-side.
+    public function categories()
+    {
+        return response()->json(['data' => AccountCategory::orderBy('type')->get(['id', 'type'])]);
+    }
+
+    public function storeAccount(Request $request)
+    {
+        abort_if(! $request->user()->hasFinanceApprovalAuthority(), 403, 'You are not authorised to manage the chart of accounts.');
+
+        $data = $request->validate([
+            'code'            => ['required', 'string', 'max:20', 'unique:chart_of_accounts,code'],
+            'name'            => ['required', 'string', 'max:200'],
+            'category_id'     => ['required', 'exists:account_categories,id'],
+            'currency'        => ['nullable', 'string', 'size:3'],
+            'opening_balance' => ['nullable', 'integer'],
+        ]);
+
+        $account = ChartOfAccount::create([
+            'code'        => $data['code'],
+            'name'        => $data['name'],
+            'category_id' => $data['category_id'],
+            'currency'    => $data['currency'] ?? 'TZS',
+            'balance'     => $data['opening_balance'] ?? 0,
+            'status'      => 'active',
+        ]);
+
+        return (new ChartOfAccountResource($account->load('category')))->response()->setStatusCode(201);
+    }
+
+    public function updateAccount(Request $request, ChartOfAccount $account)
+    {
+        abort_if(! $request->user()->hasFinanceApprovalAuthority(), 403, 'You are not authorised to manage the chart of accounts.');
+
+        $data = $request->validate([
+            'code'     => ['sometimes', 'string', 'max:20', 'unique:chart_of_accounts,code,' . $account->id],
+            'name'     => ['sometimes', 'string', 'max:200'],
+            'currency' => ['sometimes', 'string', 'size:3'],
+            'status'   => ['sometimes', 'in:active,inactive'],
+        ]);
+
+        $account->update($data);
+
+        return new ChartOfAccountResource($account->load('category'));
+    }
+
+    // Hard-deletes only an account with no financial footprint — anything
+    // with a non-zero balance, ledger postings, or an expense category
+    // still pointing at it must be deactivated instead, so history is
+    // never silently lost.
+    public function destroyAccount(Request $request, ChartOfAccount $account)
+    {
+        abort_if(! $request->user()->hasFinanceApprovalAuthority(), 403, 'You are not authorised to manage the chart of accounts.');
+
+        abort_if($account->balance !== 0, 422, 'This account has a non-zero balance — deactivate it instead of deleting.');
+        abort_if($account->transactions()->exists(), 422, 'This account has ledger postings — deactivate it instead of deleting.');
+        abort_if($account->expenseCategories()->exists(), 422, 'An expense category still posts to this account — reassign it first.');
+
+        $account->delete();
+
+        return response()->noContent();
+    }
+
     // Last 50 ledger postings, most recent first — a plain chronological journal view.
     public function journal(Request $request)
     {

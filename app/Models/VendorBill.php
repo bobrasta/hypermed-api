@@ -9,7 +9,7 @@ class VendorBill extends Model
     protected $fillable = [
         'bill_number', 'supplier_id', 'purchase_order_id', 'category_id', 'issue_date', 'due_date',
         'subtotal', 'tax_rate', 'tax_amount', 'total', 'amount_paid', 'status', 'currency',
-        'notes', 'created_by',
+        'notes', 'created_by', 'approved_by', 'approved_at',
     ];
 
     protected $casts = [
@@ -20,6 +20,7 @@ class VendorBill extends Model
         'tax_amount'  => 'integer',
         'total'       => 'integer',
         'amount_paid' => 'integer',
+        'approved_at' => 'datetime',
     ];
 
     public function supplier()
@@ -50,6 +51,11 @@ class VendorBill extends Model
     public function createdBy()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function approvedBy()
+    {
+        return $this->belongsTo(User::class, 'approved_by');
     }
 
     public function getBalanceDueAttribute(): int

@@ -191,10 +191,21 @@ class User extends Authenticatable
 
     // "Director" is a semantic alias for the existing admin tier, not a new
     // role or membership list — keeps intent readable at approval call sites
-    // without a second list that can drift from authority.admin_tier.
+    // without a second list that can drift from authority.admin_tier. Also
+    // passes for a non-admin-tier user holding an active Delegation, so
+    // every existing director-gated call site (Expense, PurchaseOrder, ...)
+    // honours a delegation automatically without being touched.
     public function hasDirectorAuthority(): bool
     {
-        return $this->isAdminTier();
+        return $this->isAdminTier() || $this->activeDelegationAsDelegate() !== null;
+    }
+
+    // The delegation, if any, currently letting this user act with Director
+    // authority despite not being admin-tier themselves. Also used to stamp
+    // approval-log rows with which delegation an approval was made under.
+    public function activeDelegationAsDelegate(): ?Delegation
+    {
+        return Delegation::query()->active()->where('delegate_id', $this->id)->latest('starts_at')->first();
     }
 
     public function leaveRequests()

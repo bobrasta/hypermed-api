@@ -24,4 +24,9 @@ class ChartOfAccount extends Model
     {
         return $this->hasMany(Transaction::class, 'account_id');
     }
+
+    public function expenseCategories()
+    {
+        return $this->hasMany(ExpenseCategory::class, 'account_id');
+    }
 }

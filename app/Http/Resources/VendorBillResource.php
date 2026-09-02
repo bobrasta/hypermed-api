@@ -30,6 +30,8 @@ class VendorBillResource extends JsonResource
             'currency'           => $this->currency,
             'notes'              => $this->notes,
             'created_by_name'    => $this->createdBy?->name,
+            'approved_by_name'   => $this->approvedBy?->name,
+            'approved_at'        => $this->approved_at?->toIso8601String(),
             'line_items'         => $this->whenLoaded('lineItems', fn () => $this->lineItems->map(fn ($i) => [
                 'id' => $i->id, 'description' => $i->description,
                 'quantity' => $i->quantity, 'unit_price' => $i->unit_price, 'total' => $i->total,

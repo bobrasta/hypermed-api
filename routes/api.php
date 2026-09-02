@@ -51,6 +51,7 @@ use App\Http\Controllers\Api\HrReportController;
 use App\Http\Controllers\Api\VacancyController;
 use App\Http\Controllers\Api\PayrollController;
 use App\Http\Controllers\Api\SalaryAdjustmentController;
+use App\Http\Controllers\Api\DelegationController;
 use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\ApplicantController;
 use App\Http\Controllers\Api\ApplicationController;
@@ -97,13 +98,19 @@ Route::prefix('v1')->group(function () {
 
         // Accounting — Chart of Accounts + ledger journal
         Route::get('accounting/accounts', [AccountingController::class, 'accounts']);
+        Route::post('accounting/accounts', [AccountingController::class, 'storeAccount']);
+        Route::put('accounting/accounts/{account}', [AccountingController::class, 'updateAccount']);
+        Route::delete('accounting/accounts/{account}', [AccountingController::class, 'destroyAccount']);
+        Route::get('accounting/categories', [AccountingController::class, 'categories']);
         Route::get('accounting/journal',  [AccountingController::class, 'journal']);
         Route::get('accounting/summary',  [AccountingController::class, 'summary']);
         Route::post('accounting/close-period', [AccountingController::class, 'closePeriod']);
 
         // Expenses
         Route::get('expense-categories', [ExpenseController::class, 'categories']);
+        Route::post('expense-categories', [ExpenseController::class, 'storeCategory']);
         Route::put('expense-categories/{expenseCategory}', [ExpenseController::class, 'updateCategory']);
+        Route::delete('expense-categories/{expenseCategory}', [ExpenseController::class, 'destroyCategory']);
         Route::post('expenses/{expense}/approve', [ExpenseController::class, 'approve']);
         Route::post('expenses/{expense}/escalate', [ExpenseController::class, 'escalate']);
         Route::post('expenses/{expense}/reject', [ExpenseController::class, 'reject']);
@@ -127,9 +134,15 @@ Route::prefix('v1')->group(function () {
         Route::delete('users/{user}/permission-overrides/{override}', [PermissionController::class, 'destroyUserOverride']);
 
         // Vendor Bills (Accounts Payable)
+        Route::post('vendor-bills/{vendorBill}/approve',  [VendorBillController::class, 'approve']);
         Route::post('vendor-bills/{vendorBill}/payments', [VendorBillController::class, 'recordPayment']);
         Route::post('vendor-bills/{vendorBill}/cancel',   [VendorBillController::class, 'cancel']);
         Route::apiResource('vendor-bills', VendorBillController::class);
+
+        // Delegated approval authority (Director → temporary delegate)
+        Route::get('delegations',                    [DelegationController::class, 'index']);
+        Route::post('delegations',                   [DelegationController::class, 'store']);
+        Route::post('delegations/{delegation}/revoke', [DelegationController::class, 'revoke']);
 
         // Finance reports
         Route::get('finance-reports/vat',           [FinanceReportController::class, 'vat']);
@@ -353,6 +366,7 @@ Route::prefix('v1')->group(function () {
         Route::post('payroll-runs/{payrollRun}/mark-paid', [PayrollController::class, 'markPaid']);
         Route::get('staff/{user}/salary-adjustments', [SalaryAdjustmentController::class, 'index']);
         Route::post('staff/{user}/salary-adjustments', [SalaryAdjustmentController::class, 'store']);
+        Route::post('staff/{user}/salary-adjustments/{salaryAdjustment}/approve', [SalaryAdjustmentController::class, 'approve']);
 
         // Attendance — manual marking is the primary path; import is a
         // best-effort bulk path, see AttendanceController.

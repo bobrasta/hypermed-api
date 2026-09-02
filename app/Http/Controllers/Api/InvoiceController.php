@@ -67,6 +67,8 @@ class InvoiceController extends Controller
 
     public function store(Request $request, CreditCheckService $creditCheck, FinancePostingService $financePosting)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to create invoices.');
+
         $data = $request->validate([
             'hospital_id'  => ['nullable', 'exists:hospitals,id'],
             'machine_id'   => ['nullable', 'exists:machines,id'],
@@ -135,6 +137,8 @@ class InvoiceController extends Controller
 
     public function update(Request $request, Invoice $invoice)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to edit invoices.');
+
         $data = $request->validate([
             'hospital_id'  => ['sometimes', 'nullable', 'exists:hospitals,id'],
             'machine_id'   => ['nullable', 'exists:machines,id'],
@@ -149,8 +153,10 @@ class InvoiceController extends Controller
         return response()->json(['data' => new InvoiceResource($invoice->load(['hospital', 'machine', 'salesOrder', 'lineItems', 'payments']))]);
     }
 
-    public function destroy(Invoice $invoice, FinancePostingService $financePosting)
+    public function destroy(Request $request, Invoice $invoice, FinancePostingService $financePosting)
     {
+        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can delete an invoice.');
+
         DB::transaction(function () use ($invoice, $financePosting) {
             $financePosting->reverseInvoice($invoice->load('payments'));
             $invoice->delete();
@@ -161,8 +167,9 @@ class InvoiceController extends Controller
 
     // ── Status transitions ────────────────────────────────────────────────────────
 
-    public function send(Invoice $invoice)
+    public function send(Request $request, Invoice $invoice)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to send invoices.');
         if ($invoice->status !== 'pending') {
             return response()->json(['message' => 'Only pending invoices can be sent.'], 422);
         }
@@ -172,8 +179,9 @@ class InvoiceController extends Controller
         return response()->json(['data' => new InvoiceResource($invoice->load(['hospital', 'machine', 'salesOrder', 'lineItems', 'payments']))]);
     }
 
-    public function cancel(Invoice $invoice, FinancePostingService $financePosting)
+    public function cancel(Request $request, Invoice $invoice, FinancePostingService $financePosting)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to cancel invoices.');
         if ($invoice->status === 'paid') {
             return response()->json(['message' => 'Paid invoices cannot be cancelled.'], 422);
         }
@@ -188,8 +196,14 @@ class InvoiceController extends Controller
 
     // ── Payment recording ─────────────────────────────────────────────────────────
 
+    // Recording a customer payment already received doesn't require the
+    // same Director gate as money going OUT — it's data entry of cash
+    // already in hand, not a commitment. Still restricted to Accountant/
+    // admin so an arbitrary authenticated user can't fabricate a payment
+    // record (which would misstate revenue and receivables).
     public function recordPayment(Request $request, Invoice $invoice, FinancePostingService $financePosting)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to record invoice payments.');
         if (in_array($invoice->status, ['paid', 'cancelled', 'waived'])) {
             return response()->json(['message' => 'Cannot record payment on a ' . $invoice->status . ' invoice.'], 422);
         }
