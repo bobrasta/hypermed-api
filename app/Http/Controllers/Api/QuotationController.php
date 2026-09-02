@@ -19,7 +19,7 @@ class QuotationController extends Controller
 
     public function pdf(Quotation $quotation, DocumentPdfService $pdfService)
     {
-        return $pdfService->quotationPdf($quotation)->stream("{$quotation->quotation_number}.pdf");
+        return $pdfService->quotationPdf($quotation);
     }
 
     public function shareLink(Quotation $quotation)

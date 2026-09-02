@@ -21,7 +21,7 @@ class InvoiceController extends Controller
 
     public function pdf(Invoice $invoice, DocumentPdfService $pdfService)
     {
-        return $pdfService->invoicePdf($invoice)->stream("{$invoice->invoice_number}.pdf");
+        return $pdfService->invoicePdf($invoice);
     }
 
     public function shareLink(Invoice $invoice)
