@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PerDiemRequestResource;
 use App\Models\AppNotification;
+use App\Models\ApprovalLog;
 use App\Models\PerDiemRequest;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -16,7 +17,7 @@ class PerDiemController extends Controller
     {
         $user = $request->user();
 
-        $query = PerDiemRequest::with(['user', 'teamLeadReviewer', 'reviewer', 'paidBy', 'lines']);
+        $query = PerDiemRequest::with(['user', 'teamLeadReviewer', 'reviewer', 'paymentInitiatedBy', 'paidBy', 'lines']);
 
         // Accountant needs visibility into everyone's approved-awaiting-payment
         // requests to act on markPaid() — same self-scoping exemption as
@@ -161,10 +162,11 @@ class PerDiemController extends Controller
         abort_if($perDiemRequest->status !== 'pending_cto', 422, 'Only requests awaiting CTO/Director review can be approved.');
 
         $perDiemRequest->update([
-            'status'      => 'approved',
+            'status'      => 'pending_payment',
             'reviewed_by' => $request->user()->id,
             'reviewed_at' => now(),
         ]);
+        ApprovalLog::record($perDiemRequest, 'approved', $request->user());
 
         $this->notifyRequester($perDiemRequest, approved: true, rejectedAtTeamLead: false);
         $this->notifyFinance($perDiemRequest);
@@ -195,19 +197,50 @@ class PerDiemController extends Controller
         )]);
     }
 
-    // Closes the loop left dangling by approve()'s "ready for payment"
-    // notification — status stays 'approved' (no new status value), this
-    // just records who actually paid it and when.
-    public function markPaid(Request $request, PerDiemRequest $perDiemRequest)
+    // Finance prepares the payment (method + reference) but doesn't move
+    // money on their own authority — mirrors PurchaseOrderController's
+    // initiatePayment()/approveDirectorFinal() split. The accountant who
+    // initiates cannot also be the director who authorizes it below.
+    public function initiatePayment(Request $request, PerDiemRequest $perDiemRequest)
     {
-        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to mark per-diem requests as paid.');
-        abort_if($perDiemRequest->status !== 'approved', 422, 'Only approved requests can be marked paid.');
-        abort_if($perDiemRequest->paid_at !== null, 422, 'This request has already been marked paid.');
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to initiate payment on per-diem requests.');
+        abort_if($perDiemRequest->status !== 'pending_payment', 422, 'Only requests awaiting payment initiation can be actioned at this stage.');
+
+        $data = $request->validate([
+            'payment_method'    => ['nullable', 'in:cash,bank_transfer,mobile_money,cheque'],
+            'payment_reference' => ['nullable', 'string', 'max:255'],
+        ]);
 
         $perDiemRequest->update([
+            'status'               => 'pending_director',
+            'payment_initiated_by' => $request->user()->id,
+            'payment_initiated_at' => now(),
+            'payment_method'       => $data['payment_method'] ?? null,
+            'payment_reference'    => $data['payment_reference'] ?? null,
+        ]);
+        ApprovalLog::record($perDiemRequest, 'payment_initiated', $request->user());
+
+        $this->notifyDirector($perDiemRequest);
+
+        return response()->json(['data' => new PerDiemRequestResource(
+            $perDiemRequest->load(['user', 'teamLeadReviewer', 'reviewer', 'paymentInitiatedBy', 'lines'])
+        )]);
+    }
+
+    // Director's final authorization — the actual "mark as paid" the money
+    // is released on. Only reachable once finance has prepared the payment.
+    public function markPaid(Request $request, PerDiemRequest $perDiemRequest)
+    {
+        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can authorize per-diem payment.');
+        abort_if($perDiemRequest->status !== 'pending_director', 422, 'Only requests awaiting Director authorization can be marked paid.');
+        abort_if($perDiemRequest->payment_initiated_by === $request->user()->id, 403, 'You cannot authorize a payment you initiated.');
+
+        $perDiemRequest->update([
+            'status'  => 'paid',
             'paid_by' => $request->user()->id,
             'paid_at' => now(),
         ]);
+        ApprovalLog::record($perDiemRequest, 'paid', $request->user());
 
         AppNotification::create([
             'user_id'     => $perDiemRequest->user_id,
@@ -220,7 +253,7 @@ class PerDiemController extends Controller
         ]);
 
         return response()->json(['data' => new PerDiemRequestResource(
-            $perDiemRequest->load(['user', 'teamLeadReviewer', 'reviewer', 'paidBy', 'lines'])
+            $perDiemRequest->load(['user', 'teamLeadReviewer', 'reviewer', 'paymentInitiatedBy', 'paidBy', 'lines'])
         )]);
     }
 
@@ -280,7 +313,24 @@ class PerDiemController extends Controller
                 'user_id'     => $id,
                 'type'        => 'per_diem_approved',
                 'title'       => 'Per-Diem Ready to Pay',
-                'body'        => "{$name}'s per-diem request for {$perDiem->destination} was approved — ready for payment.",
+                'body'        => "{$name}'s per-diem request for {$perDiem->destination} was approved — needs payment initiated.",
+                'entity_type' => 'per_diem_request',
+                'entity_id'   => $perDiem->id,
+                'is_read'     => false,
+            ]));
+    }
+
+    private function notifyDirector(PerDiemRequest $perDiem): void
+    {
+        $name = $perDiem->user?->name ?? 'A staff member';
+
+        User::whereIn('role', User::ADMIN_TIER)
+            ->pluck('id')
+            ->each(fn ($id) => AppNotification::create([
+                'user_id'     => $id,
+                'type'        => 'per_diem_approved',
+                'title'       => 'Per-Diem — Final Authorization',
+                'body'        => "Finance initiated payment for {$name}'s per-diem request — needs your authorization to pay.",
                 'entity_type' => 'per_diem_request',
                 'entity_id'   => $perDiem->id,
                 'is_read'     => false,

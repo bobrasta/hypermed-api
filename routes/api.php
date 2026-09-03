@@ -418,6 +418,7 @@ Route::prefix('v1')->group(function () {
         Route::post('per-diem-requests/{perDiemRequest}/reject-team-lead', [PerDiemController::class, 'rejectTeamLead']);
         Route::post('per-diem-requests/{perDiemRequest}/approve', [PerDiemController::class, 'approve']);
         Route::post('per-diem-requests/{perDiemRequest}/reject', [PerDiemController::class, 'reject']);
+        Route::post('per-diem-requests/{perDiemRequest}/initiate-payment', [PerDiemController::class, 'initiatePayment']);
         Route::post('per-diem-requests/{perDiemRequest}/mark-paid', [PerDiemController::class, 'markPaid']);
         Route::post('per-diem-requests/{perDiemRequest}/cancel', [PerDiemController::class, 'cancel']);
 
