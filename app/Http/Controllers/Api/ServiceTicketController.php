@@ -42,6 +42,9 @@ class ServiceTicketController extends Controller
 
     public function store(Request $request)
     {
+        abort_if(! $request->user()->hasServiceTicketCreateAuthority(), 403,
+            'Access Denied: your role does not have permission to create service tickets.');
+
         $data = $request->validate([
             'machine_id'        => ['required', 'exists:machines,id'],
             'hospital_id'       => ['required', 'exists:hospitals,id'],
@@ -102,6 +105,9 @@ class ServiceTicketController extends Controller
 
     public function update(Request $request, ServiceTicket $ticket)
     {
+        abort_if(! $request->user()->hasServiceTicketCreateAuthority(), 403,
+            'Access Denied: your role does not have permission to edit service tickets.');
+
         $data = $request->validate([
             'machine_id'  => ['sometimes', 'exists:machines,id'],
             'hospital_id' => ['sometimes', 'exists:hospitals,id'],
@@ -164,8 +170,11 @@ class ServiceTicketController extends Controller
             ]));
     }
 
-    public function destroy(ServiceTicket $ticket)
+    public function destroy(Request $request, ServiceTicket $ticket)
     {
+        abort_if(! $request->user()->hasCtoApprovalAuthority(), 403,
+            'Access Denied: only the CTO or Director can delete a service ticket.');
+
         $ticket->delete();
 
         return response()->json(null, 204);

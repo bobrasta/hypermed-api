@@ -155,6 +155,17 @@ class User extends Authenticatable
         return app(EffectivePermissionResolver::class)->can($this, 'staff.manage');
     }
 
+    // Ticket creation had no gate at all — reachable from the Dashboard's
+    // "New Ticket" shortcut by literally any role, finance/accountant
+    // included, since that button isn't behind the dedicated Service
+    // screen. Reuses screens.service rather than a new permission key:
+    // whoever can see the Service screen is exactly who should be able to
+    // open a ticket from anywhere else in the app too.
+    public function hasServiceTicketCreateAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'screens.service');
+    }
+
     public function hasProcurementCreateAuthority(): bool
     {
         return app(EffectivePermissionResolver::class)->can($this, 'procurement.create_po');
