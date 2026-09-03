@@ -275,7 +275,9 @@ class PermissionSeeder extends Seeder
                 'hr_reports', 'hr_settings', 'reports', 'settings', 'notifications',
             ],
             'procurement_manager' => ['dashboard', 'approvals', 'inventory', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
-            'accountant'      => ['dashboard', 'approvals', 'revenue', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            // No 'staff' (the task-assignment board) — accountant handles
+            // payments, not staff task assignment.
+            'accountant'      => ['dashboard', 'approvals', 'revenue', 'finance', 'my_leave', 'reports', 'settings', 'notifications'],
             'logistics'       => ['dashboard', 'inventory', 'sales', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
         ];
 
