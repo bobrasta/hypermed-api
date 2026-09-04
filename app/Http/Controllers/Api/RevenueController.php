@@ -13,6 +13,11 @@ class RevenueController extends Controller
 {
     public function summary()
     {
+        return response()->json(['data' => $this->buildRevenueSummary()]);
+    }
+
+    public function buildRevenueSummary()
+    {
         // Cache key includes the current month so it auto-invalidates on the 1st
         $cacheKey = 'revenue:summary:' . now()->format('Y-m');
 
@@ -42,7 +47,7 @@ class RevenueController extends Controller
         // immediately instead of waiting on the 10-minute cache to expire.
         $target = (int) Setting::get('revenue_monthly_target', 0);
 
-        return response()->json(['data' => $months->map(fn ($m) => [...$m, 'target' => $target])]);
+        return $months->map(fn ($m) => [...$m, 'target' => $target]);
     }
 
     public function byHospital()

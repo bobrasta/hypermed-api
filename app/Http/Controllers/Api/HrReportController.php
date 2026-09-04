@@ -83,6 +83,19 @@ class HrReportController extends Controller
     {
         $this->authorize($request);
 
+        return response()->json(['data' => $this->buildHeadcountBreakdown()]);
+    }
+
+    // Unified-dashboard's HR section reuses this directly. Deliberately no
+    // auth check inside — the orchestrator gates on screens.hr_dashboard,
+    // a DIFFERENT permission than the staff.manage check above that guards
+    // this same data via its own route. They align today only because the
+    // 'hr' role happens to hold both; if a future role ever gets one
+    // without the other, this section would appear in the unified list but
+    // 403 on "view full detail" (or vice versa) — not fixed here, just
+    // documented.
+    public function buildHeadcountBreakdown(): array
+    {
         $staff = User::with('position')->where('is_active', true)->get();
 
         $byDept = $staff->groupBy(fn (User $u) => $u->position?->department ?? 'Unassigned')->map->count();
@@ -90,7 +103,7 @@ class HrReportController extends Controller
         $byGender = $staff->groupBy(fn (User $u) => $u->gender ?? 'unspecified')->map->count();
         $byZone = $staff->groupBy(fn (User $u) => $u->zone ?? 'Unassigned')->map->count();
 
-        return response()->json(['data' => [
+        return [
             'total'        => $staff->count(),
             // Cast every keyed map to (object) — PHP's json_encode has no
             // way to tell an *empty* associative array from an empty list,
@@ -102,7 +115,7 @@ class HrReportController extends Controller
             'by_position'  => (object) $byPosition->toArray(),
             'by_gender'    => (object) $byGender->toArray(),
             'by_location'  => (object) $byZone->toArray(),
-        ]]);
+        ];
     }
 
     // Compliance-export shape — includes statutory IDs the org-chart

@@ -359,9 +359,14 @@ class FinanceReportController extends Controller
     // run 12 separate period queries on every load.
     public function monthlyTrend()
     {
+        return response()->json(['data' => $this->buildMonthlyTrend()]);
+    }
+
+    public function buildMonthlyTrend()
+    {
         $cacheKey = 'finance:monthly-trend:' . now()->format('Y-m');
 
-        $months = Cache::remember($cacheKey, 600, function () {
+        return Cache::remember($cacheKey, 600, function () {
             $start = Carbon::now()->subMonths(11)->startOfMonth()->toDateString();
 
             $revenueRows = Invoice::where('status', '!=', 'cancelled')
@@ -390,7 +395,5 @@ class FinanceReportController extends Controller
                 ];
             })->values();
         });
-
-        return response()->json(['data' => $months]);
     }
 }

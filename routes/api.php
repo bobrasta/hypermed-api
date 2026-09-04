@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\BatchLotController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\UnifiedDashboardController;
 use App\Http\Controllers\Api\EmailAccountController;
 use App\Http\Controllers\Api\EmailController;
 use App\Http\Controllers\Api\ExpenseController;
@@ -95,6 +96,7 @@ Route::prefix('v1')->group(function () {
         Route::get('dashboard', [DashboardController::class, 'index']);
         Route::get('dashboard/inventory', [DashboardController::class, 'inventory']);
         Route::get('dashboard/sales', [DashboardController::class, 'sales']);
+        Route::get('dashboard/unified', [UnifiedDashboardController::class, 'index']);
 
         // Accounting — Chart of Accounts + ledger journal
         Route::get('accounting/accounts', [AccountingController::class, 'accounts']);
