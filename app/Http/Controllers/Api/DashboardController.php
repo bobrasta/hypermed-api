@@ -241,6 +241,18 @@ class DashboardController extends Controller
                 ->limit(5)
                 ->get();
 
+            $quotesOpenValue = (int) Quotation::where('status', 'sent')->sum('total_amount');
+
+            $invoiceTotals = Invoice::whereNotNull('sales_order_id')
+                ->selectRaw('COALESCE(SUM(total), 0) AS total, COALESCE(SUM(amount_paid), 0) AS paid')
+                ->first();
+            $collectedPct = (float) $invoiceTotals->total > 0
+                ? round((float) $invoiceTotals->paid / (float) $invoiceTotals->total * 100, 0) : 0;
+
+            $dealsStalled90d = SalesLead::whereNotIn('stage', ['won', 'lost'])
+                ->where('updated_at', '<=', Carbon::now()->subDays(90))
+                ->count();
+
             return [
                 'kpi' => [
                     'pipeline_value'               => (int) $pipeline->sum('value'),
@@ -250,6 +262,9 @@ class DashboardController extends Controller
                     'win_rate_this_month'           => $winRate,
                     'quotations_pending_approval'   => Quotation::where('approval_status', 'pending')->count(),
                     'quotations_awaiting_response'  => Quotation::where('status', 'sent')->count(),
+                    'quotes_open_value'             => $quotesOpenValue,
+                    'collected_pct'                 => $collectedPct,
+                    'deals_stalled_90d'             => $dealsStalled90d,
                     'sales_orders_this_month'       => SalesOrder::whereYear('created_at', now()->year)->whereMonth('created_at', now()->month)->count(),
                     'revenue_this_month'            => $revenueThisMonth,
                 ],
