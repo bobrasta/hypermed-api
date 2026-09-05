@@ -82,6 +82,8 @@ Route::prefix('v1')->group(function () {
         ->name('invoices.pdf-public')->middleware('signed');
     Route::get('public/hr-reports/pdf', [HrReportController::class, 'exportPdf'])
         ->name('hr-reports.pdf-public')->middleware('signed');
+    Route::get('public/staff/{user}/payslip/{payrollRun}', [PayrollController::class, 'payslip'])
+        ->name('payslips.pdf-public')->middleware('signed');
 
     Route::middleware('auth:sanctum')->group(function () {
 
@@ -191,6 +193,7 @@ Route::prefix('v1')->group(function () {
         // Service Tickets
         Route::post('tickets/{ticket}/resolve', [ServiceTicketController::class, 'resolve']);
         Route::post('tickets/{ticket}/acknowledge', [ServiceTicketController::class, 'acknowledge']);
+        Route::post('tickets/{ticket}/advance-stage', [ServiceTicketController::class, 'advanceStage']);
         Route::post('tickets/{ticket}/parts', [ServiceTicketController::class, 'addPart']);
         Route::post('tickets/{ticket}/checklist/{item}', [ServiceTicketController::class, 'toggleChecklist']);
         Route::get('tickets/{ticket}/attachments', [TicketAttachmentController::class, 'index']);
@@ -317,6 +320,8 @@ Route::prefix('v1')->group(function () {
         Route::post('contracts/{contract}/allowances', [ContractController::class, 'addAllowance']);
         Route::delete('contracts/{contract}/allowances/{allowance}', [ContractController::class, 'removeAllowance']);
         Route::get('staff/{user}/payroll-history', [PayrollController::class, 'historyForUser']);
+        Route::get('staff/{user}/payslip/{payrollRun}', [PayrollController::class, 'payslip']);
+        Route::get('staff/{user}/payslip/{payrollRun}/link', [PayrollController::class, 'payslipLink']);
 
         // Disciplinary cases
         Route::get('staff/{user}/disciplinary-cases', [DisciplinaryCaseController::class, 'index']);

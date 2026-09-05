@@ -52,6 +52,7 @@ class ServiceTicketController extends Controller
             'type'              => ['nullable', 'in:repair,installation'],
             'assigned_to'       => ['nullable', 'exists:users,id'],
             'status'            => ['required', 'in:open,in_progress,resolved,overdue'],
+            'priority'          => ['nullable', 'in:critical,high,medium,low'],
             'description'       => ['nullable', 'string'],
             'checklist'         => ['nullable', 'array'],
             'checklist.*.label' => ['required_with:checklist', 'string'],
@@ -118,6 +119,7 @@ class ServiceTicketController extends Controller
             'ward'        => ['nullable', 'string'],
             'assigned_to' => ['nullable', 'exists:users,id'],
             'status'      => ['sometimes', 'in:open,in_progress,resolved,overdue'],
+            'priority'    => ['sometimes', 'in:critical,high,medium,low'],
             'description' => ['nullable', 'string'],
         ]);
 
@@ -291,6 +293,35 @@ class ServiceTicketController extends Controller
         if ($ticket->acknowledged_at === null) {
             $ticket->update(['acknowledged_at' => now()]);
         }
+
+        return response()->json([
+            'data' => new ServiceTicketResource($ticket->fresh()->load(['machine', 'hospital', 'assignee', 'checklistItems'])),
+        ]);
+    }
+
+    // The assignee moving the ticket through the fixed field-work stage
+    // sequence (assigned -> travelling -> on_site -> repair -> signed_off).
+    // Deliberately separate from status (open/in_progress/resolved/overdue)
+    // — see ServiceTicket::STAGES. Same "is this my ticket" check as
+    // acknowledge()/addPart()/toggleChecklist() above, but without the CTO
+    // override those use: this is the assignee's own field-work log, not an
+    // action a supervisor should be doing on their behalf.
+    public function advanceStage(Request $request, ServiceTicket $ticket)
+    {
+        abort_if($ticket->assigned_to !== $request->user()->id, 403, 'Only the assigned technician can advance this ticket\'s stage.');
+
+        $data = $request->validate([
+            'stage' => ['required', 'in:' . implode(',', ServiceTicket::STAGES)],
+        ]);
+
+        $next = $ticket->nextStage();
+        abort_if($next === null, 422, 'This ticket is already at its final stage.');
+        abort_if($data['stage'] !== $next, 422, "Cannot move from '{$ticket->stage}' to '{$data['stage']}' — the next stage must be '{$next}'.");
+
+        $ticket->update([
+            'stage'       => $next,
+            "{$next}_at" => now(),
+        ]);
 
         return response()->json([
             'data' => new ServiceTicketResource($ticket->fresh()->load(['machine', 'hospital', 'assignee', 'checklistItems'])),

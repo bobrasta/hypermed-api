@@ -13,7 +13,12 @@ class StaffController extends Controller
 {
     public function index(Request $request)
     {
-        abort_if(! $request->user()->hasStaffViewAuthority(), 403,
+        // Anyone who can manage staff (create/edit/deactivate, e.g. HR) can
+        // certainly view the roster too — hasStaffViewAuthority() alone
+        // (screens.staff) was leaving HR, which has staff.manage but not
+        // screens.staff by design (that's Operations' task-board key), 403'd
+        // out of its own dashboard's staff count.
+        abort_if(! $request->user()->hasStaffViewAuthority() && ! $request->user()->hasStaffManageAuthority(), 403,
             'Access Denied: you do not have permission to view the staff roster.');
 
         $staff = User::with(['currentTask', 'position'])

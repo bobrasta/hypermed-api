@@ -83,6 +83,13 @@ class DocumentPdfService
         ]))->setPaper('a4');
     }
 
+    public function payslipPdf(array $data): PdfInstance
+    {
+        return Pdf::loadView('pdf.payslip', array_merge($data, [
+            'company' => config('company'),
+        ]))->setPaper('a4');
+    }
+
     /**
      * @param array{title:string,docLabel:string,docNumber:string,date:string,client:array,clientTin:?string,
      *              items:array,subtotal:string,total:string,terms:array,filename:string} $d

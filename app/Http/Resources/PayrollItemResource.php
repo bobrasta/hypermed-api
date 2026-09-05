@@ -19,6 +19,7 @@ class PayrollItemResource extends JsonResource
             'overtime_amount'   => $this->overtime_amount,
             'paye_amount'       => $this->paye_amount,
             'nssf_amount'       => $this->nssf_amount,
+            'nssf_employer_amount' => $this->nssf_employer_amount,
             'heslb_amount'      => $this->heslb_amount,
             'other_deductions'  => $this->other_deductions,
             'gross_pay'         => $this->gross_pay,

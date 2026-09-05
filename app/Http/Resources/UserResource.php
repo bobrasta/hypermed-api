@@ -26,6 +26,7 @@ class UserResource extends JsonResource
             'initials'     => $initials,
             'is_active'    => $this->is_active,
             'manager_id'          => $this->manager_id,
+            'manager_name'        => $this->whenLoaded('manager', fn () => $this->manager?->name),
             'position_id'         => $this->position_id,
             'position_title'      => $this->whenLoaded('position', fn () => $this->position?->title),
             'gender'              => $this->gender,

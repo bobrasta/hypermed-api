@@ -51,7 +51,7 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
-        return response()->json(['data' => new UserResource($request->user())]);
+        return response()->json(['data' => new UserResource($request->user()->load(['position', 'manager']))]);
     }
 
     public function updateProfile(Request $request)

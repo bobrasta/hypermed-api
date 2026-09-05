@@ -17,9 +17,13 @@ class AttendanceController extends Controller
         abort_if(! $request->user()->hasStaffManageAuthority(), 403, 'You are not authorised to manage attendance.');
     }
 
+    // Self-access: any authenticated user can pull their own attendance
+    // history (e.g. the technician dashboard). Staff-manage authority is
+    // still required to view/filter someone else's — mirrors
+    // LeaveController::index()'s shape.
     public function index(Request $request)
     {
-        $this->authorize($request);
+        $user = $request->user();
 
         $data = $request->validate([
             'start'   => ['required', 'date'],
@@ -27,11 +31,17 @@ class AttendanceController extends Controller
             'user_id' => ['nullable', 'exists:users,id'],
         ]);
 
-        $records = AttendanceRecord::with('user')
-            ->whereBetween('date', [$data['start'], $data['end']])
-            ->when($data['user_id'] ?? null, fn ($q, $uid) => $q->where('user_id', $uid))
-            ->orderBy('date')
-            ->get();
+        $query = AttendanceRecord::with('user')->whereBetween('date', [$data['start'], $data['end']]);
+
+        if ($user->hasStaffManageAuthority()) {
+            if (! empty($data['user_id'])) {
+                $query->where('user_id', $data['user_id']);
+            }
+        } else {
+            $query->where('user_id', $user->id);
+        }
+
+        $records = $query->orderBy('date')->get();
 
         return response()->json(['data' => $records->map(fn ($r) => $this->recordJson($r))]);
     }

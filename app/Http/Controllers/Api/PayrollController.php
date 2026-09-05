@@ -11,12 +11,16 @@ use App\Models\ExpenseCategory;
 use App\Models\PayrollItem;
 use App\Models\PayrollRun;
 use App\Models\User;
+use App\Services\DocumentPdfService;
 use App\Services\FinancePostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\URL;
 
 class PayrollController extends Controller
 {
+    private const MONTH_NAMES = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
     // Payroll is data-model + manual entry this round — the accountant
     // enters gross/allowances/overtime/deductions per staff line by hand.
     // No PAYE/NSSF/HESLB auto-calculation engine yet (needs the current
@@ -30,13 +34,17 @@ class PayrollController extends Controller
     }
 
     // One staff member's pay lines across every run, newest first — the
-    // Directory profile's Payroll tab. Viewable by HR too (not just the
-    // accountant), since it's read-only history on a staff record rather
-    // than a payroll-management action.
+    // Directory profile's Payroll tab, and the technician dashboard's own
+    // payroll history. Self-access: a user can always view their own
+    // history; HR/accountant authority is required to view anyone else's.
     public function historyForUser(Request $request, User $user)
     {
-        abort_if(! $request->user()->hasStaffManageAuthority() && ! $request->user()->hasAccountantAuthority(),
-            403, 'You are not authorised to view payroll history.');
+        abort_if(
+            $user->id !== $request->user()->id
+                && ! $request->user()->hasStaffManageAuthority()
+                && ! $request->user()->hasAccountantAuthority(),
+            403, 'You are not authorised to view payroll history.',
+        );
 
         $items = PayrollItem::with('payrollRun')->where('user_id', $user->id)->get()
             ->sortByDesc(fn (PayrollItem $i) => $i->payrollRun->period_year * 100 + $i->payrollRun->period_month)
@@ -52,6 +60,7 @@ class PayrollController extends Controller
             'overtime_amount'  => $i->overtime_amount,
             'paye_amount'      => $i->paye_amount,
             'nssf_amount'      => $i->nssf_amount,
+            'nssf_employer_amount' => $i->nssf_employer_amount,
             'heslb_amount'     => $i->heslb_amount,
             'other_deductions' => $i->other_deductions,
             'gross_pay'        => $i->gross_pay,
@@ -60,9 +69,17 @@ class PayrollController extends Controller
         ])]);
     }
 
+    // Read-only list of runs (id/period/status/aggregate totals, no
+    // per-staff line items) — HR needs this for its dashboard summary, not
+    // just the accountant. Distinct from every other method below, which
+    // stays accountant-only via the shared authorize() since they create/
+    // edit/approve actual pay data.
     public function index(Request $request)
     {
-        $this->authorize($request);
+        abort_if(
+            ! $request->user()->hasStaffManageAuthority() && ! $request->user()->hasAccountantAuthority(),
+            403, 'You are not authorised to view payroll runs.',
+        );
 
         $runs = PayrollRun::withCount('items')
             ->orderByDesc('period_year')->orderByDesc('period_month')
@@ -120,16 +137,25 @@ class PayrollController extends Controller
             'overtime_amount'   => ['nullable', 'integer', 'min:0'],
             'paye_amount'       => ['nullable', 'integer', 'min:0'],
             'nssf_amount'       => ['nullable', 'integer', 'min:0'],
+            // Employer-side NSSF match — informational, does NOT factor into
+            // gross/net (it's not deducted from the employee). Left as-is
+            // (not reset to null) on an update that doesn't touch it, so a
+            // figure entered once by finance isn't wiped out by a later
+            // edit to an unrelated line item.
+            'nssf_employer_amount' => ['nullable', 'integer', 'min:0'],
             'heslb_amount'      => ['nullable', 'integer', 'min:0'],
             'other_deductions'  => ['nullable', 'integer', 'min:0'],
             'notes'             => ['nullable', 'string'],
         ]);
+
+        $existing = PayrollItem::where('payroll_run_id', $payrollRun->id)->where('user_id', $data['user_id'])->first();
 
         $base       = $data['base_salary'] ?? 0;
         $allowances = $data['allowances_total'] ?? 0;
         $overtime   = $data['overtime_amount'] ?? 0;
         $paye       = $data['paye_amount'] ?? 0;
         $nssf       = $data['nssf_amount'] ?? 0;
+        $nssfEmployer = array_key_exists('nssf_employer_amount', $data) ? $data['nssf_employer_amount'] : $existing?->nssf_employer_amount;
         $heslb      = $data['heslb_amount'] ?? 0;
         $otherDed   = $data['other_deductions'] ?? 0;
         $gross      = $base + $allowances + $overtime;
@@ -143,6 +169,7 @@ class PayrollController extends Controller
                 'overtime_amount'   => $overtime,
                 'paye_amount'       => $paye,
                 'nssf_amount'       => $nssf,
+                'nssf_employer_amount' => $nssfEmployer,
                 'heslb_amount'      => $heslb,
                 'other_deductions'  => $otherDed,
                 'gross_pay'         => $gross,
@@ -268,5 +295,62 @@ class PayrollController extends Controller
         $staff = User::where('is_active', true)->whereNotIn('id', $existingIds)->orderBy('name')->get(['id', 'name']);
 
         return response()->json(['data' => $staff]);
+    }
+
+    // One user's payslip PDF for one run — same self-or-authority gate as
+    // historyForUser(): a user can always pull their own, HR/accountant can
+    // pull anyone's. Streamed by both the signed public route (below) and
+    // reachable directly by an authenticated session, same dual-route shape
+    // as InvoiceController::pdf()/QuotationController::pdf(). The public
+    // route carries no auth:sanctum session (that's the whole point — no
+    // auth header needed), so the self-or-authority check only applies when
+    // there IS an authenticated caller; an unauthenticated request only
+    // gets here at all if it presented a valid, short-lived (10 min)
+    // signature — the 'signed' middleware is what gates that path, same
+    // reasoning as HrReportController::exportPdf().
+    public function payslip(Request $request, User $user, PayrollRun $payrollRun, DocumentPdfService $pdfService)
+    {
+        $caller = $request->user();
+        abort_if(
+            $caller
+                && $user->id !== $caller->id
+                && ! $caller->hasStaffManageAuthority()
+                && ! $caller->hasAccountantAuthority(),
+            403, 'You are not authorised to view this payslip.',
+        );
+
+        $item = PayrollItem::where('payroll_run_id', $payrollRun->id)->where('user_id', $user->id)->firstOrFail();
+
+        $pdf = $pdfService->payslipPdf([
+            'user'        => $user->load('position'),
+            'item'        => $item,
+            'periodLabel' => self::MONTH_NAMES[$payrollRun->period_month] . ' ' . $payrollRun->period_year,
+            'paidAt'      => $payrollRun->paid_at?->format('d M Y'),
+        ]);
+
+        return $pdf->stream("payslip-{$user->id}-{$payrollRun->period_year}-{$payrollRun->period_month}.pdf");
+    }
+
+    // Signed, time-limited link to the payslip PDF — lets the Flutter app
+    // open it via launchUrl() without attaching an auth header. Same gate
+    // as payslip() above (the 'signed' middleware only proves the link
+    // itself wasn't tampered with, not who's allowed to view it — the
+    // signed route still calls through to payslip(), which re-checks).
+    public function payslipLink(Request $request, User $user, PayrollRun $payrollRun)
+    {
+        abort_if(
+            $user->id !== $request->user()->id
+                && ! $request->user()->hasStaffManageAuthority()
+                && ! $request->user()->hasAccountantAuthority(),
+            403, 'You are not authorised to view this payslip.',
+        );
+
+        $expiresAt = now()->addMinutes(10);
+        $url = URL::temporarySignedRoute('payslips.pdf-public', $expiresAt, ['user' => $user->id, 'payrollRun' => $payrollRun->id]);
+
+        return response()->json(['data' => [
+            'url'        => $url,
+            'expires_at' => $expiresAt->toIso8601String(),
+        ]]);
     }
 }
