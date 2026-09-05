@@ -11,8 +11,11 @@ use Illuminate\Support\Facades\Hash;
 
 class StaffController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
+        abort_if(! $request->user()->hasStaffViewAuthority(), 403,
+            'Access Denied: you do not have permission to view the staff roster.');
+
         $staff = User::with(['currentTask', 'position'])
             ->where('is_active', true)
             ->get();
@@ -79,8 +82,11 @@ class StaffController extends Controller
         return response()->json(['data' => new UserResource($user)], 201);
     }
 
-    public function show(User $user)
+    public function show(Request $request, User $user)
     {
+        abort_if(! $request->user()->hasStaffViewAuthority(), 403,
+            'Access Denied: you do not have permission to view staff details.');
+
         $user->load(['currentTask', 'position']);
 
         return response()->json(['data' => new UserResource($user)]);

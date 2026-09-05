@@ -43,6 +43,9 @@ class HospitalController extends Controller
 
     public function store(Request $request)
     {
+        abort_if(! $request->user()->hasHospitalManageAuthority(), 403,
+            'Access Denied: you do not have permission to add hospital records.');
+
         $data = $request->validate([
             'name'                => ['required', 'string'],
             'short_code'          => ['nullable', 'string', 'max:20'],
@@ -82,6 +85,9 @@ class HospitalController extends Controller
 
     public function update(Request $request, Hospital $hospital)
     {
+        abort_if(! $request->user()->hasHospitalManageAuthority(), 403,
+            'Access Denied: you do not have permission to edit hospital records.');
+
         $data = $request->validate([
             'name'                => ['sometimes', 'string'],
             'short_code'          => ['nullable', 'string', 'max:20'],
@@ -104,8 +110,11 @@ class HospitalController extends Controller
         return response()->json(['data' => new HospitalResource($hospital)]);
     }
 
-    public function destroy(Hospital $hospital)
+    public function destroy(Request $request, Hospital $hospital)
     {
+        abort_if(! $request->user()->hasHospitalManageAuthority(), 403,
+            'Access Denied: you do not have permission to delete hospital records.');
+
         $hospital->delete();
 
         return response()->json(null, 204);

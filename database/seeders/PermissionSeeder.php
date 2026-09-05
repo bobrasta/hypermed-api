@@ -86,6 +86,9 @@ class PermissionSeeder extends Seeder
                 'services.view_team_metrics'   => ['View Team Metrics', "See the wider team's ticket/workload stats"],
                 'services.sign_off_installation' => ['Sign Off Equipment Installation', 'Confirm a newly delivered unit was installed correctly (not the installer themselves)'],
             ],
+            'hospitals' => [
+                'hospitals.manage' => ['Manage Hospitals', 'Create, edit, and delete hospital records'],
+            ],
             'finance' => [
                 'finance.view_revenue'         => ['View Revenue Figures', 'See ledger revenue and profit numbers'],
                 'finance.approve_step1'        => ['Approve Finance — Stage 1', 'First-stage finance approval (e.g. period close)'],
@@ -203,12 +206,14 @@ class PermissionSeeder extends Seeder
             'sales'         => ['sales.create', 'sales.edit', 'sales.issue_quotation'],
             'finance_manager'=> ['finance.view_revenue', 'finance.approve_step2', 'finance.export_reports'],
             'finance'       => [], // scoped grant below — 'masked' revenue view only
-            'technician'    => ['services.issue_ticket', 'services.close_ticket', 'equipment.schedule_maintenance'],
+            // No services.close_ticket — resolving a ticket is CTO/Director
+            // work, not the assigned technician's; see hasServiceTicketResolveAuthority().
+            'technician'    => ['services.issue_ticket', 'equipment.schedule_maintenance'],
             'cs'            => ['services.issue_ticket'],
             'storekeeper'   => ['inventory.adjust_stock', 'inventory.transfer_stock', 'inventory.view_valuation', 'logistics.receive_order'],
             'hr'            => ['hr.view_team_attendance', 'staff.manage', 'roles.manage'],
-            'cto'           => ['services.assign_ticket', 'services.add_engineer', 'services.view_team_metrics', 'inventory.approve_writeoff', 'services.sign_off_installation'],
-            'team_leader'   => ['services.view_team_metrics', 'services.assign_ticket', 'services.sign_off_installation'],
+            'cto'           => ['services.assign_ticket', 'services.add_engineer', 'services.view_team_metrics', 'inventory.approve_writeoff', 'services.sign_off_installation', 'services.close_ticket', 'hospitals.manage'],
+            'team_leader'   => ['services.view_team_metrics', 'services.assign_ticket', 'services.sign_off_installation', 'services.close_ticket'],
             'procurement_manager' => ['procurement.create_po', 'procurement.approve_requisition'],
             'accountant'    => ['procurement.initiate_payment'],
             'logistics'     => ['logistics.deliver_order', 'logistics.receive_order'],
@@ -260,7 +265,9 @@ class PermissionSeeder extends Seeder
             'super_admin'     => $screenKeys,
             'admin'           => $screenKeys,
             'cto'             => ['dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service', 'inventory', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
-            'technician'      => ['dashboard', 'machines', 'detail', 'hospitals', 'service', 'inventory', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            // No 'staff' or 'inventory' — a technician does the repair work,
+            // not staff task assignment or stock management.
+            'technician'      => ['dashboard', 'machines', 'detail', 'hospitals', 'service', 'my_leave', 'reports', 'settings', 'notifications'],
             'team_leader'     => ['dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'sales_manager'   => ['dashboard', 'machines', 'detail', 'sales', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'sales'           => ['dashboard', 'machines', 'detail', 'sales', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],

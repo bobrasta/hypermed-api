@@ -107,6 +107,10 @@ class ServiceTicketController extends Controller
     {
         abort_if(! $request->user()->hasServiceTicketCreateAuthority(), 403,
             'Access Denied: your role does not have permission to edit service tickets.');
+        abort_if(
+            ! $request->user()->hasCtoApprovalAuthority() && $ticket->assigned_to !== $request->user()->id,
+            403, 'Access Denied: you can only act on tickets assigned to you.',
+        );
 
         $data = $request->validate([
             'machine_id'  => ['sometimes', 'exists:machines,id'],
@@ -182,6 +186,9 @@ class ServiceTicketController extends Controller
 
     public function resolve(Request $request, ServiceTicket $ticket)
     {
+        abort_if(! $request->user()->hasServiceTicketResolveAuthority(), 403,
+            'Access Denied: only the CTO or Director can mark a service ticket resolved.');
+
         $data = $request->validate([
             'resolution_notes'               => ['required', 'string'],
             'parts_used'                     => ['nullable', 'array'],
@@ -225,6 +232,11 @@ class ServiceTicketController extends Controller
     // error either). This is the real endpoint for that action.
     public function addPart(Request $request, ServiceTicket $ticket)
     {
+        abort_if(
+            ! $request->user()->hasCtoApprovalAuthority() && $ticket->assigned_to !== $request->user()->id,
+            403, 'Access Denied: you can only act on tickets assigned to you.',
+        );
+
         $data = $request->validate([
             'inventory_item_id'       => ['required', 'exists:inventory_items,id'],
             'qty'                     => ['required', 'integer', 'min:1'],
@@ -285,9 +297,13 @@ class ServiceTicketController extends Controller
         ]);
     }
 
-    public function toggleChecklist(ServiceTicket $ticket, ChecklistItem $item)
+    public function toggleChecklist(Request $request, ServiceTicket $ticket, ChecklistItem $item)
     {
         abort_if($item->ticket_id !== $ticket->id, 404);
+        abort_if(
+            ! $request->user()->hasCtoApprovalAuthority() && $ticket->assigned_to !== $request->user()->id,
+            403, 'Access Denied: you can only act on tickets assigned to you.',
+        );
 
         $item->update(['is_checked' => ! $item->is_checked]);
 

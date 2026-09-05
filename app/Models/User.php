@@ -166,6 +166,36 @@ class User extends Authenticatable
         return app(EffectivePermissionResolver::class)->can($this, 'screens.service');
     }
 
+    // Resolving a ticket had no gate at all — any authenticated user could
+    // call resolve() on any ticket. Reuses services.close_ticket, a
+    // permission that already existed in the catalog but was never wired
+    // to an actual check anywhere (and was granted to the wrong role —
+    // see the catch-up migration that repoints it to cto/team_leader).
+    public function hasServiceTicketResolveAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'services.close_ticket');
+    }
+
+    // Hospital create/edit/delete had no gate at all — any authenticated
+    // user could call store()/update()/destroy(). A real permission
+    // (not a hardcoded role list) so a Director/CTO can hand it to a
+    // specific person via the Role Builder/per-user override without a
+    // code change.
+    public function hasHospitalManageAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'hospitals.manage');
+    }
+
+    // StaffController::index()/show() (the task-assignment roster) had no
+    // gate at all — reuses screens.staff, the same permission that
+    // already governs whether the Staff screen even shows in the sidebar,
+    // so the backend can't be reached directly by anyone who shouldn't
+    // see the roster in the UI either.
+    public function hasStaffViewAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'screens.staff');
+    }
+
     public function hasProcurementCreateAuthority(): bool
     {
         return app(EffectivePermissionResolver::class)->can($this, 'procurement.create_po');
