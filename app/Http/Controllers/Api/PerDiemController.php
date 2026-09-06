@@ -227,11 +227,16 @@ class PerDiemController extends Controller
         )]);
     }
 
-    // Director's final authorization — the actual "mark as paid" the money
-    // is released on. Only reachable once finance has prepared the payment.
+    // "Money is out" — the actual release, only reachable once finance has
+    // prepared the payment. The Director retains the authority (they
+    // approve all money leaving the bank), but since the Director is often
+    // busy, the accountant can trigger this in-app too — either can click
+    // it, but never the same person who initiated the payment (the guard
+    // below), so releasing still always takes two people.
     public function markPaid(Request $request, PerDiemRequest $perDiemRequest)
     {
-        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can authorize per-diem payment.');
+        abort_if(! $request->user()->hasAccountantAuthority() && ! $request->user()->hasDirectorAuthority(), 403,
+            'Only the accountant or Director can release per-diem payment.');
         abort_if($perDiemRequest->status !== 'pending_director', 422, 'Only requests awaiting Director authorization can be marked paid.');
         abort_if($perDiemRequest->payment_initiated_by === $request->user()->id, 403, 'You cannot authorize a payment you initiated.');
 
