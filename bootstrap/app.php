@@ -28,6 +28,18 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'cache.headers.api' => \App\Http\Middleware\CacheControlHeaders::class,
         ]);
+
+        // This is an API-only app with no 'login' route. The base
+        // Authenticate middleware's unauthenticated() builds its redirect
+        // target (route('login')) *before* throwing AuthenticationException
+        // whenever the request doesn't send Accept: application/json — that
+        // route lookup throws RouteNotFoundException instead, which isn't
+        // an AuthenticationException, so the render() handler below never
+        // catches it and a bare/misbehaving client gets a raw 500 instead
+        // of a clean 401. Every real client here (Flutter's Dio, hypermed-
+        // web's HTTP client) does send that header so this never actually
+        // triggered for them — found via a plain curl with no headers.
+        $middleware->redirectGuestsTo(fn () => null);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
