@@ -13,8 +13,13 @@ use Illuminate\Http\Request;
 
 class ContractController extends Controller
 {
-    public function index(User $user)
+    public function index(Request $request, User $user)
     {
+        abort_if(
+            $user->id !== $request->user()->id && ! $request->user()->hasStaffManageAuthority(),
+            403, 'You are not authorised to view this contract history.',
+        );
+
         return ContractResource::collection(
             $user->contracts()->with(['createdBy', 'allowances'])->latest('start_date')->get()
         );

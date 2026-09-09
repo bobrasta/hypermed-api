@@ -10,8 +10,13 @@ use Illuminate\Http\Request;
 
 class PositionChangeController extends Controller
 {
-    public function index(User $user)
+    public function index(Request $request, User $user)
     {
+        abort_if(
+            $user->id !== $request->user()->id && ! $request->user()->hasStaffManageAuthority(),
+            403, 'You are not authorised to view this career progression history.',
+        );
+
         return PositionChangeResource::collection(
             $user->positionChanges()->with(['fromPosition', 'toPosition', 'approvedBy'])->latest('effective_date')->get()
         );

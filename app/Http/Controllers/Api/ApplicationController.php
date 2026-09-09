@@ -14,6 +14,8 @@ class ApplicationController extends Controller
     // vacancy-pipeline report.
     public function index(Request $request, Vacancy $vacancy)
     {
+        abort_if(! $request->user()->hasStaffManageAuthority(), 403, 'You are not authorised to view recruitment.');
+
         return ApplicationResource::collection(
             $vacancy->applications()->with(['applicant.latestCv', 'vacancy.position', 'interviews.interviewer'])->latest('applied_at')->get()
         );

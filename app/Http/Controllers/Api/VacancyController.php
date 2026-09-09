@@ -11,6 +11,8 @@ class VacancyController extends Controller
 {
     public function index(Request $request)
     {
+        abort_if(! $request->user()->hasStaffManageAuthority(), 403, 'You are not authorised to view recruitment.');
+
         $query = Vacancy::with('position')->withCount('applications');
         if ($request->filled('status')) {
             $query->where('status', $request->status);

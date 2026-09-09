@@ -15,6 +15,8 @@ class ApplicantController extends Controller
     // candidates before posting externally" use case from the spec.
     public function index(Request $request)
     {
+        abort_if(! $request->user()->hasStaffManageAuthority(), 403, 'You are not authorised to view recruitment.');
+
         $query = Applicant::with('latestCv');
 
         if ($request->boolean('talent_pool')) {
@@ -35,8 +37,10 @@ class ApplicantController extends Controller
         return ApplicantResource::collection($query->latest()->get());
     }
 
-    public function show(Applicant $applicant)
+    public function show(Request $request, Applicant $applicant)
     {
+        abort_if(! $request->user()->hasStaffManageAuthority(), 403, 'You are not authorised to view recruitment.');
+
         $applicant->load(['cvVersions', 'applications.vacancy.position', 'applications.interviews.interviewer']);
 
         return new ApplicantResource($applicant);

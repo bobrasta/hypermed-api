@@ -13,6 +13,11 @@ class DisciplinaryCaseController extends Controller
 {
     public function index(Request $request, User $user)
     {
+        abort_if(
+            $user->id !== $request->user()->id && ! $request->user()->hasStaffManageAuthority(),
+            403, 'You are not authorised to view this disciplinary record.',
+        );
+
         return DisciplinaryCaseResource::collection(
             $user->disciplinaryCases()->with(['raisedBy', 'handledBy', 'notes.createdBy'])->latest('incident_date')->get()
         );
