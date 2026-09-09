@@ -23,6 +23,8 @@ class SupplierController extends Controller
 
     public function store(Request $request)
     {
+        abort_if(! $request->user()->hasInventoryManageAuthority(), 403, 'You are not authorised to manage the inventory catalog.');
+
         $data = $request->validate([
             'name'          => 'required|string|max:255',
             'short_code'    => 'nullable|string|max:20|unique:suppliers',
@@ -56,6 +58,8 @@ class SupplierController extends Controller
 
     public function update(Request $request, Supplier $supplier)
     {
+        abort_if(! $request->user()->hasInventoryManageAuthority(), 403, 'You are not authorised to manage the inventory catalog.');
+
         $data = $request->validate([
             'name'          => 'sometimes|required|string|max:255',
             'short_code'    => 'nullable|string|max:20|unique:suppliers,short_code,' . $supplier->id,
@@ -80,8 +84,10 @@ class SupplierController extends Controller
         return response()->json(['data' => $supplier]);
     }
 
-    public function destroy(Supplier $supplier)
+    public function destroy(Request $request, Supplier $supplier)
     {
+        abort_if(! $request->user()->hasInventoryManageAuthority(), 403, 'You are not authorised to manage the inventory catalog.');
+
         $supplier->update(['is_active' => false]);
 
         return response()->json(null, 204);
@@ -90,6 +96,8 @@ class SupplierController extends Controller
     // Link an inventory item to a supplier with pricing
     public function addItem(Request $request, Supplier $supplier)
     {
+        abort_if(! $request->user()->hasInventoryManageAuthority(), 403, 'You are not authorised to manage the inventory catalog.');
+
         $data = $request->validate([
             'inventory_item_id'  => 'required|exists:inventory_items,id',
             'unit_price'         => 'required|integer|min:0',
@@ -108,8 +116,10 @@ class SupplierController extends Controller
         return response()->json(['data' => $supplier->load('items')]);
     }
 
-    public function removeItem(Supplier $supplier, int $inventoryItemId)
+    public function removeItem(Request $request, Supplier $supplier, int $inventoryItemId)
     {
+        abort_if(! $request->user()->hasInventoryManageAuthority(), 403, 'You are not authorised to manage the inventory catalog.');
+
         $supplier->items()->detach($inventoryItemId);
 
         return response()->json(null, 204);

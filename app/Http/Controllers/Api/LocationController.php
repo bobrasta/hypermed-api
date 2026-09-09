@@ -31,6 +31,8 @@ class LocationController extends Controller
 
     public function store(Request $request)
     {
+        abort_if(! $request->user()->hasInventoryManageAuthority(), 403, 'You are not authorised to manage the inventory catalog.');
+
         $data = $request->validate([
             'name'    => ['required', 'string', 'max:255'],
             'code'    => ['nullable', 'string', 'max:50', 'unique:locations'],
@@ -51,6 +53,8 @@ class LocationController extends Controller
 
     public function update(Request $request, Location $location)
     {
+        abort_if(! $request->user()->hasInventoryManageAuthority(), 403, 'You are not authorised to manage the inventory catalog.');
+
         $data = $request->validate([
             'name'      => ['sometimes', 'string', 'max:255'],
             'code'      => ['nullable', 'string', 'max:50', 'unique:locations,code,' . $location->id],
@@ -65,8 +69,10 @@ class LocationController extends Controller
         return new LocationResource($location);
     }
 
-    public function destroy(Location $location)
+    public function destroy(Request $request, Location $location)
     {
+        abort_if(! $request->user()->hasInventoryManageAuthority(), 403, 'You are not authorised to manage the inventory catalog.');
+
         $location->update(['is_active' => false]);
         return response()->noContent();
     }

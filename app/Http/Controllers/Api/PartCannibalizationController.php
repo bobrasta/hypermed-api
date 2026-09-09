@@ -35,6 +35,7 @@ class PartCannibalizationController extends Controller
     // incomplete until the replacement is actually installed (resolve()).
     public function orderReplacement(Request $request, PartCannibalization $partCannibalization)
     {
+        abort_if(! $request->user()->hasInventoryManageAuthority(), 403, 'You are not authorised to manage the inventory catalog.');
         abort_if($partCannibalization->status !== 'open', 422, 'Only open cannibalizations can move to replacement-ordered.');
 
         $data = $request->validate([
@@ -58,6 +59,7 @@ class PartCannibalizationController extends Controller
     // have more than one part taken over time).
     public function resolve(Request $request, PartCannibalization $partCannibalization)
     {
+        abort_if(! $request->user()->hasInventoryManageAuthority(), 403, 'You are not authorised to manage the inventory catalog.');
         abort_if($partCannibalization->status === 'resolved', 422, 'Already resolved.');
 
         DB::transaction(function () use ($partCannibalization) {

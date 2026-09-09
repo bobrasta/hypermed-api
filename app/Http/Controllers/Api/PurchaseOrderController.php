@@ -52,6 +52,8 @@ class PurchaseOrderController extends Controller
 
     public function store(Request $request)
     {
+        abort_if(! $request->user()->hasProcurementCreateAuthority(), 403, 'You are not authorised to create purchase orders.');
+
         $data = $request->validate([
             'supplier_id'               => 'required|exists:suppliers,id',
             'location_id'               => 'required|exists:locations,id',
@@ -113,6 +115,7 @@ class PurchaseOrderController extends Controller
 
     public function update(Request $request, PurchaseOrder $purchaseOrder)
     {
+        abort_if(! $request->user()->hasProcurementCreateAuthority(), 403, 'You are not authorised to edit purchase orders.');
         abort_if($purchaseOrder->status !== 'draft', 422, 'Only draft purchase orders can be edited.');
 
         $data = $request->validate([
@@ -237,6 +240,7 @@ class PurchaseOrderController extends Controller
         abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the director can give final approval on this purchase order.');
         abort_if($purchaseOrder->status !== 'pending_director_final', 422, 'Only orders awaiting final director approval can be actioned at this stage.');
         abort_if($purchaseOrder->payment_initiated_by === $request->user()->id, 403, 'The same person cannot both initiate payment and give final approval on it.');
+        abort_if($purchaseOrder->director_reviewed_by === $request->user()->id, 403, 'The director who reviewed this PO cannot also give final approval.');
 
         $purchaseOrder->update([
             'status'                => 'approved',
@@ -317,8 +321,9 @@ class PurchaseOrderController extends Controller
     }
 
     // Mark PO as sent to supplier
-    public function send(PurchaseOrder $purchaseOrder)
+    public function send(Request $request, PurchaseOrder $purchaseOrder)
     {
+        abort_if(! $request->user()->hasProcurementCreateAuthority(), 403, 'You are not authorised to send purchase orders.');
         abort_if($purchaseOrder->status !== 'approved', 422, 'Only fully-approved orders can be sent.');
 
         $purchaseOrder->update([
@@ -391,6 +396,7 @@ class PurchaseOrderController extends Controller
 
     public function cancel(Request $request, PurchaseOrder $purchaseOrder)
     {
+        abort_if(! $request->user()->hasProcurementCreateAuthority(), 403, 'You are not authorised to cancel purchase orders.');
         abort_if(in_array($purchaseOrder->status, ['received']), 422, 'Fully received orders cannot be cancelled.');
 
         $purchaseOrder->update(['status' => 'cancelled']);

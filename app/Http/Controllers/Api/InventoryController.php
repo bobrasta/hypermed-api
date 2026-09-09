@@ -49,6 +49,8 @@ class InventoryController extends Controller
 
     public function store(Request $request)
     {
+        abort_if(! $request->user()->hasInventoryManageAuthority(), 403, 'You are not authorised to manage the inventory catalog.');
+
         $data = $request->validate([
             'sku'                 => ['required', 'string', 'unique:inventory_items'],
             'name'                => ['required', 'string'],
@@ -111,6 +113,8 @@ class InventoryController extends Controller
 
     public function update(Request $request, InventoryItem $inventory)
     {
+        abort_if(! $request->user()->hasInventoryManageAuthority(), 403, 'You are not authorised to manage the inventory catalog.');
+
         $data = $request->validate([
             'sku'             => ['sometimes', 'string', 'unique:inventory_items,sku,' . $inventory->id],
             'name'            => ['sometimes', 'string'],
@@ -132,8 +136,10 @@ class InventoryController extends Controller
         return response()->json(['data' => new InventoryItemResource($inventory->load(['compatibleModels', 'category']))]);
     }
 
-    public function destroy(InventoryItem $inventory)
+    public function destroy(Request $request, InventoryItem $inventory)
     {
+        abort_if(! $request->user()->hasInventoryManageAuthority(), 403, 'You are not authorised to manage the inventory catalog.');
+
         $inventory->update(['is_active' => false]);
 
         return response()->json(['message' => 'Item deactivated.']);
@@ -141,6 +147,8 @@ class InventoryController extends Controller
 
     public function adjust(Request $request, InventoryItem $inventoryItem, StockService $stockService)
     {
+        abort_if(! $request->user()->hasStockAdjustAuthority(), 403, 'You are not authorised to adjust stock quantities.');
+
         $data = $request->validate([
             'location_id'  => ['required', 'exists:locations,id'],
             'new_quantity' => ['required', 'integer', 'min:0'],

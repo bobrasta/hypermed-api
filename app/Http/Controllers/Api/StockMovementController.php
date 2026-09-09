@@ -25,6 +25,8 @@ class StockMovementController extends Controller
 
     public function store(Request $request, StockService $stockService)
     {
+        abort_if(! $request->user()->hasInventoryManageAuthority(), 403, 'You are not authorised to manage the inventory catalog.');
+
         $data = $request->validate([
             'inventory_item_id' => 'required|exists:inventory_items,id',
             'location_id'       => 'required|exists:locations,id',
