@@ -13,8 +13,22 @@ use Illuminate\Support\Facades\DB;
 
 class VendorBillController extends Controller
 {
+    // index()/show() had no gate at all — any of the 15 roles could read
+    // full vendor bill records. Reuses screens.finance, the same permission
+    // that governs the Finance module's other read screens.
+    private function assertFinanceReadAccess(): void
+    {
+        abort_if(
+            ! app(\App\Services\EffectivePermissionResolver::class)->can(\Illuminate\Support\Facades\Auth::user(), 'screens.finance'),
+            403,
+            'You are not authorised to view finance data.'
+        );
+    }
+
     public function index(Request $request)
     {
+        $this->assertFinanceReadAccess();
+
         $query = VendorBill::with(['supplier', 'purchaseOrder', 'category', 'payments', 'approvedBy']);
 
         if ($request->filled('supplier_id')) {
@@ -94,6 +108,8 @@ class VendorBillController extends Controller
 
     public function show(VendorBill $vendorBill)
     {
+        $this->assertFinanceReadAccess();
+
         $vendorBill->load(['supplier', 'purchaseOrder', 'category', 'lineItems', 'payments.recordedBy', 'approvedBy']);
 
         return response()->json(['data' => new VendorBillResource($vendorBill)]);

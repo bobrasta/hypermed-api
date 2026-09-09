@@ -18,6 +18,19 @@ use Illuminate\Support\Facades\DB;
 
 class FinanceReportController extends Controller
 {
+    // These reports had no gate at all — any of the 15 roles could pull
+    // full P&L, balance sheet, trial balance, AR/AP aging, stock valuation,
+    // VAT and cash-flow figures. Reuses screens.finance, the same
+    // permission that governs the Finance module's other read screens.
+    private function assertFinanceReadAccess(): void
+    {
+        abort_if(
+            ! app(\App\Services\EffectivePermissionResolver::class)->can(\Illuminate\Support\Facades\Auth::user(), 'screens.finance'),
+            403,
+            'You are not authorised to view finance data.'
+        );
+    }
+
     private const NORMAL_BALANCE = [
         'asset'     => 'debit',
         'expense'   => 'debit',
@@ -34,6 +47,8 @@ class FinanceReportController extends Controller
     // historical/period dimension); for period P&L see Finance E instead.
     public function trialBalance()
     {
+        $this->assertFinanceReadAccess();
+
         $accounts = ChartOfAccount::with('category')->where('status', 'active')->orderBy('code')->get();
 
         $rows = $accounts->map(function ($account) {
@@ -66,6 +81,8 @@ class FinanceReportController extends Controller
     // to any reporting period (e.g. a monthly TRA filing).
     public function vat(Request $request)
     {
+        $this->assertFinanceReadAccess();
+
         $from = $request->date_from ?? Carbon::now()->startOfMonth()->toDateString();
         $to   = $request->date_to   ?? Carbon::now()->endOfMonth()->toDateString();
 
@@ -119,6 +136,8 @@ class FinanceReportController extends Controller
     // time of sale, so this is a known simplification, not a point-in-time actual.
     public function profitLoss(Request $request)
     {
+        $this->assertFinanceReadAccess();
+
         $from = $request->date_from ?? Carbon::now()->startOfMonth()->toDateString();
         $to   = $request->date_to   ?? Carbon::now()->endOfMonth()->toDateString();
 
@@ -165,6 +184,8 @@ class FinanceReportController extends Controller
     // specifically because it didn't do this).
     public function balanceSheet()
     {
+        $this->assertFinanceReadAccess();
+
         $accounts = ChartOfAccount::with('category')->where('status', 'active')->orderBy('code')->get();
         $byType = $accounts->groupBy(fn ($a) => $a->category->type);
 
@@ -199,6 +220,8 @@ class FinanceReportController extends Controller
     // already shows.
     public function arAging()
     {
+        $this->assertFinanceReadAccess();
+
         $today = Carbon::today();
 
         $invoices = Invoice::with('hospital:id,name')
@@ -244,6 +267,8 @@ class FinanceReportController extends Controller
     // read side by side.
     public function apAging()
     {
+        $this->assertFinanceReadAccess();
+
         $today = Carbon::today();
 
         $bills = VendorBill::with('supplier:id,name')
@@ -290,6 +315,8 @@ class FinanceReportController extends Controller
     // are excluded (nothing to value); inactive items are excluded too.
     public function stockValuation()
     {
+        $this->assertFinanceReadAccess();
+
         $items = InventoryItem::with('category:id,name')
             ->where('is_active', true)
             ->where('stock_qty', '>', 0)
@@ -326,6 +353,8 @@ class FinanceReportController extends Controller
     // transaction-level; this is a quick all-methods total.
     public function cashFlow(Request $request)
     {
+        $this->assertFinanceReadAccess();
+
         $from = $request->date_from ?? Carbon::now()->startOfMonth()->toDateString();
         $to   = $request->date_to   ?? Carbon::now()->endOfMonth()->toDateString();
 
@@ -359,6 +388,8 @@ class FinanceReportController extends Controller
     // run 12 separate period queries on every load.
     public function monthlyTrend()
     {
+        $this->assertFinanceReadAccess();
+
         return response()->json(['data' => $this->buildMonthlyTrend()]);
     }
 

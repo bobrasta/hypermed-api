@@ -11,8 +11,22 @@ use Illuminate\Http\Request;
 
 class BankReconciliationController extends Controller
 {
+    // index()/show() had no gate at all — any of the 15 roles could read
+    // bank reconciliation records. Reuses screens.finance, the same
+    // permission that governs the Finance module's other read screens.
+    private function assertFinanceReadAccess(): void
+    {
+        abort_if(
+            ! app(\App\Services\EffectivePermissionResolver::class)->can(\Illuminate\Support\Facades\Auth::user(), 'screens.finance'),
+            403,
+            'You are not authorised to view finance data.'
+        );
+    }
+
     public function index()
     {
+        $this->assertFinanceReadAccess();
+
         $recons = BankReconciliation::latest('period_from')->get();
         return BankReconciliationResource::collection($recons);
     }
@@ -38,6 +52,8 @@ class BankReconciliationController extends Controller
 
     public function show(BankReconciliation $bankReconciliation)
     {
+        $this->assertFinanceReadAccess();
+
         return response()->json(['data' => new BankReconciliationResource($bankReconciliation->load('lines'))]);
     }
 

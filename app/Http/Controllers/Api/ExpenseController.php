@@ -16,6 +16,20 @@ use Illuminate\Support\Facades\DB;
 
 class ExpenseController extends Controller
 {
+    // Expense read endpoints had no gate at all — any of the 15 roles could
+    // list/view every expense record. Reuses screens.finance, the same
+    // permission that governs the Finance module's other read screens (see
+    // FinanceReportController, AccountingController, VendorBillController,
+    // BankReconciliationController).
+    private function assertFinanceReadAccess(): void
+    {
+        abort_if(
+            ! app(\App\Services\EffectivePermissionResolver::class)->can(\Illuminate\Support\Facades\Auth::user(), 'screens.finance'),
+            403,
+            'You are not authorised to view finance data.'
+        );
+    }
+
     private function categoryPayload(ExpenseCategory $c): array
     {
         return [
@@ -96,6 +110,8 @@ class ExpenseController extends Controller
 
     public function index(Request $request)
     {
+        $this->assertFinanceReadAccess();
+
         $query = Expense::with(['category', 'createdBy', 'reviewer']);
 
         if ($request->filled('category_id')) {
@@ -151,12 +167,17 @@ class ExpenseController extends Controller
 
     public function show(Expense $expense)
     {
+        $this->assertFinanceReadAccess();
+
         return response()->json(['data' => new ExpenseResource($expense->load(['category', 'createdBy', 'escalator', 'reviewer']))]);
     }
 
     public function update(Request $request, Expense $expense, ExpenseApprovalService $approvalService)
     {
         abort_if($expense->status === 'approved', 422, 'Approved expenses cannot be edited — void and recreate if a correction is needed.');
+
+        $user = $request->user();
+        abort_if($expense->created_by !== $user->id && ! $user->hasCtoApprovalAuthority(), 403, 'Not authorised.');
 
         $data = $request->validate([
             'name'         => ['sometimes', 'string', 'max:255'],

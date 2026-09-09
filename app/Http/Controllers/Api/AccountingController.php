@@ -12,6 +12,19 @@ use Illuminate\Http\Request;
 
 class AccountingController extends Controller
 {
+    // These read endpoints had no gate at all — any of the 15 roles could
+    // list the full chart of accounts, categories, ledger journal, and
+    // account summary. Reuses screens.finance, the same permission that
+    // governs the Finance module's other read screens.
+    private function assertFinanceReadAccess(): void
+    {
+        abort_if(
+            ! app(\App\Services\EffectivePermissionResolver::class)->can(\Illuminate\Support\Facades\Auth::user(), 'screens.finance'),
+            403,
+            'You are not authorised to view finance data.'
+        );
+    }
+
     // Admin-only: sweep all Revenue/Expense account balances into Retained
     // Earnings. See PeriodCloseService for why the Balance Sheet doesn't
     // actually require this to have been run to be correct.
@@ -29,6 +42,8 @@ class AccountingController extends Controller
     // figure, for a quick dashboard-style overview of the ledger.
     public function summary()
     {
+        $this->assertFinanceReadAccess();
+
         $categories = AccountCategory::with(['accounts' => fn ($q) => $q->where('status', 'active')->orderBy('code')])->get();
 
         $byType = $categories->mapWithKeys(fn ($cat) => [$cat->type => [
@@ -47,6 +62,8 @@ class AccountingController extends Controller
 
     public function accounts(Request $request)
     {
+        $this->assertFinanceReadAccess();
+
         $accounts = ChartOfAccount::with('category')
             ->when($request->category, fn ($q, $c) => $q->whereHas('category', fn ($q) => $q->where('type', $c)))
             ->when($request->status, fn ($q, $s) => $q->where('status', $s))
@@ -61,6 +78,8 @@ class AccountingController extends Controller
     // hardcoding category ids client-side.
     public function categories()
     {
+        $this->assertFinanceReadAccess();
+
         return response()->json(['data' => AccountCategory::orderBy('type')->get(['id', 'type'])]);
     }
 
@@ -124,6 +143,8 @@ class AccountingController extends Controller
     // Last 50 ledger postings, most recent first — a plain chronological journal view.
     public function journal(Request $request)
     {
+        $this->assertFinanceReadAccess();
+
         $entries = Transaction::with('account:id,code,name')
             ->latest('created_at')
             ->latest('id')
