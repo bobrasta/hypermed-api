@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\EmailAccountController;
 use App\Http\Controllers\Api\EmailController;
 use App\Http\Controllers\Api\ExpenseController;
 use App\Http\Controllers\Api\FinanceReportController;
+use App\Http\Controllers\Api\FlowController;
 use App\Http\Controllers\Api\HospitalController;
 use App\Http\Controllers\Api\InventoryController;
 use App\Http\Controllers\Api\InvoiceController;
@@ -84,6 +85,15 @@ Route::prefix('v1')->group(function () {
         ->name('hr-reports.pdf-public')->middleware('signed');
     Route::get('public/staff/{user}/payslip/{payrollRun}', [PayrollController::class, 'payslip'])
         ->name('payslips.pdf-public')->middleware('signed');
+
+    // Flow-diagram research/sampling tool — a link handed directly to staff
+    // to correct their own department's process flow. Deliberately public,
+    // no `signed` middleware: not a single time-limited record, an ongoing
+    // editable resource anyone with the link can revisit and update.
+    Route::get('flows', [FlowController::class, 'index'])->name('flows.index');
+    Route::get('flows/{key}', [FlowController::class, 'show'])->name('flows.show');
+    Route::put('flows/{key}', [FlowController::class, 'update'])->name('flows.update');
+    Route::get('flows/{key}/history', [FlowController::class, 'history'])->name('flows.history');
 
     Route::middleware('auth:sanctum')->group(function () {
 

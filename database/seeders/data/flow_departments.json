@@ -1,0 +1,1482 @@
+{
+  "SALES": {
+    "title": "🧾 Sales & Revenue",
+    "nodes": [
+      {
+        "id": "s1",
+        "data": {
+          "label": "Lead created"
+        },
+        "position": {
+          "x": 40,
+          "y": 40
+        },
+        "type": "input",
+        "className": "shape-stadium cls-self"
+      },
+      {
+        "id": "s3",
+        "data": {
+          "label": "Over discount\nthreshold?"
+        },
+        "position": {
+          "x": 40,
+          "y": 300
+        },
+        "type": "default",
+        "className": "shape-diamond"
+      },
+      {
+        "id": "s8",
+        "data": {
+          "label": "Over value\nthreshold?"
+        },
+        "position": {
+          "x": 40,
+          "y": 820
+        },
+        "type": "default",
+        "className": "shape-diamond"
+      },
+      {
+        "id": "s2",
+        "data": {
+          "label": "Quotation drafted"
+        },
+        "position": {
+          "x": 40,
+          "y": 170
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "s4",
+        "data": {
+          "label": "sales_manager approves"
+        },
+        "position": {
+          "x": 40,
+          "y": 430
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "s5",
+        "data": {
+          "label": "Quotation sent to client"
+        },
+        "position": {
+          "x": 320,
+          "y": 430
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "s6",
+        "data": {
+          "label": "Client accepts"
+        },
+        "position": {
+          "x": 40,
+          "y": 560
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "s7",
+        "data": {
+          "label": "Converted to Sales Order"
+        },
+        "position": {
+          "x": 40,
+          "y": 690
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "s9",
+        "data": {
+          "label": "sales_manager approves order"
+        },
+        "position": {
+          "x": 40,
+          "y": 950
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "s10",
+        "data": {
+          "label": "Order confirmed\n(commission locked in)"
+        },
+        "position": {
+          "x": 320,
+          "y": 950
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "s11",
+        "data": {
+          "label": "logistics delivers"
+        },
+        "position": {
+          "x": 40,
+          "y": 1080
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "s12",
+        "data": {
+          "label": "accountant creates Invoice"
+        },
+        "position": {
+          "x": 40,
+          "y": 1210
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "s13",
+        "data": {
+          "label": "accountant records payment"
+        },
+        "position": {
+          "x": 40,
+          "y": 1340
+        },
+        "type": "default",
+        "className": "shape-rect"
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0-s1-s2",
+        "source": "s1",
+        "target": "s2",
+        "label": "sales / sales_manager: create",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e1-s2-s3",
+        "source": "s2",
+        "target": "s3",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e2-s3-s4",
+        "source": "s3",
+        "target": "s4",
+        "label": "yes",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e3-s3-s5",
+        "source": "s3",
+        "target": "s5",
+        "label": "no",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e4-s5-s6",
+        "source": "s5",
+        "target": "s6",
+        "label": "sales: issue_quotation",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e5-s6-s7",
+        "source": "s6",
+        "target": "s7",
+        "label": "sales / sales_manager: convert",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e6-s7-s8",
+        "source": "s7",
+        "target": "s8",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e7-s8-s9",
+        "source": "s8",
+        "target": "s9",
+        "label": "yes",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e8-s8-s10",
+        "source": "s8",
+        "target": "s10",
+        "label": "no",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e9-s10-s11",
+        "source": "s10",
+        "target": "s11",
+        "label": "sales / sales_manager: confirm",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e10-s11-s12",
+        "source": "s11",
+        "target": "s12",
+        "label": "logistics: deliver_order",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e11-s12-s13",
+        "source": "s12",
+        "target": "s13",
+        "label": "accountant: create invoice",
+        "animated": false,
+        "style": {}
+      }
+    ]
+  },
+  "SERVICE": {
+    "title": "🛠️ Service Ticket",
+    "nodes": [
+      {
+        "id": "t1",
+        "data": {
+          "label": "Ticket opened"
+        },
+        "position": {
+          "x": 40,
+          "y": 40
+        },
+        "type": "input",
+        "className": "shape-stadium cls-self"
+      },
+      {
+        "id": "t4",
+        "data": {
+          "label": "Travel needed?"
+        },
+        "position": {
+          "x": 40,
+          "y": 430
+        },
+        "type": "default",
+        "className": "shape-diamond"
+      },
+      {
+        "id": "t7",
+        "data": {
+          "label": "Parts needed?"
+        },
+        "position": {
+          "x": 40,
+          "y": 820
+        },
+        "type": "default",
+        "className": "shape-diamond"
+      },
+      {
+        "id": "t11",
+        "data": {
+          "label": "Was an\ninstallation?"
+        },
+        "position": {
+          "x": 40,
+          "y": 1210
+        },
+        "type": "default",
+        "className": "shape-diamond"
+      },
+      {
+        "id": "t2",
+        "data": {
+          "label": "Technician assigned"
+        },
+        "position": {
+          "x": 40,
+          "y": 170
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "t3",
+        "data": {
+          "label": "Technician acknowledges"
+        },
+        "position": {
+          "x": 40,
+          "y": 300
+        },
+        "type": "default",
+        "className": "shape-rect cls-self"
+      },
+      {
+        "id": "t5",
+        "data": {
+          "label": "Per-diem chain\n(see below)"
+        },
+        "position": {
+          "x": 40,
+          "y": 560
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "t6",
+        "data": {
+          "label": "Stage: travelling → on_site → repair → signed_off"
+        },
+        "position": {
+          "x": 40,
+          "y": 690
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "t8",
+        "data": {
+          "label": "Self-service: add part\n(ticket-tied, no approval)"
+        },
+        "position": {
+          "x": 40,
+          "y": 950
+        },
+        "type": "default",
+        "className": "shape-rect cls-self"
+      },
+      {
+        "id": "t9",
+        "data": {
+          "label": "StockOutRequest\n(approval-gated, linked to ticket)"
+        },
+        "position": {
+          "x": 320,
+          "y": 950
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "t10",
+        "data": {
+          "label": "Ticket resolved"
+        },
+        "position": {
+          "x": 40,
+          "y": 1080
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "t12",
+        "data": {
+          "label": "Machine signed off\n(not the installer)"
+        },
+        "position": {
+          "x": 40,
+          "y": 1340
+        },
+        "type": "default",
+        "className": "shape-rect"
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0-t1-t2",
+        "source": "t1",
+        "target": "t2",
+        "label": "cto / team_leader: assign",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e1-t2-t3",
+        "source": "t2",
+        "target": "t3",
+        "label": "technician: acknowledge",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e2-t3-t4",
+        "source": "t3",
+        "target": "t4",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e3-t4-t5",
+        "source": "t4",
+        "target": "t5",
+        "label": "yes",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e4-t4-t6",
+        "source": "t4",
+        "target": "t6",
+        "label": "no",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e5-t5-t6",
+        "source": "t5",
+        "target": "t6",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e6-t6-t7",
+        "source": "t6",
+        "target": "t7",
+        "label": "assignee: advance stage",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e7-t7-t8",
+        "source": "t7",
+        "target": "t8",
+        "label": "self-service",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e8-t7-t9",
+        "source": "t7",
+        "target": "t9",
+        "label": "cto / team_leader approves",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e9-t8-t10",
+        "source": "t8",
+        "target": "t10",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e10-t9-t10",
+        "source": "t9",
+        "target": "t10",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e11-t10-t11",
+        "source": "t10",
+        "target": "t11",
+        "label": "cto / team_leader: resolve",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e12-t11-t12",
+        "source": "t11",
+        "target": "t12",
+        "label": "yes — cto / team_leader / admin: sign off",
+        "animated": false,
+        "style": {}
+      }
+    ]
+  },
+  "PERDIEM": {
+    "title": "✈️ Per-Diem (Travel Plan)",
+    "nodes": [
+      {
+        "id": "p1",
+        "data": {
+          "label": "Technician requests"
+        },
+        "position": {
+          "x": 40,
+          "y": 40
+        },
+        "type": "input",
+        "className": "shape-stadium cls-self"
+      },
+      {
+        "id": "p5",
+        "data": {
+          "label": "Same person who\ninitiated?"
+        },
+        "position": {
+          "x": 40,
+          "y": 560
+        },
+        "type": "default",
+        "className": "shape-diamond"
+      },
+      {
+        "id": "p2",
+        "data": {
+          "label": "team_leader approves\n(stage 1)"
+        },
+        "position": {
+          "x": 40,
+          "y": 170
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "p3",
+        "data": {
+          "label": "cto / director approves\n(stage 2)"
+        },
+        "position": {
+          "x": 40,
+          "y": 300
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "p4",
+        "data": {
+          "label": "accountant initiates payment"
+        },
+        "position": {
+          "x": 40,
+          "y": 430
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "p6",
+        "data": {
+          "label": "🚫 Blocked — must be\na different person"
+        },
+        "position": {
+          "x": 40,
+          "y": 690
+        },
+        "type": "default",
+        "className": "shape-rect cls-blocked"
+      },
+      {
+        "id": "p7",
+        "data": {
+          "label": "✅ Money is out"
+        },
+        "position": {
+          "x": 320,
+          "y": 690
+        },
+        "type": "default",
+        "className": "shape-rect"
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0-p1-p2",
+        "source": "p1",
+        "target": "p2",
+        "label": "team_leader: approve",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e1-p2-p3",
+        "source": "p2",
+        "target": "p3",
+        "label": "cto / admin: approve",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e2-p3-p4",
+        "source": "p3",
+        "target": "p4",
+        "label": "accountant: initiate_payment",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e3-p4-p5",
+        "source": "p4",
+        "target": "p5",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e4-p5-p6",
+        "source": "p5",
+        "target": "p6",
+        "label": "yes",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e5-p5-p7",
+        "source": "p5",
+        "target": "p7",
+        "label": "no — accountant OR director releases",
+        "animated": false,
+        "style": {}
+      }
+    ]
+  },
+  "TASKS": {
+    "title": "📋 Task Board (non-ticket)",
+    "nodes": [
+      {
+        "id": "k1",
+        "data": {
+          "label": "Task created"
+        },
+        "position": {
+          "x": 40,
+          "y": 40
+        },
+        "type": "input",
+        "className": "shape-stadium cls-self"
+      },
+      {
+        "id": "k2",
+        "data": {
+          "label": "Assigned to any staff member"
+        },
+        "position": {
+          "x": 40,
+          "y": 170
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "k3",
+        "data": {
+          "label": "Assignee: in_progress → completed"
+        },
+        "position": {
+          "x": 40,
+          "y": 300
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "k4",
+        "data": {
+          "label": "Managers notified"
+        },
+        "position": {
+          "x": 40,
+          "y": 430
+        },
+        "type": "default",
+        "className": "shape-rect"
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0-k1-k2",
+        "source": "k1",
+        "target": "k2",
+        "label": "super_admin / admin / sales_manager / finance_manager / cto / team_leader",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e1-k2-k3",
+        "source": "k2",
+        "target": "k3",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e2-k3-k4",
+        "source": "k3",
+        "target": "k4",
+        "label": "on completion",
+        "animated": false,
+        "style": {}
+      }
+    ]
+  },
+  "HR": {
+    "title": "🧑‍💼 HR & Leave",
+    "nodes": [
+      {
+        "id": "h1",
+        "data": {
+          "label": "Leave requested"
+        },
+        "position": {
+          "x": 40,
+          "y": 40
+        },
+        "type": "input",
+        "className": "shape-stadium cls-self"
+      },
+      {
+        "id": "h7",
+        "data": {
+          "label": "Viewing own\nrecord?"
+        },
+        "position": {
+          "x": 600,
+          "y": 170
+        },
+        "type": "default",
+        "className": "shape-diamond"
+      },
+      {
+        "id": "h2",
+        "data": {
+          "label": "hr / admin approves or rejects"
+        },
+        "position": {
+          "x": 40,
+          "y": 170
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "h3",
+        "data": {
+          "label": "Requester sees decision\n(My Leave — self-scoped only)"
+        },
+        "position": {
+          "x": 40,
+          "y": 300
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "h4",
+        "data": {
+          "label": "Late arrival logged"
+        },
+        "position": {
+          "x": 320,
+          "y": 40
+        },
+        "type": "default",
+        "className": "shape-rect cls-self"
+      },
+      {
+        "id": "h5",
+        "data": {
+          "label": "hr / admin reviews"
+        },
+        "position": {
+          "x": 320,
+          "y": 170
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "h6",
+        "data": {
+          "label": "Contract / disciplinary /\nposition-change record"
+        },
+        "position": {
+          "x": 600,
+          "y": 40
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "h8",
+        "data": {
+          "label": "✅ Self-view allowed"
+        },
+        "position": {
+          "x": 320,
+          "y": 300
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "h9",
+        "data": {
+          "label": "hr / admin (staff.manage) only"
+        },
+        "position": {
+          "x": 600,
+          "y": 300
+        },
+        "type": "default",
+        "className": "shape-rect"
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0-h1-h2",
+        "source": "h1",
+        "target": "h2",
+        "label": "any staff: request",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e1-h2-h3",
+        "source": "h2",
+        "target": "h3",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e2-h4-h5",
+        "source": "h4",
+        "target": "h5",
+        "label": "system: attendance import",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e3-h6-h7",
+        "source": "h6",
+        "target": "h7",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e4-h7-h8",
+        "source": "h7",
+        "target": "h8",
+        "label": "yes",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e5-h7-h9",
+        "source": "h7",
+        "target": "h9",
+        "label": "no",
+        "animated": false,
+        "style": {}
+      }
+    ]
+  },
+  "PROC": {
+    "title": "📦 Procurement & Inventory",
+    "nodes": [
+      {
+        "id": "i3",
+        "data": {
+          "label": "Requisition created"
+        },
+        "position": {
+          "x": 40,
+          "y": 300
+        },
+        "type": "input",
+        "className": "shape-stadium cls-self"
+      },
+      {
+        "id": "i4",
+        "data": {
+          "label": "Same person\nrequested?"
+        },
+        "position": {
+          "x": 40,
+          "y": 430
+        },
+        "type": "default",
+        "className": "shape-diamond"
+      },
+      {
+        "id": "i12",
+        "data": {
+          "label": "Same director\nas stage 2, or same\nperson as stage 3?"
+        },
+        "position": {
+          "x": 40,
+          "y": 1340
+        },
+        "type": "default",
+        "className": "shape-diamond"
+      },
+      {
+        "id": "i1",
+        "data": {
+          "label": "Stock crosses\nreorder level"
+        },
+        "position": {
+          "x": 40,
+          "y": 40
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "i2",
+        "data": {
+          "label": "Notifies procurement_manager\n+ storekeeper"
+        },
+        "position": {
+          "x": 40,
+          "y": 170
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "i5",
+        "data": {
+          "label": "🚫 Blocked — self-approval"
+        },
+        "position": {
+          "x": 40,
+          "y": 560
+        },
+        "type": "default",
+        "className": "shape-rect cls-blocked"
+      },
+      {
+        "id": "i6",
+        "data": {
+          "label": "procurement_manager / admin\napproves requisition"
+        },
+        "position": {
+          "x": 320,
+          "y": 560
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "i7",
+        "data": {
+          "label": "procurement_manager / admin\ncreates Purchase Order"
+        },
+        "position": {
+          "x": 40,
+          "y": 690
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "i8",
+        "data": {
+          "label": "Submit for approval"
+        },
+        "position": {
+          "x": 40,
+          "y": 820
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "i9",
+        "data": {
+          "label": "sales_manager approves\n(stage 1)"
+        },
+        "position": {
+          "x": 40,
+          "y": 950
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "i10",
+        "data": {
+          "label": "director reviews\n(stage 2)"
+        },
+        "position": {
+          "x": 40,
+          "y": 1080
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "i11",
+        "data": {
+          "label": "accountant initiates payment\n(stage 3)"
+        },
+        "position": {
+          "x": 40,
+          "y": 1210
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "i13",
+        "data": {
+          "label": "🚫 Blocked — separation\nof duties"
+        },
+        "position": {
+          "x": 40,
+          "y": 1470
+        },
+        "type": "default",
+        "className": "shape-rect cls-blocked"
+      },
+      {
+        "id": "i14",
+        "data": {
+          "label": "director gives final approval\n(stage 4)"
+        },
+        "position": {
+          "x": 320,
+          "y": 1470
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "i15",
+        "data": {
+          "label": "procurement_manager / admin\nsends to supplier"
+        },
+        "position": {
+          "x": 40,
+          "y": 1600
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "i16",
+        "data": {
+          "label": "logistics / storekeeper\nreceives order"
+        },
+        "position": {
+          "x": 40,
+          "y": 1730
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "i17",
+        "data": {
+          "label": "Storekeeper / procurement_manager:\nitem / supplier / location CRUD,\nstock movements"
+        },
+        "position": {
+          "x": 320,
+          "y": 40
+        },
+        "type": "default",
+        "className": "shape-rect"
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0-i1-i2",
+        "source": "i1",
+        "target": "i2",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e1-i2-i3",
+        "source": "i2",
+        "target": "i3",
+        "label": "informational only, no auto-draft",
+        "animated": false,
+        "style": {
+          "strokeDasharray": "5,5"
+        }
+      },
+      {
+        "id": "e2-i3-i4",
+        "source": "i3",
+        "target": "i4",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e3-i4-i5",
+        "source": "i4",
+        "target": "i5",
+        "label": "yes",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e4-i4-i6",
+        "source": "i4",
+        "target": "i6",
+        "label": "no",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e5-i6-i7",
+        "source": "i6",
+        "target": "i7",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e6-i7-i8",
+        "source": "i7",
+        "target": "i8",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e7-i8-i9",
+        "source": "i8",
+        "target": "i9",
+        "label": "sales_manager: approve",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e8-i9-i10",
+        "source": "i9",
+        "target": "i10",
+        "label": "director: review",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e9-i10-i11",
+        "source": "i10",
+        "target": "i11",
+        "label": "accountant: initiate_payment",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e10-i11-i12",
+        "source": "i11",
+        "target": "i12",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e11-i12-i13",
+        "source": "i12",
+        "target": "i13",
+        "label": "yes",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e12-i12-i14",
+        "source": "i12",
+        "target": "i14",
+        "label": "no — director: final approval",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e13-i14-i15",
+        "source": "i14",
+        "target": "i15",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e14-i15-i16",
+        "source": "i15",
+        "target": "i16",
+        "label": "logistics / storekeeper: receive",
+        "animated": false,
+        "style": {}
+      }
+    ]
+  },
+  "EXP": {
+    "title": "💳 Expenses",
+    "nodes": [
+      {
+        "id": "e1",
+        "data": {
+          "label": "Expense submitted\n(any staff)"
+        },
+        "position": {
+          "x": 40,
+          "y": 40
+        },
+        "type": "input",
+        "className": "shape-stadium cls-self"
+      },
+      {
+        "id": "e2",
+        "data": {
+          "label": "Over\nthreshold?"
+        },
+        "position": {
+          "x": 40,
+          "y": 170
+        },
+        "type": "default",
+        "className": "shape-diamond"
+      },
+      {
+        "id": "e6",
+        "data": {
+          "label": "Creator or\ncto-tier editing\nwhile pending?"
+        },
+        "position": {
+          "x": 320,
+          "y": 170
+        },
+        "type": "default",
+        "className": "shape-diamond"
+      },
+      {
+        "id": "e3",
+        "data": {
+          "label": "cto approves\n(pending_cto)"
+        },
+        "position": {
+          "x": 320,
+          "y": 300
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "e4",
+        "data": {
+          "label": "director approves\n(pending_director)"
+        },
+        "position": {
+          "x": 320,
+          "y": 40
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "e5",
+        "data": {
+          "label": "Approved"
+        },
+        "position": {
+          "x": 40,
+          "y": 300
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "e7",
+        "data": {
+          "label": "✅ Edit allowed"
+        },
+        "position": {
+          "x": 600,
+          "y": 300
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "e8",
+        "data": {
+          "label": "🚫 Blocked"
+        },
+        "position": {
+          "x": 880,
+          "y": 300
+        },
+        "type": "default",
+        "className": "shape-rect cls-blocked"
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0-e1-e2",
+        "source": "e1",
+        "target": "e2",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e1-e2-e3",
+        "source": "e2",
+        "target": "e3",
+        "label": "yes",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e2-e4-e5",
+        "source": "e4",
+        "target": "e5",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e3-e2-e5",
+        "source": "e2",
+        "target": "e5",
+        "label": "no",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e4-e1-e6",
+        "source": "e1",
+        "target": "e6",
+        "label": "",
+        "animated": false,
+        "style": {
+          "strokeDasharray": "5,5"
+        }
+      },
+      {
+        "id": "e5-e6-e7",
+        "source": "e6",
+        "target": "e7",
+        "label": "yes",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e6-e6-e8",
+        "source": "e6",
+        "target": "e8",
+        "label": "no",
+        "animated": false,
+        "style": {}
+      }
+    ]
+  },
+  "BILLS": {
+    "title": "🧾 Vendor Bills",
+    "nodes": [
+      {
+        "id": "b1",
+        "data": {
+          "label": "Bill recorded\n(accountant-tier)"
+        },
+        "position": {
+          "x": 40,
+          "y": 40
+        },
+        "type": "input",
+        "className": "shape-stadium cls-self"
+      },
+      {
+        "id": "b2",
+        "data": {
+          "label": "Approver =\nrecorder?"
+        },
+        "position": {
+          "x": 40,
+          "y": 170
+        },
+        "type": "default",
+        "className": "shape-diamond"
+      },
+      {
+        "id": "b3",
+        "data": {
+          "label": "🚫 Blocked — self-approval"
+        },
+        "position": {
+          "x": 40,
+          "y": 300
+        },
+        "type": "default",
+        "className": "shape-rect cls-blocked"
+      },
+      {
+        "id": "b4",
+        "data": {
+          "label": "director approves"
+        },
+        "position": {
+          "x": 320,
+          "y": 300
+        },
+        "type": "default",
+        "className": "shape-rect"
+      },
+      {
+        "id": "b5",
+        "data": {
+          "label": "accountant records payment\n(partial / paid)"
+        },
+        "position": {
+          "x": 320,
+          "y": 40
+        },
+        "type": "default",
+        "className": "shape-rect"
+      }
+    ],
+    "edges": [
+      {
+        "id": "e0-b1-b2",
+        "source": "b1",
+        "target": "b2",
+        "label": "",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e1-b2-b3",
+        "source": "b2",
+        "target": "b3",
+        "label": "yes",
+        "animated": false,
+        "style": {}
+      },
+      {
+        "id": "e2-b2-b4",
+        "source": "b2",
+        "target": "b4",
+        "label": "no — director: approve",
+        "animated": false,
+        "style": {}
+      }
+    ]
+  }
+}
