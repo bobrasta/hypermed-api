@@ -100,6 +100,7 @@ class PermissionSeeder extends Seeder
                 'inventory.view_valuation'     => ['View Inventory Valuation', 'See total stock value figures'],
                 'inventory.approve_writeoff'   => ['Approve Stock Write-offs', 'Approve an issue/write-off stock-out request'],
                 'inventory.transfer_stock'     => ['Transfer Stock', 'Move stock between locations'],
+                'inventory.manage_catalog'     => ['Manage Inventory Catalog', 'Create/edit/delete items, suppliers, locations, and post stock movements directly'],
             ],
             'equipment' => [
                 'equipment.register_asset'         => ['Register Equipment', 'Add a new machine/asset record'],
@@ -124,6 +125,12 @@ class PermissionSeeder extends Seeder
                 'authority.manager_tier'       => ['Cross-Department Manager Authority', 'Task assignment/reassignment across any department'],
                 'authority.cto_tier'           => ['CTO Approval Authority', 'Bundles stock-out approval, per-diem final approval, expense CTO-stage approval, and service-ticket technician assignment'],
                 'authority.team_lead_tier'     => ['Team Lead Approval Authority', 'Per-diem team-lead (first) stage approval'],
+                // Deliberately separate from authority.manager_tier — cto/
+                // team_leader supervise technicians and hold equivalent
+                // authority everywhere else in the service-ticket world, but
+                // widening manager_tier itself would also change what it
+                // means at every other call site that already consumes it.
+                'tasks.manage_board'           => ['Manage Task Board', 'Create, reassign, and delete general (non-ticket) staff tasks'],
             ],
             'admin' => [
                 'roles.manage'                 => ['Manage Roles & Permissions', 'Create/edit roles and their permission grants'],
@@ -175,6 +182,7 @@ class PermissionSeeder extends Seeder
             'hr.approve_leave'         => ['super_admin', 'admin', 'hr'],
             'authority.cto_tier'       => ['super_admin', 'admin', 'cto'],
             'authority.team_lead_tier' => ['super_admin', 'admin', 'cto', 'team_leader'],
+            'tasks.manage_board'       => ['super_admin', 'admin', 'sales_manager', 'finance_manager', 'cto', 'team_leader'],
         ];
 
         foreach ($grants as $permKey => $roleNames) {
@@ -210,11 +218,11 @@ class PermissionSeeder extends Seeder
             // work, not the assigned technician's; see hasServiceTicketResolveAuthority().
             'technician'    => ['services.issue_ticket', 'equipment.schedule_maintenance'],
             'cs'            => ['services.issue_ticket'],
-            'storekeeper'   => ['inventory.adjust_stock', 'inventory.transfer_stock', 'inventory.view_valuation', 'logistics.receive_order'],
+            'storekeeper'   => ['inventory.adjust_stock', 'inventory.transfer_stock', 'inventory.view_valuation', 'inventory.manage_catalog', 'logistics.receive_order'],
             'hr'            => ['hr.view_team_attendance', 'staff.manage', 'roles.manage'],
             'cto'           => ['services.assign_ticket', 'services.add_engineer', 'services.view_team_metrics', 'inventory.approve_writeoff', 'services.sign_off_installation', 'services.close_ticket', 'hospitals.manage'],
             'team_leader'   => ['services.view_team_metrics', 'services.assign_ticket', 'services.sign_off_installation', 'services.close_ticket'],
-            'procurement_manager' => ['procurement.create_po', 'procurement.approve_requisition'],
+            'procurement_manager' => ['procurement.create_po', 'procurement.approve_requisition', 'inventory.manage_catalog'],
             'accountant'    => ['procurement.initiate_payment'],
             'logistics'     => ['logistics.deliver_order', 'logistics.receive_order'],
         ];

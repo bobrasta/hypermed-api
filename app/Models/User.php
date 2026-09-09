@@ -230,6 +230,73 @@ class User extends Authenticatable
         return app(EffectivePermissionResolver::class)->can($this, 'services.sign_off_installation');
     }
 
+    // Sales lead/quotation/order create+edit had no gate at all — any
+    // authenticated user of any role could write these. sales.create and
+    // sales.edit already existed in the catalog (sales/sales_manager hold
+    // both) but were never wired to a real check anywhere.
+    public function hasSalesCreateAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'sales.create');
+    }
+
+    public function hasSalesEditAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'sales.edit');
+    }
+
+    public function hasSalesIssueQuotationAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'sales.issue_quotation');
+    }
+
+    // RevenueController had no gate at all — any role could read exact
+    // revenue figures. Reuses screens.revenue (already governs the nav
+    // item) rather than finance.view_revenue, whose masked/all scope split
+    // is sales/sales_manager-inclusive at the screen level but narrower at
+    // the module-permission level; the screen key is the boundary that
+    // actually matches who should see this data.
+    public function hasRevenueViewAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'screens.revenue');
+    }
+
+    // Inventory item/supplier/location CRUD and raw stock-movement posting
+    // had no gate at all — any role could create suppliers, edit the item
+    // catalog, or post a movement that bypasses both the PO-receive and
+    // StockOutRequest approval flows. New permission (inventory.adjust_stock
+    // is scoped to quantity adjustments specifically, not catalog/supplier
+    // writes) granted to storekeeper/procurement_manager, who already hold
+    // the 'inventory' screen and are the roles that operationally touch it.
+    public function hasInventoryManageAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'inventory.manage_catalog');
+    }
+
+    public function hasStockAdjustAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'inventory.adjust_stock');
+    }
+
+    // ServiceTicketController had no assign() method — assignment goes
+    // through update(), gated CTO-tier only, so team_leader held
+    // services.assign_ticket in the catalog but nothing ever checked it.
+    public function hasServiceTicketAssignAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'services.assign_ticket');
+    }
+
+    // The general Task board (/tasks) used authority.manager_tier — held
+    // only by super_admin/admin/sales_manager/finance_manager — even though
+    // cto/team_leader are the roles that actually supervise technicians and
+    // hold the equivalent ticket-assign/sign-off authority everywhere else
+    // in the service-ticket world. Separate permission (not a widened
+    // manager_tier) so this doesn't change what MANAGER_ROLES/isManagerTier()
+    // mean anywhere else that already consumes them.
+    public function hasTaskManageAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'tasks.manage_board');
+    }
+
     // "Director" is a semantic alias for the existing admin tier, not a new
     // role or membership list — keeps intent readable at approval call sites
     // without a second list that can drift from authority.admin_tier. Also
