@@ -23,7 +23,7 @@ class TaskController extends Controller
             ->orderBy('due_date', 'asc')
             ->orderBy('created_at', 'desc');
 
-        if ($user->isManagerTier()) {
+        if ($user->hasTaskManageAuthority()) {
             // Managers can filter by any staff member
             if ($request->filled('assigned_to')) {
                 $query->where('assigned_to', $request->assigned_to);
@@ -48,7 +48,7 @@ class TaskController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        if (! Auth::user()->isManagerTier()) {
+        if (! Auth::user()->hasTaskManageAuthority()) {
             return response()->json(['message' => 'Not authorised.'], 403);
         }
 
@@ -80,7 +80,7 @@ class TaskController extends Controller
     public function update(Request $request, Task $task): JsonResponse
     {
         $user       = Auth::user();
-        $isManager  = $user->isManagerTier();
+        $isManager  = $user->hasTaskManageAuthority();
         $isAssignee = $task->assigned_to === $user->id;
 
         if (! $isManager && ! $isAssignee) {
@@ -136,7 +136,7 @@ class TaskController extends Controller
 
     public function destroy(Task $task): JsonResponse
     {
-        if (! Auth::user()->isManagerTier()) {
+        if (! Auth::user()->hasTaskManageAuthority()) {
             return response()->json(['message' => 'Not authorised.'], 403);
         }
 
@@ -151,7 +151,7 @@ class TaskController extends Controller
     {
         $assigneeName = $task->assignee?->name ?? 'Staff';
 
-        User::whereIn('role', User::MANAGER_ROLES)
+        User::permission('tasks.manage_board')
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,

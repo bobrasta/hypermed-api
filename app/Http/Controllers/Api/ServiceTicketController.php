@@ -59,8 +59,10 @@ class ServiceTicketController extends Controller
         ]);
 
         abort_if(
-            ! empty($data['assigned_to']) && ! $request->user()->hasCtoApprovalAuthority(),
-            403, 'Only the CTO or Director can assign technicians to service tickets.',
+            ! empty($data['assigned_to'])
+                && ! $request->user()->hasCtoApprovalAuthority()
+                && ! $request->user()->hasServiceTicketAssignAuthority(),
+            403, 'Only the CTO, Director, or Team Lead can assign technicians to service tickets.',
         );
 
         $data['type'] = $data['type'] ?? 'repair';
@@ -128,7 +130,12 @@ class ServiceTicketController extends Controller
             && $data['assigned_to'] !== $ticket->assigned_to
             ? $data['assigned_to'] : null;
 
-        abort_if($reassignedTo && ! $request->user()->hasCtoApprovalAuthority(), 403, 'Only the CTO or Director can assign technicians to service tickets.');
+        abort_if(
+            $reassignedTo
+                && ! $request->user()->hasCtoApprovalAuthority()
+                && ! $request->user()->hasServiceTicketAssignAuthority(),
+            403, 'Only the CTO, Director, or Team Lead can assign technicians to service tickets.',
+        );
 
         // A reassignment means whoever acknowledged the old assignment no
         // longer applies — the new assignee has to acknowledge afresh.

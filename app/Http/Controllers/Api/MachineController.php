@@ -119,6 +119,8 @@ class MachineController extends Controller
             'You are not authorised to sign off equipment installations.');
         abort_if($machine->status !== 'pending_signoff', 422,
             'This machine is not awaiting sign-off.');
+        abort_if($machine->installed_by === $request->user()->id, 403,
+            'The person who installed this equipment cannot also sign off on it.');
 
         $machine->update([
             'signed_off_by' => $request->user()->id,
