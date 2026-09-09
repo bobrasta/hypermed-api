@@ -72,6 +72,8 @@ class QuotationController extends Controller
 
     public function store(Request $request, ApprovalService $approval)
     {
+        abort_if(! $request->user()->hasSalesCreateAuthority(), 403, 'You are not authorised to create quotations.');
+
         $data = $request->validate([
             'lead_id'                   => 'nullable|exists:sales_leads,id',
             'client_name'               => 'required|string|max:200',
@@ -154,6 +156,7 @@ class QuotationController extends Controller
 
     public function update(Request $request, Quotation $quotation)
     {
+        abort_if(! $request->user()->hasSalesEditAuthority(), 403, 'You are not authorised to edit quotations.');
         abort_if(!in_array($quotation->status, ['draft']), 422, 'Only draft quotations can be edited.');
 
         $data = $request->validate([
@@ -173,16 +176,18 @@ class QuotationController extends Controller
         return new QuotationResource($quotation->fresh(['createdBy', 'items']));
     }
 
-    public function destroy(Quotation $quotation)
+    public function destroy(Request $request, Quotation $quotation)
     {
+        abort_if(! $request->user()->hasSalesEditAuthority(), 403, 'You are not authorised to edit quotations.');
         abort_if(!in_array($quotation->status, ['draft', 'rejected']), 422, 'Only draft or rejected quotations can be deleted.');
         $quotation->delete();
         return response()->noContent();
     }
 
     // Mark as sent to client
-    public function send(Quotation $quotation)
+    public function send(Request $request, Quotation $quotation)
     {
+        abort_if(! $request->user()->hasSalesIssueQuotationAuthority(), 403, 'You are not authorised to send quotations.');
         abort_if($quotation->status !== 'draft', 422, 'Only draft quotations can be sent.');
         abort_if($quotation->approval_status === 'pending', 422,
             'This quotation needs manager approval before it can be sent: ' . $quotation->approval_reason);
@@ -244,6 +249,7 @@ class QuotationController extends Controller
     // Convert accepted quotation to Sales Order
     public function convert(Request $request, Quotation $quotation)
     {
+        abort_if(! $request->user()->hasSalesEditAuthority(), 403, 'You are not authorised to edit quotations.');
         abort_if($quotation->status !== 'accepted', 422, 'Only accepted quotations can be converted to a sales order.');
 
         $data = $request->validate([

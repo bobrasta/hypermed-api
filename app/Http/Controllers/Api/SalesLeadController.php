@@ -18,6 +18,8 @@ class SalesLeadController extends Controller
 
     public function store(Request $request)
     {
+        abort_if(! $request->user()->hasSalesCreateAuthority(), 403, 'You are not authorised to create sales leads.');
+
         $data = $request->validate([
             'hospital_id'       => ['nullable', 'exists:hospitals,id'],
             'hospital_name_raw' => ['nullable', 'string'],
@@ -47,6 +49,8 @@ class SalesLeadController extends Controller
 
     public function update(Request $request, SalesLead $lead)
     {
+        abort_if(! $request->user()->hasSalesEditAuthority(), 403, 'You are not authorised to edit sales leads.');
+
         $data = $request->validate([
             'hospital_id'       => ['nullable', 'exists:hospitals,id'],
             'hospital_name_raw' => ['nullable', 'string'],
@@ -66,8 +70,10 @@ class SalesLeadController extends Controller
         return response()->json(['data' => new SalesLeadResource($lead->load(['hospital', 'assignee']))]);
     }
 
-    public function destroy(SalesLead $lead)
+    public function destroy(Request $request, SalesLead $lead)
     {
+        abort_if(! $request->user()->hasSalesEditAuthority(), 403, 'You are not authorised to edit sales leads.');
+
         $lead->delete();
 
         return response()->json(null, 204);
@@ -75,6 +81,8 @@ class SalesLeadController extends Controller
 
     public function updateStage(Request $request, SalesLead $lead)
     {
+        abort_if(! $request->user()->hasSalesEditAuthority(), 403, 'You are not authorised to edit sales leads.');
+
         $request->validate([
             'stage' => ['required', 'in:lead,qualified,demo_scheduled,proposal_sent,negotiation,won,lost'],
         ]);

@@ -35,6 +35,8 @@ class SalesOrderController extends Controller
 
     public function store(Request $request, ApprovalService $approval)
     {
+        abort_if(! $request->user()->hasSalesCreateAuthority(), 403, 'You are not authorised to create sales orders.');
+
         $data = $request->validate([
             'client_name'               => 'required|string|max:200',
             'client_contact'            => 'nullable|string|max:200',
@@ -110,6 +112,7 @@ class SalesOrderController extends Controller
     // Confirm the order (internal confirmation)
     public function confirm(Request $request, SalesOrder $salesOrder)
     {
+        abort_if(! $request->user()->hasSalesEditAuthority(), 403, 'You are not authorised to edit sales orders.');
         abort_if($salesOrder->status !== 'pending', 422, 'Only pending orders can be confirmed.');
         abort_if($salesOrder->approval_status === 'pending', 422,
             'This order needs manager approval before it can be confirmed: ' . $salesOrder->approval_reason);
@@ -254,8 +257,9 @@ class SalesOrderController extends Controller
         });
     }
 
-    public function cancel(SalesOrder $salesOrder)
+    public function cancel(Request $request, SalesOrder $salesOrder)
     {
+        abort_if(! $request->user()->hasSalesEditAuthority(), 403, 'You are not authorised to edit sales orders.');
         abort_if(in_array($salesOrder->status, ['delivered']), 422, 'Delivered orders cannot be cancelled.');
         $salesOrder->update(['status' => 'cancelled']);
         return new SalesOrderResource($salesOrder->fresh(['createdBy', 'items']));
@@ -266,6 +270,7 @@ class SalesOrderController extends Controller
     // come in — each call only bills the newly-delivered, not-yet-invoiced quantity.
     public function createInvoice(Request $request, SalesOrder $salesOrder, CreditCheckService $creditCheck, FinancePostingService $financePosting)
     {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to create invoices.');
         abort_if(!in_array($salesOrder->status, ['delivering', 'delivered']), 422,
             'Order must have at least a partial delivery before it can be invoiced.');
 

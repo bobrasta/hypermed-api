@@ -6,13 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Models\Hospital;
 use App\Models\Invoice;
 use App\Models\Setting;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 
 class RevenueController extends Controller
 {
-    public function summary()
+    public function summary(Request $request)
     {
+        abort_if(! $request->user()->hasRevenueViewAuthority(), 403, 'You are not authorised to view revenue.');
+
         return response()->json(['data' => $this->buildRevenueSummary()]);
     }
 
@@ -50,8 +53,10 @@ class RevenueController extends Controller
         return $months->map(fn ($m) => [...$m, 'target' => $target]);
     }
 
-    public function byHospital()
+    public function byHospital(Request $request)
     {
+        abort_if(! $request->user()->hasRevenueViewAuthority(), 403, 'You are not authorised to view revenue.');
+
         $hospitals = Cache::remember('revenue:by-hospital', 600, function () {
             return Hospital::select('id', 'name', 'short_code', 'revenue_monthly')
                 ->orderByDesc('revenue_monthly')
