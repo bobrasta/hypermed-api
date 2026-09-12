@@ -25,6 +25,8 @@ class UserResource extends JsonResource
             'workload'     => $this->workload ?? 0.0,
             'initials'     => $initials,
             'is_active'    => $this->is_active,
+            'max_discount_percent' => $this->max_discount_percent,
+            'commission_percent'   => $this->commission_percent,
             'manager_id'          => $this->manager_id,
             'manager_name'        => $this->whenLoaded('manager', fn () => $this->manager?->name),
             'position_id'         => $this->position_id,
