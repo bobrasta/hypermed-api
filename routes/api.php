@@ -31,6 +31,7 @@ use App\Http\Controllers\Api\SalesLeadController;
 use App\Http\Controllers\Api\SalesOrderController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\SerialNumberController;
+use App\Http\Controllers\Api\SalesTeamController;
 use App\Http\Controllers\Api\ServiceTicketController;
 use App\Http\Controllers\Api\StaffController;
 use App\Http\Controllers\Api\StockLevelController;
@@ -318,6 +319,12 @@ Route::prefix('v1')->group(function () {
         Route::delete('staff/{user}', [StaffController::class, 'destroy']);
         Route::patch('staff/{user}/avail_status', [StaffController::class, 'updateAvailStatus']);
         Route::post('staff/{user}/reset-password', [StaffController::class, 'resetPassword']);
+
+        // Sales team — richer "My Team" view for sales_manager (columns,
+        // recent activity, claiming an existing unmanaged rep).
+        Route::get('sales-team', [SalesTeamController::class, 'index']);
+        Route::get('sales-team/unassigned', [SalesTeamController::class, 'unassigned']);
+        Route::post('sales-team/{user}/assign', [SalesTeamController::class, 'assign']);
 
         // Contracts
         Route::get('staff/{user}/contracts', [ContractController::class, 'index']);
