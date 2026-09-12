@@ -30,12 +30,16 @@ class SalesTeamController extends Controller
 
         // Revenue MTD per rep — same shape as DashboardController's
         // revenueThisMonth, just grouped by the order's creator instead of
-        // summed for one owner.
-        $revenueByRep = \App\Models\Invoice::whereNotNull('sales_order_id')
-            ->whereHas('salesOrder', fn ($q) => $q->whereIn('created_by', $teamIds))
-            ->where('issue_date', '>=', $startOfMonth->toDateString())
-            ->whereIn('status', ['paid', 'partial'])
+        // summed for one owner. Filters on the join directly (rather than a
+        // separate whereHas) — both invoices and sales_orders have a
+        // 'status' column, so every filtered column needs its table
+        // qualified once joined, or Postgres rejects the query outright as
+        // ambiguous rather than silently guessing.
+        $revenueByRep = \App\Models\Invoice::query()
             ->join('sales_orders', 'sales_orders.id', '=', 'invoices.sales_order_id')
+            ->whereIn('sales_orders.created_by', $teamIds)
+            ->where('invoices.issue_date', '>=', $startOfMonth->toDateString())
+            ->whereIn('invoices.status', ['paid', 'partial'])
             ->selectRaw('sales_orders.created_by AS rep_id, COALESCE(SUM(invoices.amount_paid), 0) AS total')
             ->groupBy('sales_orders.created_by')
             ->pluck('total', 'rep_id');
