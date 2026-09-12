@@ -22,7 +22,6 @@ use App\Http\Controllers\Api\LicenseController;
 use App\Http\Controllers\Api\LocationController;
 use App\Http\Controllers\Api\MachineController;
 use App\Http\Controllers\Api\NotificationController;
-use App\Http\Controllers\Api\PosController;
 use App\Http\Controllers\Api\PurchaseOrderController;
 use App\Http\Controllers\Api\PurchaseRequisitionController;
 use App\Http\Controllers\Api\QuotationController;
@@ -249,9 +248,6 @@ Route::prefix('v1')->group(function () {
         Route::post('sales-orders/{salesOrder}/approve',        [SalesOrderController::class, 'approve']);
         Route::post('sales-orders/{salesOrder}/reject-approval', [SalesOrderController::class, 'rejectApproval']);
         Route::apiResource('sales-orders', SalesOrderController::class)->only(['index', 'store', 'show']);
-
-        // POS — one-shot counter sale (create + confirm + deliver + invoice + pay)
-        Route::post('pos/checkout', [PosController::class, 'checkout']);
 
         // Locations
         Route::apiResource('locations', LocationController::class);
