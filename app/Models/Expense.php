@@ -11,6 +11,8 @@ class Expense extends Model
         'expense_date', 'reference', 'notes', 'created_by',
         'status', 'requires_director_approval', 'escalation_reason',
         'escalated_by', 'escalated_at', 'reviewed_by', 'reviewed_at', 'rejection_reason',
+        'payment_initiated_by', 'payment_initiated_at', 'payment_method', 'payment_reference',
+        'paid_by', 'paid_at',
     ];
 
     protected $casts = [
@@ -21,6 +23,8 @@ class Expense extends Model
         'requires_director_approval' => 'boolean',
         'escalated_at'               => 'datetime',
         'reviewed_at'                => 'datetime',
+        'payment_initiated_at'       => 'datetime',
+        'paid_at'                    => 'datetime',
     ];
 
     // Cash actually paid — amount is the net (pre-VAT) figure.
@@ -47,5 +51,15 @@ class Expense extends Model
     public function reviewer()
     {
         return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    public function paymentInitiatedBy()
+    {
+        return $this->belongsTo(User::class, 'payment_initiated_by');
+    }
+
+    public function paidBy()
+    {
+        return $this->belongsTo(User::class, 'paid_by');
     }
 }

@@ -174,7 +174,11 @@ class ExpenseController extends Controller
 
     public function update(Request $request, Expense $expense, ExpenseApprovalService $approvalService)
     {
-        abort_if($expense->status === 'approved', 422, 'Approved expenses cannot be edited — void and recreate if a correction is needed.');
+        abort_if(
+            in_array($expense->status, ['pending_payment', 'pending_release', 'paid'], true),
+            422,
+            'Approved expenses cannot be edited — void and recreate if a correction is needed.'
+        );
 
         $user = $request->user();
         abort_if($expense->created_by !== $user->id && ! $user->hasCtoApprovalAuthority(), 403, 'Not authorised.');
@@ -210,12 +214,17 @@ class ExpenseController extends Controller
     {
         $user = $request->user();
 
-        if ($expense->status === 'approved') {
-            abort_if(! $user->hasDirectorAuthority(), 403, 'Only the Director can delete an approved expense.');
+        if ($expense->status === 'paid') {
+            abort_if(! $user->hasDirectorAuthority(), 403, 'Only the Director can delete a paid expense.');
             DB::transaction(function () use ($expense, $financePosting) {
                 $financePosting->reverseExpense($expense);
                 $expense->delete();
             });
+        } elseif (in_array($expense->status, ['pending_payment', 'pending_release'], true)) {
+            // Approved but no ledger entry posted yet — still Director-only,
+            // since it's already past the approval gate.
+            abort_if(! $user->hasDirectorAuthority(), 403, 'Only the Director can delete an approved expense.');
+            $expense->delete();
         } else {
             abort_if($expense->created_by !== $user->id && ! $user->hasCtoApprovalAuthority(), 403, 'Not authorised.');
             $expense->delete();
@@ -224,7 +233,12 @@ class ExpenseController extends Controller
         return response()->json(null, 204);
     }
 
-    public function approve(Request $request, Expense $expense, FinancePostingService $financePosting)
+    // Approving no longer posts to the ledger — it hands off to the
+    // accountant-initiates / accountant-or-director-releases pair below
+    // (initiatePayment()/markPaid()), same segregation-of-duty split as
+    // Per-Diem/PO/Vendor Bills. The ledger entry now happens in markPaid(),
+    // against actual cash movement rather than mere sign-off.
+    public function approve(Request $request, Expense $expense)
     {
         $user = $request->user();
 
@@ -238,15 +252,72 @@ class ExpenseController extends Controller
         }
         abort_if($expense->created_by === $user->id, 403, 'You cannot approve your own expense submission.');
 
-        DB::transaction(function () use ($expense, $user, $financePosting) {
-            $expense->update(['status' => 'approved', 'reviewed_by' => $user->id, 'reviewed_at' => now()]);
-            $financePosting->postExpense($expense->fresh());
-            ApprovalLog::record($expense, 'approved', $user);
-        });
+        $expense->update(['status' => 'pending_payment', 'reviewed_by' => $user->id, 'reviewed_at' => now()]);
+        ApprovalLog::record($expense, 'approved', $user);
 
         $this->notifyRequester($expense, approved: true);
+        $this->notifyFinance($expense);
 
         return response()->json(['data' => new ExpenseResource($expense->fresh()->load(['category', 'createdBy', 'reviewer']))]);
+    }
+
+    // Accountant records how the expense will be paid — doesn't move money
+    // on their own authority (mirrors PerDiemController::initiatePayment()).
+    public function initiatePayment(Request $request, Expense $expense)
+    {
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to initiate payment on expenses.');
+        abort_if($expense->status !== 'pending_payment', 422, 'Only approved expenses awaiting payment initiation can be actioned at this stage.');
+
+        $data = $request->validate([
+            'payment_method'    => ['nullable', 'in:cash,bank,mobile_money'],
+            'payment_reference' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $expense->update([
+            'status'                => 'pending_release',
+            'payment_initiated_by'  => $request->user()->id,
+            'payment_initiated_at'  => now(),
+            'payment_method'        => $data['payment_method'] ?? null,
+            'payment_reference'     => $data['payment_reference'] ?? null,
+        ]);
+        ApprovalLog::record($expense, 'payment_initiated', $request->user());
+
+        return response()->json(['data' => new ExpenseResource(
+            $expense->fresh()->load(['category', 'createdBy', 'reviewer', 'paymentInitiatedBy'])
+        )]);
+    }
+
+    // The actual release — accountant or Director, but never the person who
+    // initiated the payment (separation of duties, mirrors
+    // PerDiemController::markPaid()). Ledger posting happens here, against
+    // real cash movement rather than mere approval.
+    public function markPaid(Request $request, Expense $expense, FinancePostingService $financePosting)
+    {
+        $user = $request->user();
+        abort_if(! $user->hasAccountantAuthority() && ! $user->hasDirectorAuthority(), 403,
+            'Only the accountant or Director can release expense payment.');
+        abort_if($expense->status !== 'pending_release', 422, 'Only expenses awaiting release can be marked paid.');
+        abort_if($expense->payment_initiated_by === $user->id, 403, 'You cannot release a payment you initiated.');
+
+        DB::transaction(function () use ($expense, $user, $financePosting) {
+            $expense->update(['status' => 'paid', 'paid_by' => $user->id, 'paid_at' => now()]);
+            $financePosting->postExpense($expense->fresh());
+            ApprovalLog::record($expense, 'paid', $user);
+        });
+
+        AppNotification::create([
+            'user_id'     => $expense->created_by,
+            'type'        => 'expense_paid',
+            'title'       => 'Expense Paid',
+            'body'        => "Your expense '{$expense->name}' has been paid.",
+            'entity_type' => 'expense',
+            'entity_id'   => $expense->id,
+            'is_read'     => false,
+        ]);
+
+        return response()->json(['data' => new ExpenseResource(
+            $expense->fresh()->load(['category', 'createdBy', 'reviewer', 'paymentInitiatedBy', 'paidBy'])
+        )]);
     }
 
     public function escalate(Request $request, Expense $expense)
@@ -309,6 +380,23 @@ class ExpenseController extends Controller
                 'type'        => $type,
                 'title'       => 'Expense Submitted',
                 'body'        => "{$name} submitted an expense: {$expense->name} (TZS " . number_format($expense->gross_amount) . ').',
+                'entity_type' => 'expense',
+                'entity_id'   => $expense->id,
+                'is_read'     => false,
+            ]));
+    }
+
+    private function notifyFinance(Expense $expense): void
+    {
+        $name = $expense->createdBy?->name ?? 'A staff member';
+
+        User::whereIn('role', ['finance_manager', 'finance', 'accountant'])
+            ->pluck('id')
+            ->each(fn ($id) => AppNotification::create([
+                'user_id'     => $id,
+                'type'        => 'expense_approved',
+                'title'       => 'Expense Ready to Pay',
+                'body'        => "{$name}'s expense '{$expense->name}' was approved — needs payment initiated.",
                 'entity_type' => 'expense',
                 'entity_id'   => $expense->id,
                 'is_read'     => false,

@@ -270,10 +270,12 @@ class PayrollController extends Controller
                 'expense_date' => now()->toDateString(),
                 'reference'    => "Payroll Run #{$payrollRun->id}",
                 'created_by'   => $request->user()->id,
-                'status'       => 'approved',
+                'status'       => 'paid',
                 'requires_director_approval' => false,
                 'reviewed_by'  => $request->user()->id,
                 'reviewed_at'  => now(),
+                'paid_by'      => $request->user()->id,
+                'paid_at'      => now(),
             ]);
             $financePosting->postExpense($expense);
 

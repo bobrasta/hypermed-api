@@ -130,6 +130,8 @@ Route::prefix('v1')->group(function () {
         Route::post('expenses/{expense}/approve', [ExpenseController::class, 'approve']);
         Route::post('expenses/{expense}/escalate', [ExpenseController::class, 'escalate']);
         Route::post('expenses/{expense}/reject', [ExpenseController::class, 'reject']);
+        Route::post('expenses/{expense}/initiate-payment', [ExpenseController::class, 'initiatePayment']);
+        Route::post('expenses/{expense}/mark-paid', [ExpenseController::class, 'markPaid']);
         Route::apiResource('expenses', ExpenseController::class);
         Route::get('settings', [SettingController::class, 'index']);
         Route::put('settings/{key}', [SettingController::class, 'update']);

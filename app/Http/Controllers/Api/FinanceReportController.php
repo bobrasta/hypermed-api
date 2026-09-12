@@ -362,7 +362,12 @@ class FinanceReportController extends Controller
             ->groupBy('payment_method')
             ->get(['payment_method', DB::raw('SUM(amount) as total')]);
 
-        $expenseCashOut = (int) Expense::whereBetween('expense_date', [$from, $to])
+        // Cash-basis, so gated on the payment actually having been released
+        // (status='paid'), same as cashInByMethod/billPaymentCashOut using
+        // paid_at rather than an accrual date — a merely-submitted or even
+        // rejected expense was previously counted here as cash already out.
+        $expenseCashOut = (int) Expense::where('status', 'paid')
+            ->whereBetween('paid_at', [$from, $to])
             ->selectRaw('COALESCE(SUM(amount + tax_amount), 0) as total')->value('total');
 
         $billPaymentCashOut = (int) VendorBillPayment::whereBetween('paid_at', [$from, $to])->sum('amount');
