@@ -18,15 +18,18 @@ class ServiceTicket extends Model
         'assigned_to', 'status', 'description', 'priority', 'stage',
         'resolution_notes', 'resolved_at', 'acknowledged_at',
         'travelling_at', 'on_site_at', 'repair_at', 'signed_off_at',
+        'billing_status', 'billing_decided_by', 'billing_decided_at', 'billing_override_reason',
+        'invoice_id',
     ];
 
     protected $casts = [
-        'resolved_at'      => 'datetime',
-        'acknowledged_at'  => 'datetime',
-        'travelling_at'    => 'datetime',
-        'on_site_at'       => 'datetime',
-        'repair_at'        => 'datetime',
-        'signed_off_at'    => 'datetime',
+        'resolved_at'         => 'datetime',
+        'acknowledged_at'     => 'datetime',
+        'travelling_at'       => 'datetime',
+        'on_site_at'          => 'datetime',
+        'repair_at'           => 'datetime',
+        'signed_off_at'       => 'datetime',
+        'billing_decided_at'  => 'datetime',
     ];
 
     // The immediate successor of this ticket's current stage in the fixed
@@ -68,5 +71,15 @@ class ServiceTicket extends Model
     public function attachments()
     {
         return $this->hasMany(TicketAttachment::class, 'ticket_id');
+    }
+
+    public function billingDecidedBy()
+    {
+        return $this->belongsTo(User::class, 'billing_decided_by');
+    }
+
+    public function invoice()
+    {
+        return $this->belongsTo(Invoice::class);
     }
 }

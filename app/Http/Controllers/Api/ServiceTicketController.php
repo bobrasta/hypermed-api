@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ServiceTicketResource;
 use App\Models\AppNotification;
+use App\Models\ApprovalLog;
 use App\Models\ChecklistItem;
 use App\Models\Machine;
 use App\Models\PartCannibalization;
@@ -207,10 +208,22 @@ class ServiceTicketController extends Controller
             'parts_used.*.source_serial_number_id' => ['nullable', 'exists:serial_numbers,id'],
         ]);
 
+        // Auto-decide warranty vs billable from the machine's warranty_expiry
+        // — previously nothing ever made this call, so a resolved repair on
+        // an out-of-warranty machine had an equal chance of quietly never
+        // getting billed. CTO/Director can still override via
+        // overrideBilling() below for judgment calls (goodwill, a rejected
+        // warranty claim) — this is just the default, not the final word.
+        $warrantyExpiry = $ticket->machine->warranty_expiry;
+        $billingStatus = ($warrantyExpiry && $warrantyExpiry->isFuture()) ? 'warranty_covered' : 'billable';
+
         $ticket->update([
-            'status'           => 'resolved',
-            'resolution_notes' => $data['resolution_notes'],
-            'resolved_at'      => now(),
+            'status'              => 'resolved',
+            'resolution_notes'    => $data['resolution_notes'],
+            'resolved_at'         => now(),
+            'billing_status'      => $billingStatus,
+            'billing_decided_by'  => $request->user()->id,
+            'billing_decided_at'  => now(),
         ]);
 
         foreach ($data['parts_used'] ?? [] as $part) {
@@ -231,6 +244,51 @@ class ServiceTicketController extends Controller
         return response()->json([
             'data' => new ServiceTicketResource(
                 $ticket->load(['machine', 'hospital', 'assignee', 'checklistItems', 'partsUsed.inventoryItem'])
+            ),
+        ]);
+    }
+
+    // CTO/Director judgment call over the automatic warranty-vs-billable
+    // decision made in resolve() — a goodwill repair on an out-of-warranty
+    // machine, or a manufacturer-rejected warranty claim that now needs
+    // billing after all. Requires a reason so the override is explainable
+    // later, same as every other override/escalation in this app.
+    public function overrideBilling(Request $request, ServiceTicket $ticket)
+    {
+        abort_if(! $request->user()->hasCtoApprovalAuthority() && ! $request->user()->hasDirectorAuthority(), 403,
+            'Access Denied: only the CTO or Director can override a ticket\'s billing decision.');
+        abort_if($ticket->status !== 'resolved', 422, 'Only a resolved ticket has a billing decision to override.');
+        abort_if($ticket->invoice_id !== null, 422, 'This ticket has already been invoiced — the billing decision is locked.');
+
+        $data = $request->validate([
+            'billing_status' => ['required', 'in:warranty_covered,billable,goodwill'],
+            'reason'         => ['required', 'string'],
+        ]);
+
+        $ticket->update([
+            'billing_status'           => $data['billing_status'],
+            'billing_decided_by'       => $request->user()->id,
+            'billing_decided_at'       => now(),
+            'billing_override_reason'  => $data['reason'],
+        ]);
+        ApprovalLog::record($ticket, 'billing_overridden', $request->user(), $data['reason']);
+
+        $label = str_replace('_', ' ', $data['billing_status']);
+        User::whereIn('role', ['finance_manager', 'finance', 'accountant'])
+            ->pluck('id')
+            ->each(fn ($id) => AppNotification::create([
+                'user_id'     => $id,
+                'type'        => 'ticket_billing_overridden',
+                'title'       => 'Ticket Billing Decision Changed',
+                'body'        => "Ticket #{$ticket->ticket_number} was reclassified as {$label} by {$request->user()->name}.",
+                'entity_type' => 'service_ticket',
+                'entity_id'   => $ticket->id,
+                'is_read'     => false,
+            ]));
+
+        return response()->json([
+            'data' => new ServiceTicketResource(
+                $ticket->fresh()->load(['machine', 'hospital', 'assignee', 'billingDecidedBy'])
             ),
         ]);
     }

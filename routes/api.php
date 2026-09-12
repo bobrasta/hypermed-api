@@ -204,6 +204,7 @@ Route::prefix('v1')->group(function () {
 
         // Service Tickets
         Route::post('tickets/{ticket}/resolve', [ServiceTicketController::class, 'resolve']);
+        Route::post('tickets/{ticket}/override-billing', [ServiceTicketController::class, 'overrideBilling']);
         Route::post('tickets/{ticket}/acknowledge', [ServiceTicketController::class, 'acknowledge']);
         Route::post('tickets/{ticket}/advance-stage', [ServiceTicketController::class, 'advanceStage']);
         Route::post('tickets/{ticket}/parts', [ServiceTicketController::class, 'addPart']);
