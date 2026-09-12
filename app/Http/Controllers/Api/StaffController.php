@@ -13,24 +13,40 @@ class StaffController extends Controller
 {
     public function index(Request $request)
     {
+        $user = $request->user();
+
         // Anyone who can manage staff (create/edit/deactivate, e.g. HR) can
         // certainly view the roster too — hasStaffViewAuthority() alone
         // (screens.staff) was leaving HR, which has staff.manage but not
         // screens.staff by design (that's Operations' task-board key), 403'd
         // out of its own dashboard's staff count.
-        abort_if(! $request->user()->hasStaffViewAuthority() && ! $request->user()->hasStaffManageAuthority(), 403,
-            'Access Denied: you do not have permission to view the staff roster.');
+        if ($user->hasStaffViewAuthority() || $user->hasStaffManageAuthority()) {
+            $staff = User::with(['currentTask', 'position'])->where('is_active', true)->get();
 
-        $staff = User::with(['currentTask', 'position'])
-            ->where('is_active', true)
-            ->get();
+            return UserResource::collection($staff);
+        }
 
-        return UserResource::collection($staff);
+        // A sales_manager without the full roster permission still gets a
+        // scoped "my team" view — sales.create_subordinate_user grants
+        // seeing/building their own reports, never the company roster.
+        if ($user->hasSalesCreateSubordinateAuthority()) {
+            $staff = User::with(['currentTask', 'position'])
+                ->where('is_active', true)
+                ->where('manager_id', $user->id)
+                ->get();
+
+            return UserResource::collection($staff);
+        }
+
+        abort(403, 'Access Denied: you do not have permission to view the staff roster.');
     }
 
     public function store(Request $request)
     {
-        abort_if(! $request->user()->hasStaffManageAuthority(), 403, 'You are not authorised to create staff accounts.');
+        $user = $request->user();
+        $canManageStaff = $user->hasStaffManageAuthority();
+        $canCreateSubordinate = $user->hasSalesCreateSubordinateAuthority();
+        abort_if(! $canManageStaff && ! $canCreateSubordinate, 403, 'You are not authorised to create staff accounts.');
 
         $data = $request->validate([
             'name'         => ['required', 'string'],
@@ -54,6 +70,15 @@ class StaffController extends Controller
             'nida_number'  => ['nullable', 'string'],
             'biometric_id' => ['nullable', 'string', 'unique:users,biometric_id'],
         ]);
+
+        // A sales_manager building their own team can only ever create a
+        // 'sales' rep reporting to themselves — never an arbitrary role or
+        // a report elsewhere in the org. staff.manage (HR/admin) is
+        // unrestricted, as before.
+        if (! $canManageStaff && $canCreateSubordinate) {
+            $data['role'] = 'sales';
+            $data['manager_id'] = $user->id;
+        }
 
         $user = User::create([
             'name'         => $data['name'],

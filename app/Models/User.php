@@ -160,6 +160,18 @@ class User extends Authenticatable
         return app(EffectivePermissionResolver::class)->can($this, 'staff.manage');
     }
 
+    // sales.create_subordinate_user has existed in the catalog (granted to
+    // sales_manager) since the original access-control pass, but nothing
+    // ever checked it — StaffController::store()/index() were gated purely
+    // on staff.manage (HR/admin), so a sales_manager holding this
+    // permission still got a 403 trying to build their own team. Separate
+    // from hasStaffManageAuthority() deliberately: this only ever grants a
+    // scoped "create/see my own sales reports", never the full roster.
+    public function hasSalesCreateSubordinateAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'sales.create_subordinate_user');
+    }
+
     // Ticket creation had no gate at all — reachable from the Dashboard's
     // "New Ticket" shortcut by literally any role, finance/accountant
     // included, since that button isn't behind the dedicated Service
