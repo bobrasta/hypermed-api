@@ -9,9 +9,16 @@ use Illuminate\Http\Request;
 
 class SalesLeadController extends Controller
 {
-    public function index()
+    // Every caller got every lead regardless of role — a plain 'sales' rep
+    // saw the whole company's pipeline (values, client names, everything)
+    // with no way to see only their own book. Mirrors DashboardController's
+    // sales.view_full_numbers gate: manager-tier sees everyone, a rep sees
+    // only leads assigned to them.
+    public function index(Request $request)
     {
-        $leads = SalesLead::with(['hospital', 'assignee'])->latest()->get();
+        $leads = SalesLead::with(['hospital', 'assignee'])
+            ->when(! $request->user()->hasSalesViewFullNumbers(), fn ($q) => $q->where('assigned_to', $request->user()->id))
+            ->latest()->get();
 
         return SalesLeadResource::collection($leads);
     }

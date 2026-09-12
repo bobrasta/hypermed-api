@@ -19,9 +19,12 @@ use Illuminate\Support\Facades\DB;
 
 class SalesOrderController extends Controller
 {
+    // Mirrors SalesLeadController::index()'s scoping — a plain 'sales' rep
+    // saw every order in the company, commission figures included.
     public function index(Request $request)
     {
         $orders = SalesOrder::with(['createdBy', 'deliveredBy', 'quotation', 'location', 'hospital', 'commissionAgent'])
+            ->when(! $request->user()->hasSalesViewFullNumbers(), fn ($q) => $q->where('created_by', $request->user()->id))
             ->when($request->status, fn ($q, $s) => $q->where('status', $s))
             ->when($request->search, fn ($q, $s) => $q->where(function ($q) use ($s) {
                 $q->where('client_name', 'like', "%$s%")

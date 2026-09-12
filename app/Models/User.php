@@ -125,6 +125,11 @@ class User extends Authenticatable
         return app(EffectivePermissionResolver::class)->can($this, 'sales.approve_order');
     }
 
+    public function hasSalesViewFullNumbers(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'sales.view_full_numbers');
+    }
+
     public function hasFinanceApprovalAuthority(): bool
     {
         return app(EffectivePermissionResolver::class)->can($this, 'finance.approve_step1');

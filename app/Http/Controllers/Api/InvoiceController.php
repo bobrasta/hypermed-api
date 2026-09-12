@@ -35,9 +35,20 @@ class InvoiceController extends Controller
         ]]);
     }
 
+    // Scoped only for the specific 'sales' rep role, not by
+    // sales.view_full_numbers generally — this endpoint is shared with
+    // Finance/Revenue (accountant, finance_manager also list invoices here
+    // for reasons that have nothing to do with sales rep ownership), and
+    // neither of those roles holds sales.view_full_numbers either, so
+    // gating on that permission instead would have wrongly restricted them
+    // to zero invoices (they never created a sales order to match against).
     public function index(Request $request)
     {
         $query = Invoice::with(['hospital', 'machine', 'salesOrder', 'payments']);
+
+        if ($request->user()->role === 'sales') {
+            $query->whereHas('salesOrder', fn ($q) => $q->where('created_by', $request->user()->id));
+        }
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);

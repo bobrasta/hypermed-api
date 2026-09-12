@@ -17,6 +17,8 @@ use App\Models\SalesLead;
 use App\Models\SalesOrder;
 use App\Models\ServiceTicket;
 use App\Models\StockMovement;
+use App\Models\User;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -195,90 +197,127 @@ class DashboardController extends Controller
         });
     }
 
-    public function sales()
+    public function sales(Request $request)
     {
-        return response()->json(['data' => $this->buildSales()]);
+        return response()->json(['data' => $this->buildSales($request->user())]);
     }
 
-    public function buildSales(): array
+    // sales.view_full_numbers (manager-tier) gets the exact, company-wide
+    // aggregate this always returned. Everyone else — a plain 'sales' rep —
+    // gets their OWN leads/quotations/orders only, with currency figures
+    // rounded to the nearest 100K rather than shown exact, and no visibility
+    // into other reps' numbers at all (top_reps omitted entirely rather than
+    // masked, since even a rounded competitor figure is still a real number
+    // a rep isn't permitted to see). This permission existed in the catalog
+    // since the original access-control pass but nothing ever checked it —
+    // every rep saw exact team-wide revenue and a full rep-vs-rep leaderboard.
+    public function buildSales(?User $user = null): array
     {
+        $fullNumbers = $user?->hasSalesViewFullNumbers() ?? false;
+        $ownerId = $fullNumbers ? null : $user?->id;
+
         // Only the aggregate numbers are cached — recent_quotations/recent_orders
         // below are JsonResource collections, which don't round-trip through
         // Cache cleanly (their toArray() can need a live Request), and the
-        // underlying queries are cheap limit(5)s anyway.
-        $aggregates = Cache::remember('dashboard:sales', 90, function () {
-            $startOfMonth = Carbon::now()->startOfMonth();
+        // underlying queries are cheap limit(5)s anyway. Cache key includes the
+        // owner so one rep's cached "own" aggregate is never served to another.
+        $cacheKey = $ownerId ? "dashboard:sales:own:{$ownerId}" : 'dashboard:sales:team';
+        $aggregates = Cache::remember($cacheKey, 90, fn () => $this->buildSalesAggregates($ownerId));
 
-            $pipeline = SalesLead::whereNotIn('stage', ['won', 'lost'])
-                ->selectRaw('stage, COUNT(*) AS count, COALESCE(SUM(deal_value), 0) AS value')
-                ->groupBy('stage')
-                ->get();
-
-            $wonThisMonth = SalesLead::where('stage', 'won')
-                ->where('updated_at', '>=', $startOfMonth)
-                ->selectRaw('COUNT(*) AS count, COALESCE(SUM(deal_value), 0) AS value')
-                ->first();
-
-            $lostThisMonth = SalesLead::where('stage', 'lost')
-                ->where('updated_at', '>=', $startOfMonth)
-                ->count();
-
-            $closedThisMonth = (int) $wonThisMonth->count + $lostThisMonth;
-            $winRate = $closedThisMonth > 0 ? round((int) $wonThisMonth->count / $closedThisMonth * 100, 1) : 0;
-
-            $revenueThisMonth = (int) Invoice::whereNotNull('sales_order_id')
-                ->where('issue_date', '>=', $startOfMonth->toDateString())
-                ->whereIn('status', ['paid', 'partial'])
-                ->sum('amount_paid');
-
-            $topReps = SalesOrder::query()
-                ->whereNotNull('commission_agent_id')
-                ->whereIn('status', ['confirmed', 'delivering', 'delivered'])
-                ->join('users', 'users.id', '=', 'sales_orders.commission_agent_id')
-                ->groupBy('sales_orders.commission_agent_id', 'users.name')
-                ->selectRaw('sales_orders.commission_agent_id AS rep_id, users.name AS rep_name, COUNT(*) AS deal_count, COALESCE(SUM(sales_orders.total_amount), 0) AS total_value')
-                ->orderByDesc('total_value')
-                ->limit(5)
-                ->get();
-
-            $quotesOpenValue = (int) Quotation::where('status', 'sent')->sum('total_amount');
-
-            $invoiceTotals = Invoice::whereNotNull('sales_order_id')
-                ->selectRaw('COALESCE(SUM(total), 0) AS total, COALESCE(SUM(amount_paid), 0) AS paid')
-                ->first();
-            $collectedPct = (float) $invoiceTotals->total > 0
-                ? round((float) $invoiceTotals->paid / (float) $invoiceTotals->total * 100, 0) : 0;
-
-            $dealsStalled90d = SalesLead::whereNotIn('stage', ['won', 'lost'])
-                ->where('updated_at', '<=', Carbon::now()->subDays(90))
-                ->count();
-
-            return [
-                'kpi' => [
-                    'pipeline_value'               => (int) $pipeline->sum('value'),
-                    'open_leads'                    => (int) $pipeline->sum('count'),
-                    'won_this_month'                => (int) $wonThisMonth->count,
-                    'won_value_this_month'          => (int) $wonThisMonth->value,
-                    'win_rate_this_month'           => $winRate,
-                    'quotations_pending_approval'   => Quotation::where('approval_status', 'pending')->count(),
-                    'quotations_awaiting_response'  => Quotation::where('status', 'sent')->count(),
-                    'quotes_open_value'             => $quotesOpenValue,
-                    'collected_pct'                 => $collectedPct,
-                    'deals_stalled_90d'             => $dealsStalled90d,
-                    'sales_orders_this_month'       => SalesOrder::whereYear('created_at', now()->year)->whereMonth('created_at', now()->month)->count(),
-                    'revenue_this_month'            => $revenueThisMonth,
-                ],
-                'pipeline_by_stage' => $pipeline,
-                'top_reps'          => $topReps,
-            ];
-        });
-
-        $recentQuotations = Quotation::with(['createdBy'])->latest()->limit(5)->get();
-        $recentOrders     = SalesOrder::with(['createdBy', 'hospital'])->latest()->limit(5)->get();
+        $recentQuotations = Quotation::with(['createdBy'])
+            ->when($ownerId, fn ($q) => $q->where('created_by', $ownerId))
+            ->latest()->limit(5)->get();
+        $recentOrders = SalesOrder::with(['createdBy', 'hospital'])
+            ->when($ownerId, fn ($q) => $q->where('created_by', $ownerId))
+            ->latest()->limit(5)->get();
 
         return array_merge($aggregates, [
+            'scope'             => $ownerId ? 'own' : 'team',
             'recent_quotations' => QuotationResource::collection($recentQuotations),
             'recent_orders'     => SalesOrderResource::collection($recentOrders),
         ]);
+    }
+
+    private function buildSalesAggregates(?int $ownerId): array
+    {
+        $startOfMonth = Carbon::now()->startOfMonth();
+        $mask = fn (int $v) => $ownerId ? (int) round($v / 100000) * 100000 : $v;
+
+        $pipeline = SalesLead::whereNotIn('stage', ['won', 'lost'])
+            ->when($ownerId, fn ($q) => $q->where('assigned_to', $ownerId))
+            ->selectRaw('stage, COUNT(*) AS count, COALESCE(SUM(deal_value), 0) AS value')
+            ->groupBy('stage')
+            ->get()
+            ->map(fn ($row) => tap($row, fn ($r) => $r->value = $mask((int) $r->value)));
+
+        $wonThisMonth = SalesLead::where('stage', 'won')
+            ->where('updated_at', '>=', $startOfMonth)
+            ->when($ownerId, fn ($q) => $q->where('assigned_to', $ownerId))
+            ->selectRaw('COUNT(*) AS count, COALESCE(SUM(deal_value), 0) AS value')
+            ->first();
+
+        $lostThisMonth = SalesLead::where('stage', 'lost')
+            ->where('updated_at', '>=', $startOfMonth)
+            ->when($ownerId, fn ($q) => $q->where('assigned_to', $ownerId))
+            ->count();
+
+        $closedThisMonth = (int) $wonThisMonth->count + $lostThisMonth;
+        $winRate = $closedThisMonth > 0 ? round((int) $wonThisMonth->count / $closedThisMonth * 100, 1) : 0;
+
+        $revenueThisMonth = (int) Invoice::whereNotNull('sales_order_id')
+            ->where('issue_date', '>=', $startOfMonth->toDateString())
+            ->whereIn('status', ['paid', 'partial'])
+            ->when($ownerId, fn ($q) => $q->whereHas('salesOrder', fn ($so) => $so->where('created_by', $ownerId)))
+            ->sum('amount_paid');
+
+        // A rep never sees other reps' numbers, rounded or not — omit
+        // entirely rather than mask, unlike the currency KPIs above.
+        $topReps = $ownerId ? collect() : SalesOrder::query()
+            ->whereNotNull('commission_agent_id')
+            ->whereIn('status', ['confirmed', 'delivering', 'delivered'])
+            ->join('users', 'users.id', '=', 'sales_orders.commission_agent_id')
+            ->groupBy('sales_orders.commission_agent_id', 'users.name')
+            ->selectRaw('sales_orders.commission_agent_id AS rep_id, users.name AS rep_name, COUNT(*) AS deal_count, COALESCE(SUM(sales_orders.total_amount), 0) AS total_value')
+            ->orderByDesc('total_value')
+            ->limit(5)
+            ->get();
+
+        $quotesOpenValue = (int) Quotation::where('status', 'sent')
+            ->when($ownerId, fn ($q) => $q->where('created_by', $ownerId))
+            ->sum('total_amount');
+
+        $invoiceTotals = Invoice::whereNotNull('sales_order_id')
+            ->when($ownerId, fn ($q) => $q->whereHas('salesOrder', fn ($so) => $so->where('created_by', $ownerId)))
+            ->selectRaw('COALESCE(SUM(total), 0) AS total, COALESCE(SUM(amount_paid), 0) AS paid')
+            ->first();
+        $collectedPct = (float) $invoiceTotals->total > 0
+            ? round((float) $invoiceTotals->paid / (float) $invoiceTotals->total * 100, 0) : 0;
+
+        $dealsStalled90d = SalesLead::whereNotIn('stage', ['won', 'lost'])
+            ->where('updated_at', '<=', Carbon::now()->subDays(90))
+            ->when($ownerId, fn ($q) => $q->where('assigned_to', $ownerId))
+            ->count();
+
+        return [
+            'kpi' => [
+                'pipeline_value'               => $mask((int) $pipeline->sum('value')),
+                'open_leads'                    => (int) $pipeline->sum('count'),
+                'won_this_month'                => (int) $wonThisMonth->count,
+                'won_value_this_month'          => $mask((int) $wonThisMonth->value),
+                'win_rate_this_month'           => $winRate,
+                'quotations_pending_approval'   => Quotation::where('approval_status', 'pending')
+                    ->when($ownerId, fn ($q) => $q->where('created_by', $ownerId))->count(),
+                'quotations_awaiting_response'  => Quotation::where('status', 'sent')
+                    ->when($ownerId, fn ($q) => $q->where('created_by', $ownerId))->count(),
+                'quotes_open_value'             => $mask($quotesOpenValue),
+                'collected_pct'                 => $collectedPct,
+                'deals_stalled_90d'             => $dealsStalled90d,
+                'sales_orders_this_month'       => SalesOrder::whereYear('created_at', now()->year)->whereMonth('created_at', now()->month)
+                    ->when($ownerId, fn ($q) => $q->where('created_by', $ownerId))->count(),
+                'revenue_this_month'            => $mask($revenueThisMonth),
+            ],
+            'pipeline_by_stage' => $pipeline,
+            'top_reps'          => $topReps,
+        ];
     }
 }

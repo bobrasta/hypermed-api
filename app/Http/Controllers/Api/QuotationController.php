@@ -56,9 +56,13 @@ class QuotationController extends Controller
         ];
     }
 
+    // Mirrors SalesLeadController::index()'s scoping: a plain 'sales' rep
+    // saw every quotation in the company (client, value, discount) with no
+    // ownership filter at all.
     public function index(Request $request)
     {
         $quotations = Quotation::with(['createdBy'])
+            ->when(! $request->user()->hasSalesViewFullNumbers(), fn ($q) => $q->where('created_by', $request->user()->id))
             ->when($request->status,      fn ($q, $s) => $q->where('status', $s))
             ->when($request->search,      fn ($q, $s) => $q->where(function ($q) use ($s) {
                 $q->where('client_name', 'like', "%$s%")
