@@ -11,7 +11,7 @@ class SalesLead extends Model
 
     protected $fillable = [
         'hospital_id', 'hospital_name_raw', 'contact_id', 'contact_name_raw',
-        'source', 'source_notes',
+        'source', 'source_notes', 'notes',
         'machine_type', 'deal_value', 'stage', 'demo_date', 'follow_up_date', 'assigned_to',
     ];
 
@@ -34,6 +34,11 @@ class SalesLead extends Model
     public function assignee()
     {
         return $this->belongsTo(User::class, 'assigned_to');
+    }
+
+    public function events()
+    {
+        return $this->hasMany(SalesLeadEvent::class)->latest();
     }
 
     public function getDaysInStageAttribute(): int
