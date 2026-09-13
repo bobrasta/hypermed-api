@@ -34,6 +34,9 @@ class QuotationResource extends JsonResource
             'sent_at'          => $this->sent_at?->toIso8601String(),
             'accepted_at'      => $this->accepted_at?->toIso8601String(),
             'created_at'       => $this->created_at->toIso8601String(),
+            'updated_at'       => $this->updated_at?->toIso8601String(),
+            'sales_order_id'   => $this->whenLoaded('salesOrder', fn () => $this->salesOrder?->id),
+            'converted_at'     => $this->whenLoaded('salesOrder', fn () => $this->salesOrder?->created_at?->toIso8601String()),
             'items'            => $this->whenLoaded('items', fn () =>
                 $this->items->map(fn ($item) => [
                     'id'                => $item->id,

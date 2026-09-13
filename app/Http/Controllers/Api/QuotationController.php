@@ -154,7 +154,7 @@ class QuotationController extends Controller
 
     public function show(Quotation $quotation)
     {
-        $quotation->load(['createdBy', 'items.inventoryItem', 'lead']);
+        $quotation->load(['createdBy', 'approvedBy', 'items.inventoryItem', 'lead', 'salesOrder']);
         return new QuotationResource($quotation);
     }
 
