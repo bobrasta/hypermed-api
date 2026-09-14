@@ -29,15 +29,21 @@ class SparePartSeeder extends Seeder
 
         foreach ($parts as $p) {
             $models = $p['models'];
-            unset($p['models']);
-            $item = InventoryItem::create(array_merge($p, [
+            $sku = $p['sku'];
+            unset($p['models'], $p['sku']);
+            // firstOrCreate by SKU — some of these real spare parts also
+            // appear in InventoryItemSeeder's general catalog (same SKU,
+            // same physical item), so an unconditional create() collided
+            // on the unique sku constraint whenever both seeders ran in
+            // the same fresh db:seed pass.
+            $item = InventoryItem::firstOrCreate(['sku' => $sku], array_merge($p, [
                 'currency'        => 'TZS',
                 'category_id'     => $categoryId,
                 'unit_of_measure' => 'piece',
                 'description'     => null,
             ]));
             foreach ($models as $m) {
-                $item->compatibleModels()->create(['machine_model' => $m]);
+                $item->compatibleModels()->firstOrCreate(['machine_model' => $m]);
             }
         }
     }
