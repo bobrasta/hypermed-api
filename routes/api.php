@@ -30,6 +30,7 @@ use App\Http\Controllers\Api\RevenueController;
 use App\Http\Controllers\Api\SalesLeadController;
 use App\Http\Controllers\Api\PerformanceController;
 use App\Http\Controllers\Api\ActivityLogController;
+use App\Http\Controllers\Api\TaxRateController;
 use App\Http\Controllers\Api\SalesOrderController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\SerialNumberController;
@@ -238,6 +239,13 @@ Route::prefix('v1')->group(function () {
 
         // Activity log — admin-tier only, company-wide change history
         Route::get('activity-log', [ActivityLogController::class, 'index']);
+
+        // Tax rates — named percentages for the tax_rate fields on
+        // Invoice/Expense/VendorBill (read: anyone; manage: admin-tier)
+        Route::get('tax-rates',          [TaxRateController::class, 'index']);
+        Route::post('tax-rates',         [TaxRateController::class, 'store']);
+        Route::put('tax-rates/{taxRate}', [TaxRateController::class, 'update']);
+        Route::delete('tax-rates/{taxRate}', [TaxRateController::class, 'destroy']);
 
         // Quotations
         Route::post('quotations/{quotation}/send',    [QuotationController::class, 'send']);

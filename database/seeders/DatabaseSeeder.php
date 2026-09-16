@@ -33,6 +33,7 @@ class DatabaseSeeder extends Seeder
             ContactSeeder::class,
             NotificationSeeder::class,
             LicenseSeeder::class,
+            TaxRateSeeder::class,
         ]);
     }
 }
