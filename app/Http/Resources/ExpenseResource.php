@@ -41,6 +41,13 @@ class ExpenseResource extends JsonResource
             'paid_by'                     => $this->paid_by,
             'paid_by_name'                => $this->paidBy?->name,
             'paid_at'                     => $this->paid_at?->toIso8601String(),
+            'is_recurring'                => (bool) $this->is_recurring,
+            'recur_interval'              => $this->recur_interval,
+            'recur_interval_type'         => $this->recur_interval_type,
+            'recur_repeat_on'             => $this->recur_repeat_on,
+            'recur_repetitions'           => $this->recur_repetitions,
+            'recur_stopped_on'            => $this->recur_stopped_on?->toDateString(),
+            'recur_parent_id'             => $this->recur_parent_id,
         ];
     }
 }

@@ -25,6 +25,8 @@ class Expense extends Model
         'escalated_by', 'escalated_at', 'reviewed_by', 'reviewed_at', 'rejection_reason',
         'payment_initiated_by', 'payment_initiated_at', 'payment_method', 'payment_reference',
         'paid_by', 'paid_at',
+        'is_recurring', 'recur_interval', 'recur_interval_type', 'recur_repeat_on',
+        'recur_repetitions', 'recur_stopped_on', 'recur_parent_id',
     ];
 
     protected $casts = [
@@ -37,6 +39,8 @@ class Expense extends Model
         'reviewed_at'                => 'datetime',
         'payment_initiated_at'       => 'datetime',
         'paid_at'                    => 'datetime',
+        'is_recurring'               => 'boolean',
+        'recur_stopped_on'           => 'date',
     ];
 
     // Cash actually paid — amount is the net (pre-VAT) figure.
@@ -73,5 +77,15 @@ class Expense extends Model
     public function paidBy()
     {
         return $this->belongsTo(User::class, 'paid_by');
+    }
+
+    public function recurParent()
+    {
+        return $this->belongsTo(Expense::class, 'recur_parent_id');
+    }
+
+    public function recurChildren()
+    {
+        return $this->hasMany(Expense::class, 'recur_parent_id');
     }
 }

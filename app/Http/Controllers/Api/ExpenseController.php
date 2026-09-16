@@ -10,6 +10,7 @@ use App\Models\Expense;
 use App\Models\ExpenseCategory;
 use App\Models\User;
 use App\Services\ExpenseApprovalService;
+use App\Services\ExpenseService;
 use App\Services\FinancePostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -136,7 +137,7 @@ class ExpenseController extends Controller
         return ExpenseResource::collection($query->latest('expense_date')->paginate(50));
     }
 
-    public function store(Request $request, ExpenseApprovalService $approvalService)
+    public function store(Request $request, ExpenseService $expenseService)
     {
         $data = $request->validate([
             'name'         => ['required', 'string', 'max:255'],
@@ -147,20 +148,15 @@ class ExpenseController extends Controller
             'expense_date' => ['required', 'date'],
             'reference'    => ['nullable', 'string', 'max:255'],
             'notes'        => ['nullable', 'string'],
+            'is_recurring'         => ['sometimes', 'boolean'],
+            'recur_interval'       => ['required_if:is_recurring,true', 'nullable', 'integer', 'min:1', 'max:99'],
+            'recur_interval_type'  => ['required_if:is_recurring,true', 'nullable', 'in:days,months,years'],
+            'recur_repeat_on'      => ['nullable', 'integer', 'min:1', 'max:28'],
+            'recur_repetitions'    => ['nullable', 'integer', 'min:1'],
         ]);
         $data['created_by'] = $request->user()->id;
-        $data['tax_rate']   = $data['tax_rate'] ?? 0;
-        $data['tax_amount'] = (int) round($data['amount'] * $data['tax_rate'] / 100);
 
-        $category = ExpenseCategory::findOrFail($data['category_id']);
-        $evaluation = $approvalService->evaluate($category, $data['amount'] + $data['tax_amount']);
-        $data['requires_director_approval'] = $evaluation['requires_director_approval'];
-        $data['escalation_reason']          = $evaluation['escalation_reason'];
-        $data['status'] = $evaluation['requires_director_approval'] ? 'pending_director' : 'pending_cto';
-
-        $expense = Expense::create($data);
-
-        $this->notifySubmitted($expense);
+        $expense = $expenseService->create($data);
 
         return response()->json(['data' => new ExpenseResource($expense->load(['category', 'createdBy']))], 201);
     }
@@ -206,6 +202,20 @@ class ExpenseController extends Controller
         $data['status'] = $evaluation['requires_director_approval'] ? 'pending_director' : 'pending_cto';
 
         $expense->update($data);
+
+        return response()->json(['data' => new ExpenseResource($expense->fresh()->load(['category', 'createdBy']))]);
+    }
+
+    // Stops future auto-generation from this recurring template — does not
+    // touch expenses already generated from it (see GenerateRecurringExpenses).
+    public function stopRecurring(Request $request, Expense $expense)
+    {
+        abort_if(! $expense->is_recurring, 422, 'This expense is not a recurring template.');
+
+        $user = $request->user();
+        abort_if($expense->created_by !== $user->id && ! $user->hasCtoApprovalAuthority(), 403, 'Not authorised.');
+
+        $expense->update(['recur_stopped_on' => now()->toDateString()]);
 
         return response()->json(['data' => new ExpenseResource($expense->fresh()->load(['category', 'createdBy']))]);
     }
@@ -365,25 +375,6 @@ class ExpenseController extends Controller
         $this->notifyRequester($expense, approved: false);
 
         return response()->json(['data' => new ExpenseResource($expense->fresh()->load(['category', 'createdBy', 'reviewer']))]);
-    }
-
-    private function notifySubmitted(Expense $expense): void
-    {
-        $name = $expense->createdBy?->name ?? 'A staff member';
-        $roles = $expense->requires_director_approval ? User::ADMIN_TIER : User::CTO_TIER;
-        $type  = $expense->requires_director_approval ? 'expense_escalated' : 'expense_requested';
-
-        User::whereIn('role', $roles)
-            ->pluck('id')
-            ->each(fn ($id) => AppNotification::create([
-                'user_id'     => $id,
-                'type'        => $type,
-                'title'       => 'Expense Submitted',
-                'body'        => "{$name} submitted an expense: {$expense->name} (TZS " . number_format($expense->gross_amount) . ').',
-                'entity_type' => 'expense',
-                'entity_id'   => $expense->id,
-                'is_read'     => false,
-            ]));
     }
 
     private function notifyFinance(Expense $expense): void

@@ -135,6 +135,7 @@ Route::prefix('v1')->group(function () {
         Route::post('expenses/{expense}/reject', [ExpenseController::class, 'reject']);
         Route::post('expenses/{expense}/initiate-payment', [ExpenseController::class, 'initiatePayment']);
         Route::post('expenses/{expense}/mark-paid', [ExpenseController::class, 'markPaid']);
+        Route::post('expenses/{expense}/stop-recurring', [ExpenseController::class, 'stopRecurring']);
         Route::apiResource('expenses', ExpenseController::class);
         Route::get('settings', [SettingController::class, 'index']);
         Route::put('settings/{key}', [SettingController::class, 'update']);

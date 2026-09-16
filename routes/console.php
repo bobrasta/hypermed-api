@@ -10,3 +10,4 @@ Artisan::command('inspire', function () {
 
 Schedule::command('leads:follow-up-reminders')->dailyAt('07:00');
 Schedule::command('hr:check-expirations')->dailyAt('07:15');
+Schedule::command('expenses:generate-recurring')->dailyAt('06:00');
