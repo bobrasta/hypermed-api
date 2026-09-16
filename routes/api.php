@@ -29,6 +29,7 @@ use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RevenueController;
 use App\Http\Controllers\Api\SalesLeadController;
 use App\Http\Controllers\Api\PerformanceController;
+use App\Http\Controllers\Api\ActivityLogController;
 use App\Http\Controllers\Api\SalesOrderController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\SerialNumberController;
@@ -234,6 +235,9 @@ Route::prefix('v1')->group(function () {
         // Performance — universal "my performance" + manager-only team view
         Route::get('performance/mine', [PerformanceController::class, 'mine']);
         Route::get('performance/team', [PerformanceController::class, 'team']);
+
+        // Activity log — admin-tier only, company-wide change history
+        Route::get('activity-log', [ActivityLogController::class, 'index']);
 
         // Quotations
         Route::post('quotations/{quotation}/send',    [QuotationController::class, 'send']);

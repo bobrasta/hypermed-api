@@ -7,11 +7,27 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, HasRoles, Notifiable;
+    use HasApiTokens, HasFactory, HasRoles, Notifiable, LogsActivity;
+
+    // Deliberately a curated list, not the full $fillable — role/staff_group/
+    // manager_id/is_active/discount+commission rates are the authority-
+    // relevant fields worth an audit trail (who can self-promote or grant
+    // themselves a discount cap is exactly the class of bug fixed earlier —
+    // see feedback_staff_management_gap). avail_status/workload churn too
+    // often to be a useful log, and password is never logged even hashed.
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logOnly(['role', 'staff_group', 'is_active', 'manager_id', 'position_id', 'max_discount_percent', 'commission_percent'])
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs();
+    }
 
     // Single source of truth for the role list — mirrors the users_role_check
     // constraint AND the seeded Spatie roles (see PermissionSeeder). Keep in
