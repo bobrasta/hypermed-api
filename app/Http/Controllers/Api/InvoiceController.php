@@ -9,6 +9,7 @@ use App\Models\Hospital;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Services\CreditCheckService;
+use App\Services\DocumentNumberService;
 use App\Services\DocumentPdfService;
 use App\Services\FinancePostingService;
 use Illuminate\Http\Request;
@@ -76,7 +77,7 @@ class InvoiceController extends Controller
         return InvoiceResource::collection($query->latest('issue_date')->paginate(50));
     }
 
-    public function store(Request $request, CreditCheckService $creditCheck, FinancePostingService $financePosting)
+    public function store(Request $request, CreditCheckService $creditCheck, FinancePostingService $financePosting, DocumentNumberService $documentNumbers)
     {
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to create invoices.');
 
@@ -115,7 +116,7 @@ class InvoiceController extends Controller
         $data['total']           = $subtotal + $taxAmount;
         $data['amount_paid']     = 0;
         $data['status']          = 'pending';
-        $data['invoice_number']  = $this->nextInvoiceNumber();
+        $data['invoice_number']  = $documentNumbers->next('invoice');
 
         $invoice = DB::transaction(function () use ($data, $lineItems, $financePosting) {
             $invoice = Invoice::create($data);
@@ -212,7 +213,7 @@ class InvoiceController extends Controller
     // already in hand, not a commitment. Still restricted to Accountant/
     // admin so an arbitrary authenticated user can't fabricate a payment
     // record (which would misstate revenue and receivables).
-    public function recordPayment(Request $request, Invoice $invoice, FinancePostingService $financePosting)
+    public function recordPayment(Request $request, Invoice $invoice, FinancePostingService $financePosting, DocumentNumberService $documentNumbers)
     {
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to record invoice payments.');
         if (in_array($invoice->status, ['paid', 'cancelled', 'waived'])) {
@@ -229,7 +230,7 @@ class InvoiceController extends Controller
 
         $data['invoice_id']     = $invoice->id;
         $data['recorded_by']    = $request->user()->id;
-        $data['payment_number'] = $this->nextPaymentNumber();
+        $data['payment_number'] = $documentNumbers->next('payment');
 
         $payment = DB::transaction(function () use ($data, $invoice, $financePosting) {
             $payment = Payment::create($data);
@@ -259,23 +260,4 @@ class InvoiceController extends Controller
         ], 201);
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────────
-
-    private function nextInvoiceNumber(): string
-    {
-        $year = date('Y');
-        $last = Invoice::where('invoice_number', 'like', "INV-$year-%")
-                       ->orderByDesc('id')->value('invoice_number');
-        $seq  = $last ? ((int) substr($last, -4) + 1) : 1;
-        return 'INV-' . $year . '-' . str_pad($seq, 4, '0', STR_PAD_LEFT);
-    }
-
-    private function nextPaymentNumber(): string
-    {
-        $year = date('Y');
-        $last = Payment::where('payment_number', 'like', "PAY-$year-%")
-                       ->orderByDesc('id')->value('payment_number');
-        $seq  = $last ? ((int) substr($last, -4) + 1) : 1;
-        return 'PAY-' . $year . '-' . str_pad($seq, 4, '0', STR_PAD_LEFT);
-    }
 }

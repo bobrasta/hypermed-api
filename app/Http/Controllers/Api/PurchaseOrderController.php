@@ -9,6 +9,7 @@ use App\Models\Location;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequisition;
 use App\Models\User;
+use App\Services\DocumentNumberService;
 use App\Services\StockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,13 +24,6 @@ class PurchaseOrderController extends Controller
         'salesApprovedBy', 'directorReviewedBy', 'paymentInitiatedBy',
         'directorApprovedBy', 'rejectedBy',
     ];
-
-    private function nextPoNumber(): string
-    {
-        $year  = now()->format('Y');
-        $count = PurchaseOrder::whereYear('created_at', $year)->count() + 1;
-        return 'PO-' . $year . '-' . str_pad($count, 4, '0', STR_PAD_LEFT);
-    }
 
     public function index(Request $request)
     {
@@ -50,7 +44,7 @@ class PurchaseOrderController extends Controller
         ]);
     }
 
-    public function store(Request $request)
+    public function store(Request $request, DocumentNumberService $documentNumbers)
     {
         abort_if(! $request->user()->hasProcurementCreateAuthority(), 403, 'You are not authorised to create purchase orders.');
 
@@ -73,11 +67,11 @@ class PurchaseOrderController extends Controller
             'items.*.notes'             => 'nullable|string',
         ]);
 
-        return DB::transaction(function () use ($data, $request) {
+        return DB::transaction(function () use ($data, $request, $documentNumbers) {
             $total = collect($data['items'])->sum(fn ($i) => $i['quantity_ordered'] * $i['unit_cost']);
 
             $po = PurchaseOrder::create([
-                'po_number'               => $this->nextPoNumber(),
+                'po_number'               => $documentNumbers->next('purchase_order'),
                 'supplier_id'             => $data['supplier_id'],
                 'location_id'             => $data['location_id'],
                 'purchase_requisition_id' => $data['purchase_requisition_id'] ?? null,

@@ -5,18 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ApprovalLog;
 use App\Models\PurchaseRequisition;
+use App\Services\DocumentNumberService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class PurchaseRequisitionController extends Controller
 {
-    private function nextPrNumber(): string
-    {
-        $year  = now()->format('Y');
-        $count = PurchaseRequisition::whereYear('created_at', $year)->count() + 1;
-        return 'PR-' . $year . '-' . str_pad($count, 4, '0', STR_PAD_LEFT);
-    }
-
     public function index(Request $request)
     {
         $prs = PurchaseRequisition::with(['requestedBy', 'approvedBy', 'items.inventoryItem'])
@@ -27,7 +21,7 @@ class PurchaseRequisitionController extends Controller
         return response()->json($prs);
     }
 
-    public function store(Request $request)
+    public function store(Request $request, DocumentNumberService $documentNumbers)
     {
         $data = $request->validate([
             'origin'        => 'nullable|in:manual,reorder,new_product',
@@ -42,9 +36,9 @@ class PurchaseRequisitionController extends Controller
             'items.*.notes'               => 'nullable|string',
         ]);
 
-        return DB::transaction(function () use ($data, $request) {
+        return DB::transaction(function () use ($data, $request, $documentNumbers) {
             $pr = PurchaseRequisition::create([
-                'pr_number'    => $this->nextPrNumber(),
+                'pr_number'    => $documentNumbers->next('purchase_requisition'),
                 'status'       => 'draft',
                 'origin'       => $data['origin'] ?? 'manual',
                 'requested_by' => $request->user()->id,

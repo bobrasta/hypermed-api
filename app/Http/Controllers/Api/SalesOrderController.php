@@ -11,6 +11,7 @@ use App\Models\SalesOrder;
 use App\Models\User;
 use App\Services\ApprovalService;
 use App\Services\CreditCheckService;
+use App\Services\DocumentNumberService;
 use App\Services\FinancePostingService;
 use App\Services\MachineRegistrationService;
 use App\Services\StockService;
@@ -36,7 +37,7 @@ class SalesOrderController extends Controller
         return SalesOrderResource::collection($orders);
     }
 
-    public function store(Request $request, ApprovalService $approval)
+    public function store(Request $request, ApprovalService $approval, DocumentNumberService $documentNumbers)
     {
         abort_if(! $request->user()->hasSalesCreateAuthority(), 403, 'You are not authorised to create sales orders.');
 
@@ -59,7 +60,7 @@ class SalesOrderController extends Controller
             'items.*.unit_price'        => 'required|integer|min:0',
         ]);
 
-        return DB::transaction(function () use ($data, $request, $approval) {
+        return DB::transaction(function () use ($data, $request, $approval, $documentNumbers) {
             $subtotal = collect($data['items'])->sum(fn ($i) => $i['quantity_ordered'] * $i['unit_price']);
             $discountAmount = $data['discount_amount'] ?? 0;
             $taxAmount      = $data['tax_amount'] ?? 0;
@@ -67,11 +68,8 @@ class SalesOrderController extends Controller
 
             $approvalFields = $approval->evaluate($request->user(), $subtotal, $discountAmount, $totalAmount);
 
-            $year  = now()->format('Y');
-            $count = SalesOrder::whereYear('created_at', $year)->count() + 1;
-
             $order = SalesOrder::create([
-                'order_number'           => 'SO-' . $year . '-' . str_pad($count, 4, '0', STR_PAD_LEFT),
+                'order_number'           => $documentNumbers->next('sales_order'),
                 'client_name'            => $data['client_name'],
                 'client_contact'         => $data['client_contact'] ?? null,
                 'hospital_id'            => $data['hospital_id'] ?? null,
@@ -271,7 +269,7 @@ class SalesOrderController extends Controller
     // Create an invoice covering whatever has been delivered but not yet invoiced.
     // Can be called more than once on the same Sales Order as partial deliveries
     // come in — each call only bills the newly-delivered, not-yet-invoiced quantity.
-    public function createInvoice(Request $request, SalesOrder $salesOrder, CreditCheckService $creditCheck, FinancePostingService $financePosting)
+    public function createInvoice(Request $request, SalesOrder $salesOrder, CreditCheckService $creditCheck, FinancePostingService $financePosting, DocumentNumberService $documentNumbers)
     {
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to create invoices.');
         abort_if(!in_array($salesOrder->status, ['delivering', 'delivered']), 422,
@@ -297,12 +295,8 @@ class SalesOrderController extends Controller
 
         $creditCheck->assertWithinLimit($salesOrder->hospital, $invoiceTotal);
 
-        $invoice = DB::transaction(function () use ($salesOrder, $billableItems, $lineSubtotal, $taxAmount, $invoiceTotal, $financePosting) {
-            $year = date('Y');
-            $last = Invoice::where('invoice_number', 'like', "INV-$year-%")
-                           ->orderByDesc('id')->value('invoice_number');
-            $seq  = $last ? ((int) substr($last, -4) + 1) : 1;
-            $invNumber = 'INV-' . $year . '-' . str_pad($seq, 4, '0', STR_PAD_LEFT);
+        $invoice = DB::transaction(function () use ($salesOrder, $billableItems, $lineSubtotal, $taxAmount, $invoiceTotal, $financePosting, $documentNumbers) {
+            $invNumber = $documentNumbers->next('invoice');
 
             $inv = Invoice::create([
                 'invoice_number'  => $invNumber,

@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\AdminOverviewController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\DocumentSequenceController;
 use App\Http\Controllers\Api\UnifiedDashboardController;
 use App\Http\Controllers\Api\EmailAccountController;
 use App\Http\Controllers\Api\EmailController;
@@ -247,6 +248,12 @@ Route::prefix('v1')->group(function () {
         Route::post('tax-rates',         [TaxRateController::class, 'store']);
         Route::put('tax-rates/{taxRate}', [TaxRateController::class, 'update']);
         Route::delete('tax-rates/{taxRate}', [TaxRateController::class, 'destroy']);
+
+        // Document numbering — prefix/digits/next-number per document type
+        // (admin-tier only, both read and write: unlike tax rates this isn't
+        // needed by ordinary create-screens, it's a numbering-format setting)
+        Route::get('document-sequences', [DocumentSequenceController::class, 'index']);
+        Route::put('document-sequences/{documentSequence}', [DocumentSequenceController::class, 'update']);
 
         // Quotations
         Route::post('quotations/{quotation}/send',    [QuotationController::class, 'send']);

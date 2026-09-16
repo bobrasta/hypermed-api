@@ -7,6 +7,7 @@ use App\Http\Resources\VendorBillResource;
 use App\Models\ApprovalLog;
 use App\Models\VendorBill;
 use App\Models\VendorBillPayment;
+use App\Services\DocumentNumberService;
 use App\Services\FinancePostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -48,7 +49,7 @@ class VendorBillController extends Controller
         return VendorBillResource::collection($query->latest('issue_date')->paginate(50));
     }
 
-    public function store(Request $request, FinancePostingService $financePosting)
+    public function store(Request $request, FinancePostingService $financePosting, DocumentNumberService $documentNumbers)
     {
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to record vendor bills.');
 
@@ -80,10 +81,10 @@ class VendorBillController extends Controller
         $data['amount_paid'] = 0;
         $data['status']      = 'pending';
         $data['currency']    = 'TZS';
-        $data['bill_number'] = $this->nextBillNumber();
+        $data['bill_number'] = $documentNumbers->next('vendor_bill');
         $data['created_by']  = $request->user()->id;
 
-        $bill = DB::transaction(function () use ($data, $lineItems, $financePosting) {
+        $bill = DB::transaction(function () use ($data, $lineItems, $financePosting, $request) {
             $bill = VendorBill::create($data);
 
             foreach ($lineItems as $item) {
@@ -175,7 +176,7 @@ class VendorBillController extends Controller
         return response()->json(['data' => new VendorBillResource($vendorBill->load(['supplier', 'purchaseOrder', 'category', 'lineItems', 'payments', 'approvedBy']))]);
     }
 
-    public function recordPayment(Request $request, VendorBill $vendorBill, FinancePostingService $financePosting)
+    public function recordPayment(Request $request, VendorBill $vendorBill, FinancePostingService $financePosting, DocumentNumberService $documentNumbers)
     {
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to record vendor bill payments.');
         if (in_array($vendorBill->status, ['paid', 'cancelled'])) {
@@ -195,9 +196,9 @@ class VendorBillController extends Controller
 
         $data['vendor_bill_id'] = $vendorBill->id;
         $data['recorded_by']    = $request->user()->id;
-        $data['payment_number'] = $this->nextPaymentNumber();
+        $data['payment_number'] = $documentNumbers->next('vendor_bill_payment');
 
-        $payment = DB::transaction(function () use ($data, $vendorBill, $financePosting) {
+        $payment = DB::transaction(function () use ($data, $vendorBill, $financePosting, $request) {
             $payment = VendorBillPayment::create($data);
 
             $totalPaid = $vendorBill->payments()->sum('amount');
@@ -222,21 +223,4 @@ class VendorBillController extends Controller
         ], 201);
     }
 
-    private function nextBillNumber(): string
-    {
-        $year = date('Y');
-        $last = VendorBill::where('bill_number', 'like', "BILL-$year-%")
-                          ->orderByDesc('id')->value('bill_number');
-        $seq  = $last ? ((int) substr($last, -4) + 1) : 1;
-        return 'BILL-' . $year . '-' . str_pad($seq, 4, '0', STR_PAD_LEFT);
-    }
-
-    private function nextPaymentNumber(): string
-    {
-        $year = date('Y');
-        $last = VendorBillPayment::where('payment_number', 'like', "BPAY-$year-%")
-                                 ->orderByDesc('id')->value('payment_number');
-        $seq  = $last ? ((int) substr($last, -4) + 1) : 1;
-        return 'BPAY-' . $year . '-' . str_pad($seq, 4, '0', STR_PAD_LEFT);
-    }
 }

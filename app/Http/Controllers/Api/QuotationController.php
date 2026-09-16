@@ -8,6 +8,7 @@ use App\Http\Resources\SalesOrderResource;
 use App\Models\Quotation;
 use App\Models\SalesOrder;
 use App\Services\ApprovalService;
+use App\Services\DocumentNumberService;
 use App\Services\DocumentPdfService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -31,13 +32,6 @@ class QuotationController extends Controller
             'share_url'  => $url,
             'expires_at' => $expiresAt->toIso8601String(),
         ]]);
-    }
-
-    private function nextQtNumber(): string
-    {
-        $year  = now()->format('Y');
-        $count = Quotation::whereYear('created_at', $year)->count() + 1;
-        return 'QT-' . $year . '-' . str_pad($count, 4, '0', STR_PAD_LEFT);
     }
 
     private function calcTotals(array $items, int $discountAmount = 0, int $taxAmount = 0): array
@@ -74,7 +68,7 @@ class QuotationController extends Controller
         return QuotationResource::collection($quotations);
     }
 
-    public function store(Request $request, ApprovalService $approval)
+    public function store(Request $request, ApprovalService $approval, DocumentNumberService $documentNumbers)
     {
         abort_if(! $request->user()->hasSalesCreateAuthority(), 403, 'You are not authorised to create quotations.');
 
@@ -98,7 +92,7 @@ class QuotationController extends Controller
             'items.*.discount_percent'  => 'nullable|numeric|min:0|max:100',
         ]);
 
-        return DB::transaction(function () use ($data, $request, $approval) {
+        return DB::transaction(function () use ($data, $request, $approval, $documentNumbers) {
             $totals = $this->calcTotals(
                 $data['items'],
                 $data['discount_amount'] ?? 0,
@@ -116,7 +110,7 @@ class QuotationController extends Controller
             );
 
             $quotation = Quotation::create([
-                'quotation_number' => $this->nextQtNumber(),
+                'quotation_number' => $documentNumbers->next('quotation'),
                 'lead_id'          => $data['lead_id'] ?? null,
                 'client_name'      => $data['client_name'],
                 'client_contact'   => $data['client_contact'] ?? null,
@@ -251,7 +245,7 @@ class QuotationController extends Controller
     }
 
     // Convert accepted quotation to Sales Order
-    public function convert(Request $request, Quotation $quotation)
+    public function convert(Request $request, Quotation $quotation, DocumentNumberService $documentNumbers)
     {
         abort_if(! $request->user()->hasSalesEditAuthority(), 403, 'You are not authorised to edit quotations.');
         abort_if($quotation->status !== 'accepted', 422, 'Only accepted quotations can be converted to a sales order.');
@@ -262,12 +256,10 @@ class QuotationController extends Controller
             'notes'                  => 'nullable|string',
         ]);
 
-        return DB::transaction(function () use ($quotation, $data, $request) {
+        return DB::transaction(function () use ($quotation, $data, $request, $documentNumbers) {
             $quotation->load(['items', 'lead']);
 
-            $year  = now()->format('Y');
-            $count = SalesOrder::whereYear('created_at', $year)->count() + 1;
-            $orderNumber = 'SO-' . $year . '-' . str_pad($count, 4, '0', STR_PAD_LEFT);
+            $orderNumber = $documentNumbers->next('sales_order');
 
             $order = SalesOrder::create([
                 'order_number'           => $orderNumber,
