@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\HospitalResource;
 use App\Models\Hospital;
+use App\Services\CreditCheckService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
@@ -68,7 +69,7 @@ class HospitalController extends Controller
         return response()->json(['data' => new HospitalResource($hospital)], 201);
     }
 
-    public function show(Hospital $hospital)
+    public function show(Hospital $hospital, CreditCheckService $creditCheck)
     {
         $hospital->load('machines');
 
@@ -79,6 +80,11 @@ class HospitalController extends Controller
         $resource = new HospitalResource($hospital);
         $data = $resource->toArray(request());
         $data['uptime_percent'] = $uptime;
+
+        if ($hospital->credit_limit !== null) {
+            $data['outstanding_balance'] = $creditCheck->getOutstandingBalance($hospital);
+            $data['credit_available'] = max(0, $hospital->credit_limit - $data['outstanding_balance']);
+        }
 
         return response()->json(['data' => $data]);
     }

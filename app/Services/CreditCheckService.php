@@ -12,17 +12,25 @@ use App\Models\Invoice;
  */
 class CreditCheckService
 {
+    // Shared with the live-headroom display on the Quotation/SalesOrder
+    // build screens (HospitalController@show / index) — one source of
+    // truth for "what does this hospital currently owe", same reasoning
+    // as consolidating clickhuduma's duplicate due-balance query today.
+    public function getOutstandingBalance(Hospital $hospital): int
+    {
+        return Invoice::where('hospital_id', $hospital->id)
+            ->whereNotIn('status', ['paid', 'cancelled', 'waived'])
+            ->get()
+            ->sum(fn (Invoice $inv) => $inv->total - $inv->amount_paid);
+    }
+
     public function assertWithinLimit(?Hospital $hospital, int $newInvoiceAmount): void
     {
         if (! $hospital || $hospital->credit_limit === null) {
             return;
         }
 
-        $outstandingBalance = Invoice::where('hospital_id', $hospital->id)
-            ->whereNotIn('status', ['paid', 'cancelled', 'waived'])
-            ->get()
-            ->sum(fn (Invoice $inv) => $inv->total - $inv->amount_paid);
-
+        $outstandingBalance = $this->getOutstandingBalance($hospital);
         $projectedBalance = $outstandingBalance + $newInvoiceAmount;
 
         abort_if($projectedBalance > $hospital->credit_limit, 422, sprintf(
