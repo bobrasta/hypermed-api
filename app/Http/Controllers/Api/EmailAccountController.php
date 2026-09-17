@@ -79,7 +79,21 @@ class EmailAccountController extends Controller
                 ->update(['is_default' => false]);
         }
 
+        // A changed username or imap_host means this account now points at a
+        // genuinely different real-world mailbox — whatever was previously
+        // synced belongs to the OLD mailbox, not this one, and left as-is
+        // would render as if it came from the new account. Wipe it so the
+        // next sync starts clean; cascades to attachment metadata via the FK.
+        $pointsAtDifferentMailbox =
+            (isset($data['username']) && $data['username'] !== $emailAccount->username) ||
+            (isset($data['imap_host']) && $data['imap_host'] !== $emailAccount->imap_host);
+
         $emailAccount->update($data);
+
+        if ($pointsAtDifferentMailbox) {
+            $emailAccount->syncedEmails()->delete();
+            $emailAccount->update(['last_synced_at' => null]);
+        }
 
         return response()->json(['data' => new EmailAccountResource($emailAccount)]);
     }
