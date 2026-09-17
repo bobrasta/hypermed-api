@@ -310,7 +310,15 @@ class EmailController extends Controller
                 default => 'Failed to send: ' . $causeMsg,
             };
 
-            abort(422, $hint);
+            // detail carries the raw exception message alongside the hint —
+            // same pattern as EmailAccountController@test's IMAP check —
+            // since the categorized hint alone isn't enough to tell a
+            // platform-level egress block from a genuine host/port/auth
+            // problem.
+            abort(response()->json([
+                'message' => $hint,
+                'detail'  => class_basename($cause) . ': ' . $causeMsg,
+            ], 422));
         }
     }
 
