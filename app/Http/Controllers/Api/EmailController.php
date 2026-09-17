@@ -260,29 +260,58 @@ class EmailController extends Controller
             'mail.mailers.smtp.encryption' => $account->smtp_encryption === 'none' ? null : $account->smtp_encryption,
             'mail.mailers.smtp.username'   => $account->username,
             'mail.mailers.smtp.password'   => $account->password,
+            // Left at the config default (null = OS socket default, often
+            // 60s+) this hung well past the Flutter client's own 20s receive
+            // timeout on a slow/unreachable mail server — the client gave up
+            // with no idea whether the send actually went through, and the
+            // request kept running server-side regardless. This app runs on
+            // a single `php artisan serve` process (see railway.toml), so a
+            // hung SMTP connection isn't just slow for this request, it can
+            // hold up everyone else's too.
+            'mail.mailers.smtp.timeout'    => 10,
             'mail.from.address'            => $account->from_email,
             'mail.from.name'               => $account->from_name ?? $account->username,
         ]);
 
-        Mail::mailer('smtp')->send([], [], function (Message $msg) use ($data, $account) {
-            $msg->from($account->from_email, $account->from_name ?? '');
-            $msg->subject($data['subject']);
-            $msg->html($data['body']);
+        try {
+            Mail::mailer('smtp')->send([], [], function (Message $msg) use ($data, $account) {
+                $msg->from($account->from_email, $account->from_name ?? '');
+                $msg->subject($data['subject']);
+                $msg->html($data['body']);
 
-            foreach ($data['to'] as $recipient) {
-                $msg->to($recipient['email'], $recipient['name'] ?? null);
+                foreach ($data['to'] as $recipient) {
+                    $msg->to($recipient['email'], $recipient['name'] ?? null);
+                }
+                foreach ($data['cc'] ?? [] as $recipient) {
+                    $msg->cc($recipient['email'], $recipient['name'] ?? null);
+                }
+                foreach ($data['bcc'] ?? [] as $recipient) {
+                    $msg->bcc($recipient['email'], $recipient['name'] ?? null);
+                }
+                if (! empty($data['in_reply_to'])) {
+                    $msg->getHeaders()->addTextHeader('In-Reply-To', $data['in_reply_to']);
+                    $msg->getHeaders()->addTextHeader('References', $data['in_reply_to']);
+                }
+            });
+        } catch (\Throwable $e) {
+            $cause = $e;
+            while ($cause->getPrevious()) {
+                $cause = $cause->getPrevious();
             }
-            foreach ($data['cc'] ?? [] as $recipient) {
-                $msg->cc($recipient['email'], $recipient['name'] ?? null);
-            }
-            foreach ($data['bcc'] ?? [] as $recipient) {
-                $msg->bcc($recipient['email'], $recipient['name'] ?? null);
-            }
-            if (! empty($data['in_reply_to'])) {
-                $msg->getHeaders()->addTextHeader('In-Reply-To', $data['in_reply_to']);
-                $msg->getHeaders()->addTextHeader('References', $data['in_reply_to']);
-            }
-        });
+            $causeMsg = $cause->getMessage();
+
+            $hint = match (true) {
+                str_contains($causeMsg, 'Authentication'), str_contains($causeMsg, 'credentials')
+                    => 'SMTP authentication failed — check the account password.',
+                str_contains($causeMsg, 'timed out'), str_contains($causeMsg, 'timeout')
+                    => 'Could not reach the mail server in time — check the SMTP host, port and encryption.',
+                str_contains($causeMsg, 'refused')
+                    => 'Connection refused — verify the SMTP host and port are correct.',
+                default => 'Failed to send: ' . $causeMsg,
+            };
+
+            abort(422, $hint);
+        }
     }
 
     // ── Reply ─────────────────────────────────────────────────────────────────
