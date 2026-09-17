@@ -8,6 +8,7 @@ use App\Models\AppNotification;
 use App\Models\ApprovalLog;
 use App\Models\PerDiemRequest;
 use App\Models\User;
+use App\Services\NotificationTemplateService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -249,9 +250,9 @@ class PerDiemController extends Controller
 
         AppNotification::create([
             'user_id'     => $perDiemRequest->user_id,
-            'type'        => 'per_diem_paid',
-            'title'       => 'Per-Diem Paid',
-            'body'        => "Your per-diem request for {$perDiemRequest->destination} has been paid.",
+            ...app(NotificationTemplateService::class)->render('per_diem.paid', [
+                'destination' => $perDiemRequest->destination,
+            ]),
             'entity_type' => 'per_diem_request',
             'entity_id'   => $perDiemRequest->id,
             'is_read'     => false,
@@ -282,9 +283,13 @@ class PerDiemController extends Controller
 
         $recipientIds->each(fn ($id) => AppNotification::create([
             'user_id'     => $id,
-            'type'        => 'per_diem_requested',
-            'title'       => 'Per-Diem Request Submitted',
-            'body'        => "{$name} requested per-diem for {$perDiem->destination}, {$perDiem->start_date->toDateString()} to {$perDiem->end_date->toDateString()} ({$perDiem->days_count} day(s)).",
+            ...app(NotificationTemplateService::class)->render('per_diem.notify_team_lead', [
+                'name'        => $name,
+                'destination' => $perDiem->destination,
+                'start_date'  => $perDiem->start_date->toDateString(),
+                'end_date'    => $perDiem->end_date->toDateString(),
+                'days_count'  => $perDiem->days_count,
+            ]),
             'entity_type' => 'per_diem_request',
             'entity_id'   => $perDiem->id,
             'is_read'     => false,
@@ -299,9 +304,10 @@ class PerDiemController extends Controller
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
-                'type'        => 'per_diem_forwarded',
-                'title'       => 'Per-Diem Request Forwarded',
-                'body'        => "Team lead forwarded {$name}'s per-diem request for {$perDiem->destination}.",
+                ...app(NotificationTemplateService::class)->render('per_diem.forwarded_cto', [
+                    'name'        => $name,
+                    'destination' => $perDiem->destination,
+                ]),
                 'entity_type' => 'per_diem_request',
                 'entity_id'   => $perDiem->id,
                 'is_read'     => false,
@@ -316,9 +322,10 @@ class PerDiemController extends Controller
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
-                'type'        => 'per_diem_approved',
-                'title'       => 'Per-Diem Ready to Pay',
-                'body'        => "{$name}'s per-diem request for {$perDiem->destination} was approved — needs payment initiated.",
+                ...app(NotificationTemplateService::class)->render('per_diem.ready_to_pay_finance', [
+                    'name'        => $name,
+                    'destination' => $perDiem->destination,
+                ]),
                 'entity_type' => 'per_diem_request',
                 'entity_id'   => $perDiem->id,
                 'is_read'     => false,
@@ -333,9 +340,9 @@ class PerDiemController extends Controller
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
-                'type'        => 'per_diem_approved',
-                'title'       => 'Per-Diem — Final Authorization',
-                'body'        => "Finance initiated payment for {$name}'s per-diem request — needs your authorization to pay.",
+                ...app(NotificationTemplateService::class)->render('per_diem.final_authorization_director', [
+                    'name' => $name,
+                ]),
                 'entity_type' => 'per_diem_request',
                 'entity_id'   => $perDiem->id,
                 'is_read'     => false,
@@ -344,16 +351,20 @@ class PerDiemController extends Controller
 
     private function notifyRequester(PerDiemRequest $perDiem, bool $approved, bool $rejectedAtTeamLead): void
     {
+        $templateKey = $approved ? 'per_diem.approved_requester' : 'per_diem.rejected_requester';
+        $reasonSuffix = '';
+        if (! $approved) {
+            $reasonSuffix = $rejectedAtTeamLead
+                ? ($perDiem->team_lead_rejection_reason ? " Reason: {$perDiem->team_lead_rejection_reason}" : '')
+                : ($perDiem->rejection_reason ? " Reason: {$perDiem->rejection_reason}" : '');
+        }
+
         AppNotification::create([
             'user_id'     => $perDiem->user_id,
-            'type'        => $approved ? 'per_diem_approved' : 'per_diem_rejected',
-            'title'       => $approved ? 'Per-Diem Approved' : 'Per-Diem Rejected',
-            'body'        => $approved
-                ? "Your per-diem request for {$perDiem->destination} was approved."
-                : "Your per-diem request for {$perDiem->destination} was rejected."
-                    . ($rejectedAtTeamLead
-                        ? ($perDiem->team_lead_rejection_reason ? " Reason: {$perDiem->team_lead_rejection_reason}" : '')
-                        : ($perDiem->rejection_reason ? " Reason: {$perDiem->rejection_reason}" : '')),
+            ...app(NotificationTemplateService::class)->render($templateKey, [
+                'destination'   => $perDiem->destination,
+                'reason_suffix' => $reasonSuffix,
+            ]),
             'entity_type' => 'per_diem_request',
             'entity_id'   => $perDiem->id,
             'is_read'     => false,

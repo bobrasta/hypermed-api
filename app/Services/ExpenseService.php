@@ -105,15 +105,19 @@ class ExpenseService
     {
         $name = $expense->createdBy?->name ?? 'A staff member';
         $roles = $expense->requires_director_approval ? User::ADMIN_TIER : User::CTO_TIER;
-        $type  = $expense->requires_director_approval ? 'expense_escalated' : 'expense_requested';
+        $templateKey = $expense->requires_director_approval ? 'expense.submitted_escalated' : 'expense.submitted_cto';
+
+        $vars = [
+            'name'         => $name,
+            'expense_name' => $expense->name,
+            'gross_amount' => number_format($expense->gross_amount),
+        ];
 
         User::whereIn('role', $roles)
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
-                'type'        => $type,
-                'title'       => 'Expense Submitted',
-                'body'        => "{$name} submitted an expense: {$expense->name} (TZS " . number_format($expense->gross_amount) . ').',
+                ...app(NotificationTemplateService::class)->render($templateKey, $vars),
                 'entity_type' => 'expense',
                 'entity_id'   => $expense->id,
                 'is_read'     => false,

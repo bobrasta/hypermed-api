@@ -18,7 +18,7 @@ use Illuminate\Support\Carbon;
  */
 class AlertEngineService
 {
-    /** @return array<int, array{model: class-string, dateColumn: string, notifiedAtColumn: string, notifyRoles: array<int, string>, label: string}> */
+    /** @return array<int, array{model: class-string, dateColumn: string, notifiedAtColumn: string, notifyRoles: array<int, string>, templateKey: string}> */
     private function watchers(): array
     {
         return [
@@ -27,14 +27,14 @@ class AlertEngineService
                 'dateColumn'       => 'end_date',
                 'notifiedAtColumn' => 'expiry_notified_at',
                 'notifyRoles'      => ['hr', 'admin'],
-                'label'            => 'Contract expiring',
+                'templateKey'      => 'hr_alert.contract_expiring',
             ],
             [
                 'model'            => Contract::class,
                 'dateColumn'       => 'probation_end_date',
                 'notifiedAtColumn' => 'probation_notified_at',
                 'notifyRoles'      => ['hr', 'admin'],
-                'label'            => 'Probation period ending',
+                'templateKey'      => 'hr_alert.probation_ending',
             ],
         ];
     }
@@ -75,9 +75,10 @@ class AlertEngineService
                 ->pluck('id')
                 ->each(fn ($id) => AppNotification::create([
                     'user_id'     => $id,
-                    'type'        => 'hr_alert',
-                    'title'       => $watcher['label'],
-                    'body'        => "{$watcher['label']} for {$staffName} on {$dueDate?->toDateString()}.",
+                    ...app(NotificationTemplateService::class)->render($watcher['templateKey'], [
+                        'staff_name' => $staffName,
+                        'due_date'   => $dueDate?->toDateString(),
+                    ]),
                     'entity_type' => 'contract',
                     'entity_id'   => $record->id,
                     'is_read'     => false,

@@ -35,6 +35,7 @@ class DatabaseSeeder extends Seeder
             LicenseSeeder::class,
             TaxRateSeeder::class,
             DocumentSequenceSeeder::class,
+            NotificationTemplateSeeder::class,
         ]);
     }
 }

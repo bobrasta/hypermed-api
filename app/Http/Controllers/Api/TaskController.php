@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AppNotification;
 use App\Models\Task;
 use App\Models\User;
+use App\Services\NotificationTemplateService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -155,9 +156,10 @@ class TaskController extends Controller
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
-                'type'        => 'task_completed',
-                'title'       => 'Task Completed',
-                'body'        => "{$assigneeName} completed: {$task->title}",
+                ...app(NotificationTemplateService::class)->render('task.completed_managers', [
+                    'assignee_name' => $assigneeName,
+                    'task_title'    => $task->title,
+                ]),
                 'entity_type' => 'task',
                 'entity_id'   => $task->id,
                 'is_read'     => false,
@@ -174,9 +176,10 @@ class TaskController extends Controller
 
         AppNotification::create([
             'user_id'     => $task->assigned_to,
-            'type'        => 'task_assigned',
-            'title'       => 'New Task Assigned',
-            'body'        => "{$creatorName} assigned you: {$task->title}",
+            ...app(NotificationTemplateService::class)->render('task.assigned', [
+                'creator_name' => $creatorName,
+                'task_title'   => $task->title,
+            ]),
             'entity_type' => 'task',
             'entity_id'   => $task->id,
             'is_read'     => false,

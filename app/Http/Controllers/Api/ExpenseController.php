@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Services\ExpenseApprovalService;
 use App\Services\ExpenseService;
 use App\Services\FinancePostingService;
+use App\Services\NotificationTemplateService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -317,9 +318,9 @@ class ExpenseController extends Controller
 
         AppNotification::create([
             'user_id'     => $expense->created_by,
-            'type'        => 'expense_paid',
-            'title'       => 'Expense Paid',
-            'body'        => "Your expense '{$expense->name}' has been paid.",
+            ...app(NotificationTemplateService::class)->render('expense.paid', [
+                'expense_name' => $expense->name,
+            ]),
             'entity_type' => 'expense',
             'entity_id'   => $expense->id,
             'is_read'     => false,
@@ -385,9 +386,10 @@ class ExpenseController extends Controller
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
-                'type'        => 'expense_approved',
-                'title'       => 'Expense Ready to Pay',
-                'body'        => "{$name}'s expense '{$expense->name}' was approved — needs payment initiated.",
+                ...app(NotificationTemplateService::class)->render('expense.ready_to_pay', [
+                    'name'         => $name,
+                    'expense_name' => $expense->name,
+                ]),
                 'entity_type' => 'expense',
                 'entity_id'   => $expense->id,
                 'is_read'     => false,
@@ -402,9 +404,11 @@ class ExpenseController extends Controller
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
-                'type'        => 'expense_escalated',
-                'title'       => 'Expense Escalated',
-                'body'        => "CTO escalated {$name}'s expense '{$expense->name}' (TZS " . number_format($expense->gross_amount) . ') for your approval.',
+                ...app(NotificationTemplateService::class)->render('expense.escalated_to_director', [
+                    'name'         => $name,
+                    'expense_name' => $expense->name,
+                    'gross_amount' => number_format($expense->gross_amount),
+                ]),
                 'entity_type' => 'expense',
                 'entity_id'   => $expense->id,
                 'is_read'     => false,
@@ -413,13 +417,15 @@ class ExpenseController extends Controller
 
     private function notifyRequester(Expense $expense, bool $approved): void
     {
+        $templateKey = $approved ? 'expense.approved_requester' : 'expense.rejected_requester';
+        $reasonSuffix = (! $approved && $expense->rejection_reason) ? " Reason: {$expense->rejection_reason}" : '';
+
         AppNotification::create([
             'user_id'     => $expense->created_by,
-            'type'        => $approved ? 'expense_approved' : 'expense_rejected',
-            'title'       => $approved ? 'Expense Approved' : 'Expense Rejected',
-            'body'        => $approved
-                ? "Your expense '{$expense->name}' was approved."
-                : "Your expense '{$expense->name}' was rejected." . ($expense->rejection_reason ? " Reason: {$expense->rejection_reason}" : ''),
+            ...app(NotificationTemplateService::class)->render($templateKey, [
+                'expense_name'  => $expense->name,
+                'reason_suffix' => $reasonSuffix,
+            ]),
             'entity_type' => 'expense',
             'entity_id'   => $expense->id,
             'is_read'     => false,

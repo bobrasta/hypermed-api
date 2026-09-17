@@ -14,6 +14,7 @@ use App\Services\CreditCheckService;
 use App\Services\DocumentNumberService;
 use App\Services\FinancePostingService;
 use App\Services\MachineRegistrationService;
+use App\Services\NotificationTemplateService;
 use App\Services\StockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -151,9 +152,10 @@ class SalesOrderController extends Controller
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
-                'type'        => 'stock_pull_required',
-                'title'       => 'Order Ready to Pack',
-                'body'        => "{$salesOrder->order_number} for {$salesOrder->client_name} is confirmed — ready stock for delivery.",
+                ...app(NotificationTemplateService::class)->render('sales_order.stock_pull_required', [
+                    'order_number' => $salesOrder->order_number,
+                    'client_name'  => $salesOrder->client_name,
+                ]),
                 'entity_type' => 'sales_order',
                 'entity_id'   => $salesOrder->id,
                 'is_read'     => false,

@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\AdminOverviewController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DocumentSequenceController;
+use App\Http\Controllers\Api\NotificationTemplateController;
 use App\Http\Controllers\Api\UnifiedDashboardController;
 use App\Http\Controllers\Api\EmailAccountController;
 use App\Http\Controllers\Api\EmailController;
@@ -254,6 +255,10 @@ Route::prefix('v1')->group(function () {
         // needed by ordinary create-screens, it's a numbering-format setting)
         Route::get('document-sequences', [DocumentSequenceController::class, 'index']);
         Route::put('document-sequences/{documentSequence}', [DocumentSequenceController::class, 'update']);
+
+        // Notification wording — admin-tier only, both read and write
+        Route::get('notification-templates', [NotificationTemplateController::class, 'index']);
+        Route::put('notification-templates/{notificationTemplate}', [NotificationTemplateController::class, 'update']);
 
         // Quotations
         Route::post('quotations/{quotation}/send',    [QuotationController::class, 'send']);

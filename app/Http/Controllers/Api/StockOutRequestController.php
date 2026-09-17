@@ -9,6 +9,7 @@ use App\Models\InventoryItem;
 use App\Models\Location;
 use App\Models\StockOutRequest;
 use App\Models\User;
+use App\Services\NotificationTemplateService;
 use App\Services\StockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -127,9 +128,12 @@ class StockOutRequestController extends Controller
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
-                'type'        => 'stock_out_requested',
-                'title'       => 'Stock-Out Request Submitted',
-                'body'        => "{$name} requested to {$stockOutRequest->type} {$stockOutRequest->quantity} x {$item}.",
+                ...app(NotificationTemplateService::class)->render('stock_out.notify_cto', [
+                    'name'        => $name,
+                    'action_type' => $stockOutRequest->type,
+                    'quantity'    => $stockOutRequest->quantity,
+                    'item_name'   => $item,
+                ]),
                 'entity_type' => 'stock_out_request',
                 'entity_id'   => $stockOutRequest->id,
                 'is_read'     => false,
@@ -139,14 +143,17 @@ class StockOutRequestController extends Controller
     private function notifyRequester(StockOutRequest $stockOutRequest, bool $approved): void
     {
         $item = $stockOutRequest->inventoryItem?->name ?? 'the item';
+        $templateKey = $approved ? 'stock_out.approved_requester' : 'stock_out.rejected_requester';
+        $reasonSuffix = (! $approved && $stockOutRequest->rejection_reason) ? " Reason: {$stockOutRequest->rejection_reason}" : '';
 
         AppNotification::create([
             'user_id'     => $stockOutRequest->requested_by,
-            'type'        => $approved ? 'stock_out_approved' : 'stock_out_rejected',
-            'title'       => $approved ? 'Stock-Out Approved' : 'Stock-Out Rejected',
-            'body'        => $approved
-                ? "Your request to {$stockOutRequest->type} {$stockOutRequest->quantity} x {$item} was approved."
-                : "Your stock-out request for {$item} was rejected." . ($stockOutRequest->rejection_reason ? " Reason: {$stockOutRequest->rejection_reason}" : ''),
+            ...app(NotificationTemplateService::class)->render($templateKey, [
+                'action_type'   => $stockOutRequest->type,
+                'quantity'      => $stockOutRequest->quantity,
+                'item_name'     => $item,
+                'reason_suffix' => $reasonSuffix,
+            ]),
             'entity_type' => 'stock_out_request',
             'entity_id'   => $stockOutRequest->id,
             'is_read'     => false,

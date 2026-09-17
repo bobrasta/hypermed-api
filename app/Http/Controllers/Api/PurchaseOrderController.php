@@ -10,6 +10,7 @@ use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequisition;
 use App\Models\User;
 use App\Services\DocumentNumberService;
+use App\Services\NotificationTemplateService;
 use App\Services\StockService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -140,8 +141,8 @@ class PurchaseOrderController extends Controller
 
         $purchaseOrder->update(['status' => 'pending_sales_manager']);
 
-        $this->notifyStage($purchaseOrder, 'sales_manager', 'po_submitted', 'Purchase Order Submitted',
-            "{$purchaseOrder->po_number} was submitted and needs sales review.");
+        $this->notifyStage($purchaseOrder, 'sales_manager', 'purchase_order.submitted',
+            ['po_number' => $purchaseOrder->po_number]);
 
         return response()->json(['data' => $purchaseOrder->fresh(self::RELATIONS)]);
     }
@@ -158,11 +159,11 @@ class PurchaseOrderController extends Controller
         ]);
         ApprovalLog::record($purchaseOrder, 'sales_approved', $request->user());
 
-        $this->notifyStage($purchaseOrder, 'director', 'po_sales_approved', 'Purchase Order — Director Review',
-            "{$purchaseOrder->po_number} passed sales review and needs director review.");
+        $this->notifyStage($purchaseOrder, 'director', 'purchase_order.sales_approved_director',
+            ['po_number' => $purchaseOrder->po_number]);
         // Visibility only — cto isn't a gate on this chain, just kept informed.
-        $this->notifyStage($purchaseOrder, 'cto', 'po_sales_approved', 'Purchase Order — Director Review',
-            "{$purchaseOrder->po_number} passed sales review and is now with the director.");
+        $this->notifyStage($purchaseOrder, 'cto', 'purchase_order.sales_approved_cto_notice',
+            ['po_number' => $purchaseOrder->po_number]);
 
         return response()->json(['data' => $purchaseOrder->fresh(self::RELATIONS)]);
     }
@@ -189,8 +190,8 @@ class PurchaseOrderController extends Controller
         ]);
         ApprovalLog::record($purchaseOrder, 'director_reviewed', $request->user());
 
-        $this->notifyStage($purchaseOrder, 'accountant', 'po_director_reviewed', 'Purchase Order — Payment Needed',
-            "{$purchaseOrder->po_number} was approved by the director and needs payment initiated.");
+        $this->notifyStage($purchaseOrder, 'accountant', 'purchase_order.director_reviewed',
+            ['po_number' => $purchaseOrder->po_number]);
 
         return response()->json(['data' => $purchaseOrder->fresh(self::RELATIONS)]);
     }
@@ -223,8 +224,8 @@ class PurchaseOrderController extends Controller
         ]);
         ApprovalLog::record($purchaseOrder, 'payment_initiated', $request->user());
 
-        $this->notifyStage($purchaseOrder, 'director', 'po_payment_initiated', 'Purchase Order — Final Approval',
-            "Payment was initiated for {$purchaseOrder->po_number} — needs final director approval.");
+        $this->notifyStage($purchaseOrder, 'director', 'purchase_order.payment_initiated',
+            ['po_number' => $purchaseOrder->po_number]);
 
         return response()->json(['data' => $purchaseOrder->fresh(self::RELATIONS)]);
     }
@@ -244,8 +245,8 @@ class PurchaseOrderController extends Controller
         ]);
         ApprovalLog::record($purchaseOrder, 'approved', $request->user());
 
-        $this->notifyStage($purchaseOrder, 'ordered_by', 'po_approved', 'Purchase Order Approved',
-            "{$purchaseOrder->po_number} is fully approved and ready to send to the supplier.");
+        $this->notifyStage($purchaseOrder, 'ordered_by', 'purchase_order.approved',
+            ['po_number' => $purchaseOrder->po_number]);
 
         return response()->json(['data' => $purchaseOrder->fresh(self::RELATIONS)]);
     }
@@ -272,12 +273,13 @@ class PurchaseOrderController extends Controller
             'rejection_reason'  => $data['rejection_reason'] ?? null,
         ]);
 
+        $reasonSuffix = $purchaseOrder->rejection_reason ? " Reason: {$purchaseOrder->rejection_reason}" : '';
         AppNotification::create([
             'user_id'     => $purchaseOrder->ordered_by,
-            'type'        => 'po_rejected',
-            'title'       => 'Purchase Order Rejected',
-            'body'        => "{$purchaseOrder->po_number} was rejected."
-                . ($purchaseOrder->rejection_reason ? " Reason: {$purchaseOrder->rejection_reason}" : ''),
+            ...app(NotificationTemplateService::class)->render('purchase_order.rejected', [
+                'po_number'     => $purchaseOrder->po_number,
+                'reason_suffix' => $reasonSuffix,
+            ]),
             'entity_type' => 'purchase_order',
             'entity_id'   => $purchaseOrder->id,
             'is_read'     => false,
@@ -292,7 +294,7 @@ class PurchaseOrderController extends Controller
      * both can be held by more than one role) or 'ordered_by' (the PO's
      * original creator specifically, not a role at all).
      */
-    private function notifyStage(PurchaseOrder $po, string $target, string $type, string $title, string $body): void
+    private function notifyStage(PurchaseOrder $po, string $target, string $templateKey, array $vars = []): void
     {
         $recipientIds = match ($target) {
             'sales_manager' => User::where('role', 'sales_manager')->pluck('id'),
@@ -305,9 +307,7 @@ class PurchaseOrderController extends Controller
 
         $recipientIds->each(fn ($id) => AppNotification::create([
             'user_id'     => $id,
-            'type'        => $type,
-            'title'       => $title,
-            'body'        => $body,
+            ...app(NotificationTemplateService::class)->render($templateKey, $vars),
             'entity_type' => 'purchase_order',
             'entity_id'   => $po->id,
             'is_read'     => false,

@@ -42,9 +42,10 @@ class LeadFollowUpService
 
             AppNotification::create([
                 'user_id'     => $lead->assigned_to,
-                'type'        => 'lead_follow_up',
-                'title'       => 'Follow-up Due',
-                'body'        => "Follow up with {$clientName} — {$lead->machine_type} deal is due for a check-in.",
+                ...app(NotificationTemplateService::class)->render('lead.follow_up_due', [
+                    'client_name'  => $clientName,
+                    'machine_type' => $lead->machine_type,
+                ]),
                 'entity_type' => 'sales_lead',
                 'entity_id'   => $lead->id,
                 'is_read'     => false,

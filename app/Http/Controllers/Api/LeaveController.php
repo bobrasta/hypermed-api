@@ -9,6 +9,7 @@ use App\Models\LeaveBalance;
 use App\Models\LeaveRequest;
 use App\Models\LeaveType;
 use App\Models\User;
+use App\Services\NotificationTemplateService;
 use Illuminate\Http\Request;
 
 class LeaveController extends Controller
@@ -155,9 +156,13 @@ class LeaveController extends Controller
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
-                'type'        => 'leave_requested',
-                'title'       => 'Leave Request Submitted',
-                'body'        => "{$name} requested {$leave->type} leave, {$leave->start_date->toDateString()} to {$leave->end_date->toDateString()} ({$leave->days_count} day(s)).",
+                ...app(NotificationTemplateService::class)->render('leave.notify_hr', [
+                    'name'       => $name,
+                    'leave_type' => $leave->type,
+                    'start_date' => $leave->start_date->toDateString(),
+                    'end_date'   => $leave->end_date->toDateString(),
+                    'days_count' => $leave->days_count,
+                ]),
                 'entity_type' => 'leave_request',
                 'entity_id'   => $leave->id,
                 'is_read'     => false,
@@ -166,13 +171,17 @@ class LeaveController extends Controller
 
     private function notifyRequester(LeaveRequest $leave, bool $approved): void
     {
+        $templateKey = $approved ? 'leave.approved_requester' : 'leave.rejected_requester';
+        $reasonSuffix = (! $approved && $leave->rejection_reason) ? " Reason: {$leave->rejection_reason}" : '';
+
         AppNotification::create([
             'user_id'     => $leave->user_id,
-            'type'        => $approved ? 'leave_approved' : 'leave_rejected',
-            'title'       => $approved ? 'Leave Approved' : 'Leave Rejected',
-            'body'        => $approved
-                ? "Your {$leave->type} leave ({$leave->start_date->toDateString()} to {$leave->end_date->toDateString()}) was approved."
-                : "Your {$leave->type} leave request was rejected." . ($leave->rejection_reason ? " Reason: {$leave->rejection_reason}" : ''),
+            ...app(NotificationTemplateService::class)->render($templateKey, [
+                'leave_type'    => $leave->type,
+                'start_date'    => $leave->start_date->toDateString(),
+                'end_date'      => $leave->end_date->toDateString(),
+                'reason_suffix' => $reasonSuffix,
+            ]),
             'entity_type' => 'leave_request',
             'entity_id'   => $leave->id,
             'is_read'     => false,

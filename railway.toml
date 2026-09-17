@@ -23,7 +23,13 @@ builder = "nixpacks"
 # sales-order/vendor-bill creation would break the moment this deploy went
 # live without it. Self-guards via an exists() check, so it no-ops on every
 # deploy after the first.
-startCommand = "php artisan config:cache && php artisan route:cache && php artisan migrate --force && php artisan db:seed --class=PermissionSeeder --force && php artisan db:seed --class=TestAccessControlSeeder --force && php artisan db:seed --class=RealFacilityImportSeeder --force && php artisan db:seed --class=UpdateFacilityCoordinatesSeeder --force && php artisan db:seed --class=RemoveDemoDataSeeder --force && php artisan db:seed --class=ImportDvasOpgCbctSeeder --force && php artisan db:seed --class=NormalizeKilimanjaroDistrictsSeeder --force && php artisan db:seed --class=FlowDepartmentSeeder --force && php artisan db:seed --class=DocumentSequenceSeeder --force && (php artisan schedule:work &) && php artisan serve --host=0.0.0.0 --port=$PORT"
+#
+# NotificationTemplateSeeder is here for the same reason, one notch lower
+# stakes: NotificationTemplateService::render() degrades gracefully to a
+# generic fallback message rather than a 500 if a template row is missing,
+# but every notification would show that fallback instead of real wording
+# until someone remembered to seed it by hand. Also self-guards.
+startCommand = "php artisan config:cache && php artisan route:cache && php artisan migrate --force && php artisan db:seed --class=PermissionSeeder --force && php artisan db:seed --class=TestAccessControlSeeder --force && php artisan db:seed --class=RealFacilityImportSeeder --force && php artisan db:seed --class=UpdateFacilityCoordinatesSeeder --force && php artisan db:seed --class=RemoveDemoDataSeeder --force && php artisan db:seed --class=ImportDvasOpgCbctSeeder --force && php artisan db:seed --class=NormalizeKilimanjaroDistrictsSeeder --force && php artisan db:seed --class=FlowDepartmentSeeder --force && php artisan db:seed --class=DocumentSequenceSeeder --force && php artisan db:seed --class=NotificationTemplateSeeder --force && (php artisan schedule:work &) && php artisan serve --host=0.0.0.0 --port=$PORT"
 healthcheckPath = "/up"
 healthcheckTimeout = 30
 restartPolicyType = "on_failure"

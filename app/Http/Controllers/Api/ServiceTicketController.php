@@ -12,6 +12,7 @@ use App\Models\PartCannibalization;
 use App\Models\SerialNumber;
 use App\Models\ServiceTicket;
 use App\Models\User;
+use App\Services\NotificationTemplateService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -159,12 +160,14 @@ class ServiceTicketController extends Controller
 
         // The assignee gets it because it's their task; the team lead gets it
         // because tracking who's deployed where is their job — no one else.
+        $descriptionSuffix = $ticket->description ? ": {$ticket->description}" : '';
         AppNotification::create([
             'user_id'     => $ticket->assigned_to,
-            'type'        => 'ticket_assigned',
-            'title'       => 'Service Ticket Assigned',
-            'body'        => "You've been assigned {$ticket->ticket_number} — {$machine}"
-                . ($ticket->description ? ": {$ticket->description}" : ''),
+            ...app(NotificationTemplateService::class)->render('ticket.assigned_technician', [
+                'ticket_number'      => $ticket->ticket_number,
+                'machine'            => $machine,
+                'description_suffix' => $descriptionSuffix,
+            ]),
             'entity_type' => 'service_ticket',
             'entity_id'   => $ticket->id,
             'is_read'     => false,
@@ -175,9 +178,11 @@ class ServiceTicketController extends Controller
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
-                'type'        => 'ticket_assigned',
-                'title'       => 'Technician Deployed',
-                'body'        => "{$assigneeName} was assigned to {$ticket->ticket_number} — {$machine}.",
+                ...app(NotificationTemplateService::class)->render('ticket.assigned_team_lead_notice', [
+                    'assignee_name' => $assigneeName,
+                    'ticket_number' => $ticket->ticket_number,
+                    'machine'       => $machine,
+                ]),
                 'entity_type' => 'service_ticket',
                 'entity_id'   => $ticket->id,
                 'is_read'     => false,
@@ -278,9 +283,11 @@ class ServiceTicketController extends Controller
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
-                'type'        => 'ticket_billing_overridden',
-                'title'       => 'Ticket Billing Decision Changed',
-                'body'        => "Ticket #{$ticket->ticket_number} was reclassified as {$label} by {$request->user()->name}.",
+                ...app(NotificationTemplateService::class)->render('ticket.billing_overridden', [
+                    'ticket_number' => $ticket->ticket_number,
+                    'label'         => $label,
+                    'actor_name'    => $request->user()->name,
+                ]),
                 'entity_type' => 'service_ticket',
                 'entity_id'   => $ticket->id,
                 'is_read'     => false,

@@ -7,6 +7,7 @@ use App\Http\Resources\LateArrivalResource;
 use App\Models\AppNotification;
 use App\Models\LateArrival;
 use App\Models\User;
+use App\Services\NotificationTemplateService;
 use Illuminate\Http\Request;
 
 class LateArrivalController extends Controller
@@ -57,14 +58,17 @@ class LateArrivalController extends Controller
     {
         $name = $late->user?->name ?? 'A staff member';
         $when = $late->expected_time ? " — expected around {$late->expected_time}" : '';
+        $reasonSuffix = $late->reason ? " Reason: {$late->reason}" : '';
 
         User::whereIn('role', User::HR_APPROVAL_ROLES)
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
-                'type'        => 'late_arrival',
-                'title'       => 'Running Late',
-                'body'        => "{$name} will be late today{$when}." . ($late->reason ? " Reason: {$late->reason}" : ''),
+                ...app(NotificationTemplateService::class)->render('late_arrival.notify_hr', [
+                    'name'          => $name,
+                    'when_suffix'   => $when,
+                    'reason_suffix' => $reasonSuffix,
+                ]),
                 'entity_type' => 'late_arrival',
                 'entity_id'   => $late->id,
                 'is_read'     => false,

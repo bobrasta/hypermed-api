@@ -346,9 +346,12 @@ class StockService
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
-                'type'        => 'low_stock_alert',
-                'title'       => 'Low Stock',
-                'body'        => "{$item->name} ({$item->sku}) is at {$item->stock_qty}, at or below its reorder level of {$item->reorder_level}.",
+                ...app(NotificationTemplateService::class)->render('inventory.low_stock_alert', [
+                    'item_name'     => $item->name,
+                    'item_sku'      => $item->sku,
+                    'stock_qty'     => $item->stock_qty,
+                    'reorder_level' => $item->reorder_level,
+                ]),
                 'entity_type' => 'inventory_item',
                 'entity_id'   => $item->id,
                 'is_read'     => false,
