@@ -74,6 +74,17 @@ class StaffController extends Controller
             'base_salary'  => ['nullable', 'integer', 'min:0'],
         ]);
 
+        // staff.manage (held by hr as well as admin/super_admin) is broad
+        // enough for ordinary record-keeping, but must not let it double as
+        // a way to mint or grant an admin-tier account — that stays gated
+        // to Director authority specifically, same segregation-of-duty
+        // reasoning as SalaryAdjustment's approval-only self-escalation gap.
+        abort_if(
+            in_array($data['role'], User::ADMIN_TIER, true) && ! $user->hasDirectorAuthority(),
+            403,
+            'Only a Director can create an admin-tier account.',
+        );
+
         // A sales_manager building their own team can only ever create a
         // 'sales' rep reporting to themselves — never an arbitrary role or
         // a report elsewhere in the org. staff.manage (HR/admin) is
