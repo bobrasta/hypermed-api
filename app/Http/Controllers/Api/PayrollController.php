@@ -13,6 +13,7 @@ use App\Models\PayrollRun;
 use App\Models\User;
 use App\Services\DocumentPdfService;
 use App\Services\FinancePostingService;
+use App\Services\PayrollCalculator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
@@ -288,15 +289,45 @@ class PayrollController extends Controller
         return new PayrollRunResource($payrollRun->fresh()->load('expense'));
     }
 
-    // Staff picker for the item-entry grid — active staff not yet on this run.
+    // Staff picker for the item-entry grid — active staff not yet on this
+    // run. Also returns each staff member's saved base salary/allowances
+    // (from their active Contract) plus a live NSSF/PAYE preview computed
+    // from that figure, so the entry dialog can prefill instead of the
+    // accountant retyping every line from scratch every run.
     public function eligibleStaff(Request $request, PayrollRun $payrollRun)
     {
         $this->authorize($request);
 
         $existingIds = $payrollRun->items()->pluck('user_id');
-        $staff = User::where('is_active', true)->whereNotIn('id', $existingIds)->orderBy('name')->get(['id', 'name']);
+        $staff = User::where('is_active', true)->whereNotIn('id', $existingIds)
+            ->with('activeContract.allowances')
+            ->orderBy('name')
+            ->get(['id', 'name']);
 
-        return response()->json(['data' => $staff]);
+        $data = $staff->map(function (User $u) {
+            $contract = $u->activeContract;
+            $base = $contract?->base_salary;
+            if ($base === null) {
+                return ['id' => $u->id, 'name' => $u->name, 'base_salary' => null,
+                    'allowances_total' => null, 'nssf_amount' => null,
+                    'nssf_employer_amount' => null, 'paye_amount' => null];
+            }
+
+            $allowances = $contract->allowances->where('recurring', true)->sum('amount');
+            $gross = $base + $allowances;
+            $nssfEmployee = PayrollCalculator::nssfEmployee($gross);
+
+            return [
+                'id' => $u->id, 'name' => $u->name,
+                'base_salary' => $base,
+                'allowances_total' => $allowances,
+                'nssf_amount' => $nssfEmployee,
+                'nssf_employer_amount' => PayrollCalculator::nssfEmployer($gross),
+                'paye_amount' => PayrollCalculator::paye($gross, $nssfEmployee),
+            ];
+        });
+
+        return response()->json(['data' => $data]);
     }
 
     // One user's payslip PDF for one run — same self-or-authority gate as

@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
+use App\Models\Contract;
 use App\Models\User;
 use App\Services\EffectivePermissionResolver;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class StaffController extends Controller
@@ -69,6 +71,7 @@ class StaffController extends Controller
             'tin_number'   => ['nullable', 'string'],
             'nida_number'  => ['nullable', 'string'],
             'biometric_id' => ['nullable', 'string', 'unique:users,biometric_id'],
+            'base_salary'  => ['nullable', 'integer', 'min:0'],
         ]);
 
         // A sales_manager building their own team can only ever create a
@@ -80,34 +83,56 @@ class StaffController extends Controller
             $data['manager_id'] = $user->id;
         }
 
-        $user = User::create([
-            'name'         => $data['name'],
-            'email'        => $data['email'],
-            'password'     => Hash::make('Hypermed@123'),
-            'phone'        => $data['phone'] ?? null,
-            'role'         => $data['role'],
-            'staff_group'  => $data['group'] ?? null,
-            'zone'         => $data['zone'] ?? null,
-            'avail_status' => $data['avail_status'] ?? 'Available',
-            'workload'     => $data['workload'] ?? 0.0,
-            'is_active'    => $data['is_active'] ?? true,
-            'manager_id'   => $data['manager_id'] ?? null,
-            'position_id'  => $data['position_id'] ?? null,
-            'gender'       => $data['gender'] ?? null,
-            'hire_date'    => $data['hire_date'] ?? null,
-            'next_of_kin_name'         => $data['next_of_kin_name'] ?? null,
-            'next_of_kin_phone'        => $data['next_of_kin_phone'] ?? null,
-            'next_of_kin_relationship' => $data['next_of_kin_relationship'] ?? null,
-            'nssf_number'  => $data['nssf_number'] ?? null,
-            'tin_number'   => $data['tin_number'] ?? null,
-            'nida_number'  => $data['nida_number'] ?? null,
-            'biometric_id' => $data['biometric_id'] ?? null,
-            'avatar_initials' => collect(explode(' ', trim($data['name'])))->map(fn ($p) => strtoupper($p[0] ?? ''))->implode(''),
-        ]);
+        $user = DB::transaction(function () use ($data, $canManageStaff, $request) {
+            $user = User::create([
+                'name'         => $data['name'],
+                'email'        => $data['email'],
+                'password'     => Hash::make('Hypermed@123'),
+                'phone'        => $data['phone'] ?? null,
+                'role'         => $data['role'],
+                'staff_group'  => $data['group'] ?? null,
+                'zone'         => $data['zone'] ?? null,
+                'avail_status' => $data['avail_status'] ?? 'Available',
+                'workload'     => $data['workload'] ?? 0.0,
+                'is_active'    => $data['is_active'] ?? true,
+                'manager_id'   => $data['manager_id'] ?? null,
+                'position_id'  => $data['position_id'] ?? null,
+                'gender'       => $data['gender'] ?? null,
+                'hire_date'    => $data['hire_date'] ?? null,
+                'next_of_kin_name'         => $data['next_of_kin_name'] ?? null,
+                'next_of_kin_phone'        => $data['next_of_kin_phone'] ?? null,
+                'next_of_kin_relationship' => $data['next_of_kin_relationship'] ?? null,
+                'nssf_number'  => $data['nssf_number'] ?? null,
+                'tin_number'   => $data['tin_number'] ?? null,
+                'nida_number'  => $data['nida_number'] ?? null,
+                'biometric_id' => $data['biometric_id'] ?? null,
+                'avatar_initials' => collect(explode(' ', trim($data['name'])))->map(fn ($p) => strtoupper($p[0] ?? ''))->implode(''),
+            ]);
 
-        // Keep the legacy role column and Spatie's role assignment in sync —
-        // the permission resolver reads Spatie roles, not this column directly.
-        $user->syncRoles([$data['role']]);
+            // Keep the legacy role column and Spatie's role assignment in sync —
+            // the permission resolver reads Spatie roles, not this column directly.
+            $user->syncRoles([$data['role']]);
+
+            // Only staff.manage (HR/admin) can set an opening salary here —
+            // a sales_manager creating their own rep (canCreateSubordinate)
+            // must never be able to set anyone's pay, mirroring the
+            // Director-only gate on SalaryAdjustment approval. A minimal
+            // real Contract row (not a schema hack) so it shows up
+            // correctly everywhere Contract is already read; HR can still
+            // open the full Contracts panel later to formalise dates/type.
+            if ($canManageStaff && ! empty($data['base_salary'])) {
+                Contract::create([
+                    'user_id'       => $user->id,
+                    'contract_type' => 'permanent',
+                    'start_date'    => $data['hire_date'] ?? now()->toDateString(),
+                    'base_salary'   => $data['base_salary'],
+                    'status'        => 'active',
+                    'created_by'    => $request->user()->id,
+                ]);
+            }
+
+            return $user;
+        });
 
         return response()->json(['data' => new UserResource($user)], 201);
     }
