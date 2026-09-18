@@ -58,7 +58,18 @@ class MachineController extends Controller
             'ward'             => ['nullable', 'string'],
             'install_date'     => ['nullable', 'date'],
             'warranty_expiry'  => ['nullable', 'date'],
-            'status'           => ['required', 'in:operational,needs_service,down,warranty,idle'],
+            // pending_installation is allowed here too — the only other
+            // path that ever sets it is MachineRegistrationService
+            // (Sales Order delivery), which writes straight to the model
+            // and never goes through this validation at all. A machine
+            // that didn't arrive via a tracked delivery (a swap, a
+            // directly-sourced unit) needs a way in too — see the
+            // "Register new machine" flow on the Create Service Ticket
+            // form. pending_signoff is deliberately NOT allowed here: it
+            // must only ever be reached by actually resolving an
+            // installation ticket (ServiceTicketController::resolve()),
+            // never set directly at creation.
+            'status'           => ['required', 'in:operational,needs_service,down,warranty,idle,pending_installation'],
             'revenue_per_month' => ['nullable', 'integer', 'min:0'],
         ]);
 
