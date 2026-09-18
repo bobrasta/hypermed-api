@@ -52,7 +52,17 @@ class InvoiceController extends Controller
         }
 
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            // 'overdue' is never actually stored on the row — it's a point-
+            // in-time fact (still unpaid past its due date), not a workflow
+            // stage the controller transitions through, the same reasoning
+            // arAging() already uses to compute it live rather than store
+            // it. Filtering on it has to mean the same thing here.
+            if ($request->status === 'overdue') {
+                $query->whereIn('status', ['pending', 'sent', 'partial'])
+                    ->where('due_date', '<', now()->toDateString());
+            } else {
+                $query->where('status', $request->status);
+            }
         }
         if ($request->filled('hospital_id')) {
             $query->where('hospital_id', $request->hospital_id);
