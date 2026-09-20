@@ -25,6 +25,7 @@ class PerDiemRequest extends Model
         'reviewed_by', 'reviewed_at', 'rejection_reason',
         'payment_initiated_by', 'payment_initiated_at', 'payment_method', 'payment_reference',
         'paid_by', 'paid_at',
+        'cancelled_by', 'cancelled_at', 'cancellation_reason',
     ];
 
     protected $casts = [
@@ -34,6 +35,7 @@ class PerDiemRequest extends Model
         'reviewed_at'            => 'datetime',
         'payment_initiated_at'   => 'datetime',
         'paid_at'                => 'datetime',
+        'cancelled_at'           => 'datetime',
     ];
 
     public function user()
@@ -64,6 +66,11 @@ class PerDiemRequest extends Model
     public function paidBy()
     {
         return $this->belongsTo(User::class, 'paid_by');
+    }
+
+    public function cancelledBy()
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
     }
 
     public function lines()

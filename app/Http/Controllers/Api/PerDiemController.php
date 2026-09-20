@@ -14,6 +14,17 @@ use Illuminate\Support\Facades\DB;
 
 class PerDiemController extends Controller
 {
+    // No self-approval at any stage, for anyone — a team_leader/CTO/
+    // accountant/Director who happens to also be the requester on THIS
+    // request must not be able to action it themselves, even though their
+    // role would otherwise have the authority. Checked in addition to (not
+    // instead of) each action's own role-authority check.
+    private function abortIfSelfActioning(PerDiemRequest $perDiemRequest, Request $request): void
+    {
+        abort_if($perDiemRequest->user_id === $request->user()->id, 403,
+            'You cannot action your own per-diem request.');
+    }
+
     public function index(Request $request)
     {
         $user = $request->user();
@@ -121,6 +132,7 @@ class PerDiemController extends Controller
     public function approveTeamLead(Request $request, PerDiemRequest $perDiemRequest)
     {
         abort_if(! $request->user()->hasTeamLeadAuthority(), 403, 'You are not authorised to review per-diem requests.');
+        $this->abortIfSelfActioning($perDiemRequest, $request);
         abort_if($perDiemRequest->status !== 'pending_team_lead', 422, 'Only requests awaiting team-lead review can be forwarded.');
 
         $perDiemRequest->update([
@@ -139,9 +151,10 @@ class PerDiemController extends Controller
     public function rejectTeamLead(Request $request, PerDiemRequest $perDiemRequest)
     {
         abort_if(! $request->user()->hasTeamLeadAuthority(), 403, 'You are not authorised to review per-diem requests.');
+        $this->abortIfSelfActioning($perDiemRequest, $request);
         abort_if($perDiemRequest->status !== 'pending_team_lead', 422, 'Only requests awaiting team-lead review can be rejected.');
 
-        $data = $request->validate(['rejection_reason' => ['nullable', 'string']]);
+        $data = $request->validate(['rejection_reason' => ['required', 'string', 'min:10']]);
 
         $perDiemRequest->update([
             'status'                      => 'rejected',
@@ -160,6 +173,7 @@ class PerDiemController extends Controller
     public function approve(Request $request, PerDiemRequest $perDiemRequest)
     {
         abort_if(! $request->user()->hasCtoApprovalAuthority(), 403, 'You are not authorised to approve per-diem requests.');
+        $this->abortIfSelfActioning($perDiemRequest, $request);
         abort_if($perDiemRequest->status !== 'pending_cto', 422, 'Only requests awaiting CTO/Director review can be approved.');
 
         $perDiemRequest->update([
@@ -180,9 +194,10 @@ class PerDiemController extends Controller
     public function reject(Request $request, PerDiemRequest $perDiemRequest)
     {
         abort_if(! $request->user()->hasCtoApprovalAuthority(), 403, 'You are not authorised to review per-diem requests.');
+        $this->abortIfSelfActioning($perDiemRequest, $request);
         abort_if($perDiemRequest->status !== 'pending_cto', 422, 'Only requests awaiting CTO/Director review can be rejected.');
 
-        $data = $request->validate(['rejection_reason' => ['nullable', 'string']]);
+        $data = $request->validate(['rejection_reason' => ['required', 'string', 'min:10']]);
 
         $perDiemRequest->update([
             'status'            => 'rejected',
@@ -205,6 +220,7 @@ class PerDiemController extends Controller
     public function initiatePayment(Request $request, PerDiemRequest $perDiemRequest)
     {
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to initiate payment on per-diem requests.');
+        $this->abortIfSelfActioning($perDiemRequest, $request);
         abort_if($perDiemRequest->status !== 'pending_payment', 422, 'Only requests awaiting payment initiation can be actioned at this stage.');
 
         $data = $request->validate([
@@ -238,6 +254,7 @@ class PerDiemController extends Controller
     {
         abort_if(! $request->user()->hasAccountantAuthority() && ! $request->user()->hasDirectorAuthority(), 403,
             'Only the accountant or Director can release per-diem payment.');
+        $this->abortIfSelfActioning($perDiemRequest, $request);
         abort_if($perDiemRequest->status !== 'pending_director', 422, 'Only requests awaiting Director authorization can be marked paid.');
         abort_if($perDiemRequest->payment_initiated_by === $request->user()->id, 403, 'You cannot authorize a payment you initiated.');
 
@@ -266,12 +283,22 @@ class PerDiemController extends Controller
     public function cancel(Request $request, PerDiemRequest $perDiemRequest)
     {
         $user = $request->user();
+        // Cancelling your own not-yet-approved request is ordinary
+        // self-service (withdrawing it), not a self-approval — unlike
+        // approve/reject above, no abortIfSelfActioning() here.
         abort_if($perDiemRequest->user_id !== $user->id && ! $user->hasTeamLeadAuthority(), 403, 'Not authorised.');
         abort_if(! in_array($perDiemRequest->status, ['pending_team_lead', 'pending_cto'], true), 422, 'Only pending requests can be cancelled.');
 
-        $perDiemRequest->update(['status' => 'cancelled']);
+        $data = $request->validate(['cancellation_reason' => ['required', 'string', 'min:10']]);
 
-        return response()->json(['data' => new PerDiemRequestResource($perDiemRequest->load(['user', 'lines']))]);
+        $perDiemRequest->update([
+            'status'               => 'cancelled',
+            'cancelled_by'         => $user->id,
+            'cancelled_at'         => now(),
+            'cancellation_reason'  => $data['cancellation_reason'],
+        ]);
+
+        return response()->json(['data' => new PerDiemRequestResource($perDiemRequest->load(['user', 'cancelledBy', 'lines']))]);
     }
 
     private function notifyTeamLead(PerDiemRequest $perDiem): void
