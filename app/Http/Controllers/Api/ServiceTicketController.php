@@ -204,6 +204,16 @@ class ServiceTicketController extends Controller
         abort_if(! $request->user()->hasServiceTicketResolveAuthority(), 403,
             'Access Denied: only the CTO or Director can mark a service ticket resolved.');
 
+        // Section 3 of hypermed_claude_code_prompt.md: at least one service
+        // report file is required to resolve — enforced here regardless of
+        // what the UI does, since the actual upload happens as a separate
+        // call to TicketAttachmentController::store() (reusing the existing
+        // attachments model/storage, not a new upload path bolted onto this
+        // endpoint). Existing resolved tickets predate this and are left as
+        // they are — this only gates the transition into 'resolved'.
+        abort_if(! $ticket->attachments()->where('category', 'service_report')->exists(), 422,
+            'A service report file is required before this ticket can be marked resolved.');
+
         $data = $request->validate([
             'resolution_notes'               => ['required', 'string'],
             'parts_used'                     => ['nullable', 'array'],

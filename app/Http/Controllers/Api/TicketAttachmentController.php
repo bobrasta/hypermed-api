@@ -19,7 +19,13 @@ class TicketAttachmentController extends Controller
 
     public function store(Request $request, ServiceTicket $ticket)
     {
-        $request->validate(['file' => ['required', 'file', 'max:10240']]);
+        // mimes: covers Section 3's accepted-types list (PDF, DOC, DOCX,
+        // PNG, JPG) — generic attachments and service-report uploads share
+        // this one endpoint/validation, category is just a tag.
+        $data = $request->validate([
+            'file'     => ['required', 'file', 'mimes:pdf,doc,docx,png,jpg,jpeg', 'max:10240'],
+            'category' => ['nullable', 'string', 'in:service_report'],
+        ]);
 
         $file = $request->file('file');
         $path = $file->store('ticket-attachments/' . $ticket->id, 'public');
@@ -29,6 +35,7 @@ class TicketAttachmentController extends Controller
             'stored_name'   => basename($path),
             'mime_type'     => $file->getClientMimeType(),
             'size'          => $file->getSize(),
+            'category'      => $data['category'] ?? null,
         ]);
 
         return response()->json(['data' => $this->fmt($attachment)], 201);
@@ -49,6 +56,7 @@ class TicketAttachmentController extends Controller
             'name'       => $a->original_name,
             'size'       => $a->size,
             'mime_type'  => $a->mime_type,
+            'category'   => $a->category,
             'url'        => Storage::disk('public')->url('ticket-attachments/' . $a->ticket_id . '/' . $a->stored_name),
             'created_at' => $a->created_at?->toIso8601String(),
         ];

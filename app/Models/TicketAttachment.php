@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class TicketAttachment extends Model
 {
-    protected $fillable = ['ticket_id', 'original_name', 'stored_name', 'mime_type', 'size'];
+    protected $fillable = ['ticket_id', 'original_name', 'stored_name', 'mime_type', 'size', 'category'];
 
     public function ticket()
     {
