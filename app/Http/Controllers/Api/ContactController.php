@@ -74,6 +74,13 @@ class ContactController extends Controller
             'email'            => ['nullable', 'email'],
             'phone'            => ['nullable', 'string'],
             'whatsapp'         => ['nullable', 'string'],
+            // Was missing entirely — a contact's hospital could never be
+            // changed via this endpoint, silently (no validation error,
+            // the field was just dropped). Found while wiring the
+            // searchable hospital combobox in (Section 4 of
+            // hypermed_claude_code_prompt.md) — that field needs an actual
+            // working target.
+            'hospital_id'      => ['sometimes', 'exists:hospitals,id'],
             'last_contacted_at' => ['nullable', 'date'],
             'next_followup_at' => ['nullable', 'date'],
         ]);
