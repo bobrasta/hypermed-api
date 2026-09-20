@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\MachineResource;
 use App\Models\Hospital;
 use App\Models\Machine;
+use App\Services\MachineModelNormalizer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
@@ -73,6 +74,13 @@ class MachineController extends Controller
             'revenue_per_month' => ['nullable', 'integer', 'min:0'],
         ]);
 
+        // Duplicate prevention server-side, not just in the combobox — a
+        // direct API call or a stale client still normalizes onto whatever
+        // spelling is already on record.
+        if ($canonical = MachineModelNormalizer::canonicalFor($data['model'])) {
+            $data['model'] = $canonical;
+        }
+
         $machine = Machine::create($data);
         $this->recomputeHospitalCounts($machine->hospital_id);
 
@@ -99,6 +107,10 @@ class MachineController extends Controller
             'status'           => ['sometimes', 'in:operational,needs_service,down,warranty,idle'],
             'revenue_per_month' => ['nullable', 'integer', 'min:0'],
         ]);
+
+        if (isset($data['model']) && ($canonical = MachineModelNormalizer::canonicalFor($data['model'])) && $canonical !== $data['model']) {
+            $data['model'] = $canonical;
+        }
 
         $previousHospitalId = $machine->getOriginal('hospital_id');
         $machine->update($data);

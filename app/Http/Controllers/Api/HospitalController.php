@@ -13,6 +13,36 @@ class HospitalController extends Controller
 {
     public function index(Request $request)
     {
+        // q present => combobox search mode: small, capped result set, never
+        // the "load everything and filter locally" pattern the rest of this
+        // endpoint uses. The hospital directory is modeled to grow into the
+        // thousands (national facility registry import), so a combobox
+        // backing it must never assume the full list is cheap to hold client
+        // side — see hypermed_claude_code_prompt.md Section 4.
+        if ($request->filled('q')) {
+            $perPage = min($request->integer('per_page', 20), 50);
+            $q       = trim((string) $request->string('q'));
+
+            $query = Hospital::query()
+                ->where(function ($w) use ($q) {
+                    $w->where('name', 'ilike', "%{$q}%")
+                      ->orWhere('short_code', 'ilike', "%{$q}%");
+                })
+                ->orderBy('name');
+
+            if ($request->filled('type')) {
+                $query->where('type', $request->type);
+            }
+            if ($request->filled('region')) {
+                $query->where('region', $request->region);
+            }
+            if ($request->filled('zone')) {
+                $query->where('zone', $request->zone);
+            }
+
+            return HospitalResource::collection($query->limit($perPage)->get());
+        }
+
         // See InventoryController::index() — same reasoning: callers load a
         // big batch once and reveal/filter locally, don't silently truncate.
         $perPage = min($request->integer('per_page', 20), 1000);
