@@ -26,6 +26,15 @@ class PurchaseOrderController extends Controller
         'directorApprovedBy', 'rejectedBy',
     ];
 
+    // No self-approval for anyone, at any stage — even the sales manager,
+    // director or accountant who happens to be the PO's own creator (spec
+    // Section 1; mirrors PerDiemController::abortIfSelfActioning()).
+    private function abortIfSelfActioning(PurchaseOrder $purchaseOrder, Request $request): void
+    {
+        abort_if($purchaseOrder->ordered_by === $request->user()->id, 403,
+            'You cannot action a purchase order you created.');
+    }
+
     public function index(Request $request)
     {
         $pos = PurchaseOrder::with(self::RELATIONS)
@@ -150,6 +159,7 @@ class PurchaseOrderController extends Controller
     public function approveSalesManager(Request $request, PurchaseOrder $purchaseOrder)
     {
         abort_if(! $request->user()->hasProcurementSalesStageAuthority(), 403, 'You are not authorised to approve this purchase order.');
+        $this->abortIfSelfActioning($purchaseOrder, $request);
         abort_if($purchaseOrder->status !== 'pending_sales_manager', 422, 'Only orders awaiting sales review can be approved at this stage.');
 
         $purchaseOrder->update([
@@ -181,6 +191,7 @@ class PurchaseOrderController extends Controller
     public function approveDirectorReview(Request $request, PurchaseOrder $purchaseOrder)
     {
         abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the director can approve this purchase order.');
+        $this->abortIfSelfActioning($purchaseOrder, $request);
         abort_if($purchaseOrder->status !== 'pending_director_review', 422, 'Only orders awaiting director review can be approved at this stage.');
 
         $purchaseOrder->update([
@@ -209,6 +220,7 @@ class PurchaseOrderController extends Controller
     public function initiatePayment(Request $request, PurchaseOrder $purchaseOrder)
     {
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to initiate payment on this purchase order.');
+        $this->abortIfSelfActioning($purchaseOrder, $request);
         abort_if($purchaseOrder->status !== 'pending_payment_initiation', 422, 'Only orders awaiting payment initiation can be actioned at this stage.');
 
         $data = $request->validate([
@@ -233,6 +245,7 @@ class PurchaseOrderController extends Controller
     public function approveDirectorFinal(Request $request, PurchaseOrder $purchaseOrder)
     {
         abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the director can give final approval on this purchase order.');
+        $this->abortIfSelfActioning($purchaseOrder, $request);
         abort_if($purchaseOrder->status !== 'pending_director_final', 422, 'Only orders awaiting final director approval can be actioned at this stage.');
         abort_if($purchaseOrder->payment_initiated_by === $request->user()->id, 403, 'The same person cannot both initiate payment and give final approval on it.');
         abort_if($purchaseOrder->director_reviewed_by === $request->user()->id, 403, 'The director who reviewed this PO cannot also give final approval.');
@@ -264,6 +277,8 @@ class PurchaseOrderController extends Controller
     /** Shared rejection path — any stage, any authorised reviewer for that stage. */
     private function reject(Request $request, PurchaseOrder $purchaseOrder): void
     {
+        $this->abortIfSelfActioning($purchaseOrder, $request);
+
         $data = $request->validate(['rejection_reason' => 'nullable|string']);
 
         $purchaseOrder->update([

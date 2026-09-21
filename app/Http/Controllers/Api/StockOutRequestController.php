@@ -16,6 +16,14 @@ use Illuminate\Support\Facades\DB;
 
 class StockOutRequestController extends Controller
 {
+    // No self-approval for anyone, even a CTO-tier reviewer who submitted
+    // the request themselves (spec Section 1).
+    private function abortIfSelfActioning(StockOutRequest $stockOutRequest, Request $request): void
+    {
+        abort_if($stockOutRequest->requested_by === $request->user()->id, 403,
+            'You cannot action your own stock-out request.');
+    }
+
     public function index(Request $request)
     {
         $user = $request->user();
@@ -59,6 +67,7 @@ class StockOutRequestController extends Controller
     public function approve(Request $request, StockOutRequest $stockOutRequest, StockService $stockService)
     {
         abort_if(! $request->user()->hasCtoApprovalAuthority(), 403, 'You are not authorised to approve stock-out requests.');
+        $this->abortIfSelfActioning($stockOutRequest, $request);
         abort_if($stockOutRequest->status !== 'pending', 422, 'Only pending requests can be approved.');
 
         DB::transaction(function () use ($request, $stockOutRequest, $stockService) {
@@ -88,6 +97,7 @@ class StockOutRequestController extends Controller
     public function reject(Request $request, StockOutRequest $stockOutRequest)
     {
         abort_if(! $request->user()->hasCtoApprovalAuthority(), 403, 'You are not authorised to review stock-out requests.');
+        $this->abortIfSelfActioning($stockOutRequest, $request);
         abort_if($stockOutRequest->status !== 'pending', 422, 'Only pending requests can be rejected.');
 
         $data = $request->validate(['rejection_reason' => ['nullable', 'string']]);

@@ -32,6 +32,14 @@ class ExpenseController extends Controller
         );
     }
 
+    // No self-approval for anyone, at any stage of the chain (spec Section 1)
+    // — mirrors PerDiemController::abortIfSelfActioning().
+    private function abortIfSelfActioning(Expense $expense, Request $request): void
+    {
+        abort_if($expense->created_by === $request->user()->id, 403,
+            'You cannot action your own expense submission.');
+    }
+
     private function categoryPayload(ExpenseCategory $c): array
     {
         return [
@@ -261,7 +269,7 @@ class ExpenseController extends Controller
         } else {
             abort(422, 'Only pending expenses can be approved.');
         }
-        abort_if($expense->created_by === $user->id, 403, 'You cannot approve your own expense submission.');
+        $this->abortIfSelfActioning($expense, $request);
 
         $expense->update(['status' => 'pending_payment', 'reviewed_by' => $user->id, 'reviewed_at' => now()]);
         ApprovalLog::record($expense, 'approved', $user);
@@ -277,6 +285,7 @@ class ExpenseController extends Controller
     public function initiatePayment(Request $request, Expense $expense)
     {
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to initiate payment on expenses.');
+        $this->abortIfSelfActioning($expense, $request);
         abort_if($expense->status !== 'pending_payment', 422, 'Only approved expenses awaiting payment initiation can be actioned at this stage.');
 
         $data = $request->validate([
@@ -307,6 +316,7 @@ class ExpenseController extends Controller
         $user = $request->user();
         abort_if(! $user->hasAccountantAuthority() && ! $user->hasDirectorAuthority(), 403,
             'Only the accountant or Director can release expense payment.');
+        $this->abortIfSelfActioning($expense, $request);
         abort_if($expense->status !== 'pending_release', 422, 'Only expenses awaiting release can be marked paid.');
         abort_if($expense->payment_initiated_by === $user->id, 403, 'You cannot release a payment you initiated.');
 
@@ -362,6 +372,7 @@ class ExpenseController extends Controller
         } else {
             abort(422, 'Only pending expenses can be rejected.');
         }
+        $this->abortIfSelfActioning($expense, $request);
 
         $data = $request->validate(['rejection_reason' => ['nullable', 'string']]);
 
