@@ -64,9 +64,35 @@ class Machine extends Model
         return $this->belongsTo(Location::class, 'store_location_id');
     }
 
+    // Direct machine_id match only — a ticket built through Section 6's
+    // multi-machine picker won't show up here even if this machine is on
+    // it. Kept as-is for existing callers; see allTicketIds()/allTickets()
+    // below for the combined set.
     public function tickets()
     {
         return $this->hasMany(ServiceTicket::class);
+    }
+
+    // Section 6 of hypermed_claude_code_prompt.md: this machine's tickets
+    // via either the legacy machine_id column (a ticket that's never used
+    // the multi-machine picker) or the service_ticket_machines pivot (any
+    // ticket built through it, of any type — generalized beyond Installation
+    // per direct instruction). MachineCostService and the machine's Service
+    // History tab both need this combined set, not just direct matches.
+    public function allTicketIds()
+    {
+        $direct = ServiceTicket::where('machine_id', $this->id)->pluck('id');
+        $viaPivot = \DB::table('service_ticket_machines')
+            ->where('machine_id', $this->id)
+            ->whereNull('removed_at')
+            ->pluck('service_ticket_id');
+
+        return $direct->merge($viaPivot)->unique()->values();
+    }
+
+    public function allTickets()
+    {
+        return ServiceTicket::whereIn('id', $this->allTicketIds());
     }
 
     public function invoices()

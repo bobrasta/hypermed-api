@@ -223,6 +223,10 @@ Route::prefix('v1')->group(function () {
         Route::post('tickets/{ticket}/advance-stage', [ServiceTicketController::class, 'advanceStage']);
         Route::post('tickets/{ticket}/parts', [ServiceTicketController::class, 'addPart']);
         Route::post('tickets/{ticket}/checklist/{item}', [ServiceTicketController::class, 'toggleChecklist']);
+        // Section 6: multi-machine tickets, generalized to every ticket type.
+        Route::post('tickets/{ticket}/machines', [ServiceTicketController::class, 'addMachine']);
+        Route::delete('tickets/{ticket}/machines/{machine}', [ServiceTicketController::class, 'removeMachine']);
+        Route::post('tickets/{ticket}/machines/{machine}/complete', [ServiceTicketController::class, 'completeMachine']);
         Route::get('tickets/{ticket}/attachments', [TicketAttachmentController::class, 'index']);
         Route::post('tickets/{ticket}/attachments', [TicketAttachmentController::class, 'store']);
         Route::delete('tickets/{ticket}/attachments/{attachment}', [TicketAttachmentController::class, 'destroy']);

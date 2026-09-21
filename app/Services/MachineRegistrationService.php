@@ -77,6 +77,17 @@ class MachineRegistrationService
                 // 'installation' ticket handling) and a supervisor sign off
                 // before this moves to 'operational'.
                 'status'          => 'pending_installation',
+                // Section 13's own backfill migration only corrected
+                // EXISTING pending_installation rows to lifecycle_stage
+                // 'allocated' at migration time — new rows created here
+                // afterward would otherwise silently fall back to the
+                // column's 'installed' default, which is wrong (this
+                // machine hasn't been installed yet) and would make it
+                // invisible to Section 6's Allocated-machines picker. Found
+                // while building Section 6, which depends on this being
+                // correct for every path that produces a pending_installation
+                // machine, not just the ones added after Section 13 shipped.
+                'lifecycle_stage' => 'allocated',
             ]);
 
             $serial->update(['status' => 'in_service', 'assigned_to_machine_id' => $machine->id]);
@@ -112,6 +123,8 @@ class MachineRegistrationService
                 'install_date'    => now()->toDateString(),
                 'warranty_expiry' => now()->addMonths($warrantyMonths)->toDateString(),
                 'status'          => 'pending_installation',
+                // See the same fix in registerFromTrackedUnits() above.
+                'lifecycle_stage' => 'allocated',
             ]);
         }
 

@@ -120,6 +120,13 @@ class NotificationTemplateSeeder extends Seeder
             ['ticket.billing_overridden', 'ticket_billing_overridden', 'Ticket Billing Decision Changed',
                 "Ticket #{ticket_number} was reclassified as {label} by {actor_name}.",
                 'Finance — a ticket\'s warranty/billable classification changed'],
+            // Section 6: "requester and CTO are notified when the ticket is
+            // fully complete." notification_type reuses 'ticket_updated'
+            // (already in the notifications type check constraint) rather
+            // than adding a new one just for this.
+            ['ticket.fully_resolved', 'ticket_updated', 'Service Ticket Resolved',
+                "Ticket #{ticket_number} ({machine_label}) has been resolved.",
+                'Assignee and CTO — a service ticket (possibly covering several machines) was fully resolved'],
 
             // ── Sales orders ──────────────────────────────────────────────
             ['sales_order.stock_pull_required', 'stock_pull_required', 'Order Ready to Pack',

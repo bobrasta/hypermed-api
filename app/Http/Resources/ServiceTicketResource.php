@@ -13,8 +13,22 @@ class ServiceTicketResource extends JsonResource
         return [
             'id'             => $this->id,
             'ticket_number'  => $this->ticket_number,
+            // machine/machine_id kept for backward compatibility (Section 0
+            // rule 5) — always the lowest-id active machine on the ticket,
+            // see ServiceTicket::machine(). machines (Section 6, generalized
+            // to every ticket type) is the full list with each one's
+            // per-machine completion status.
             'machine_id'     => $this->machine_id,
             'machine'        => new MachineResource($this->whenLoaded('machine')),
+            'machines'       => $this->whenLoaded('machines', fn () => $this->machines->map(fn ($m) => [
+                'id'           => $m->id,
+                'serial_no'    => $m->serial_no,
+                'model'        => $m->model,
+                'status'       => $m->pivot->status,
+                'completed_at' => $m->pivot->completed_at?->toIso8601String(),
+            ])->values()),
+            'machine_count'         => $this->whenLoaded('machines', fn () => $this->machines->count()),
+            'pending_machine_count' => $this->whenLoaded('machines', fn () => $this->machines->where('pivot.status', 'pending')->count()),
             'hospital_id'    => $this->hospital_id,
             'hospital'       => new HospitalResource($this->whenLoaded('hospital')),
             'ward'           => $this->ward,

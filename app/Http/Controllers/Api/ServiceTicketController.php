@@ -20,7 +20,9 @@ class ServiceTicketController extends Controller
 {
     public function index(Request $request)
     {
-        $query = ServiceTicket::with(['machine', 'hospital', 'assignee']);
+        // machines eager-loaded so the list can show "Installation, N
+        // machines" + a Pending count (Section 6) without an N+1.
+        $query = ServiceTicket::with(['machine', 'machines', 'hospital', 'assignee']);
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);
@@ -48,7 +50,14 @@ class ServiceTicketController extends Controller
             'Access Denied: your role does not have permission to create service tickets.');
 
         $data = $request->validate([
-            'machine_id'        => ['required', 'exists:machines,id'],
+            // machine_id stays accepted on its own for backward compatibility
+            // (Section 0 rule 5) — an old client that only ever sends one
+            // machine keeps working. machine_ids (Section 6, generalized to
+            // every ticket type per direct instruction, not just
+            // Installation) is what the current UI sends.
+            'machine_id'        => ['required_without:machine_ids', 'exists:machines,id'],
+            'machine_ids'       => ['required_without:machine_id', 'array', 'min:1'],
+            'machine_ids.*'     => ['exists:machines,id'],
             'hospital_id'       => ['required', 'exists:hospitals,id'],
             'ward'              => ['nullable', 'string'],
             'type'              => ['nullable', 'in:repair,installation'],
@@ -68,51 +77,217 @@ class ServiceTicketController extends Controller
         );
 
         $data['type'] = $data['type'] ?? 'repair';
+        $machineIds = array_values(array_unique($data['machine_ids'] ?? [$data['machine_id']]));
 
-        if ($data['type'] === 'installation') {
-            $machine = Machine::findOrFail($data['machine_id']);
-            abort_if($machine->status !== 'pending_installation', 422,
-                'This machine is not awaiting installation.');
-        } else {
-            // Section 13 of hypermed_claude_code_prompt.md: "Raise Ticket
-            // and Log Service are hidden or blocked for machines that are
-            // not Installed." Installation tickets are exempt — that's
-            // precisely how an Allocated machine becomes Installed (see
-            // the check above).
-            $machine = Machine::findOrFail($data['machine_id']);
-            abort_if(! $machine->isInstalled(), 422,
-                'This machine is not yet installed — raise an installation ticket instead.');
+        $machines = Machine::whereIn('id', $machineIds)->get()->keyBy('id');
+        abort_if($machines->count() !== count($machineIds), 422, 'One or more selected machines could not be found.');
+
+        foreach ($machineIds as $id) {
+            $this->assertMachineEligibleForTicket($machines[$id], $data['type'], (int) $data['hospital_id']);
         }
 
         $lastTicket = ServiceTicket::orderByDesc('id')->first();
         $nextNum = $lastTicket ? ((int) ltrim($lastTicket->ticket_number, '#') + 1) : 1000;
         $data['ticket_number'] = '#' . $nextNum;
+        // Backward-compat primary machine pointer — see ServiceTicket::machine().
+        $data['machine_id'] = $machineIds[0];
 
         $checklist = $data['checklist'] ?? [];
-        unset($data['checklist']);
+        unset($data['checklist'], $data['machine_ids']);
 
-        $ticket = ServiceTicket::create($data);
+        $ticket = DB::transaction(function () use ($data, $machineIds, $checklist) {
+            $ticket = ServiceTicket::create($data);
 
-        if ($ticket->type === 'installation') {
-            $ticket->machine->update(['installation_ticket_id' => $ticket->id]);
-        }
+            foreach ($machineIds as $id) {
+                $ticket->machinePivots()->create(['machine_id' => $id, 'status' => 'pending']);
+            }
 
-        foreach ($checklist as $item) {
-            $ticket->checklistItems()->create(['label' => $item['label'], 'is_checked' => false]);
-        }
+            if ($ticket->type === 'installation') {
+                Machine::whereIn('id', $machineIds)->update(['installation_ticket_id' => $ticket->id]);
+            }
+
+            foreach ($checklist as $item) {
+                $ticket->checklistItems()->create(['label' => $item['label'], 'is_checked' => false]);
+            }
+
+            return $ticket;
+        });
 
         if ($ticket->assigned_to) {
             $this->notifyAssignee($ticket);
         }
 
         return response()->json([
-            'data' => new ServiceTicketResource($ticket->load(['machine', 'hospital', 'assignee', 'checklistItems'])),
+            'data' => new ServiceTicketResource($ticket->load(['machine', 'machines', 'hospital', 'assignee', 'checklistItems'])),
         ], 201);
+    }
+
+    // Shared by store() and addMachine(): a machine must belong to the
+    // ticket's hospital, and Installation tickets pick from Allocated
+    // machines (Section 13) while every other type requires an already
+    // Installed one (Section 13: "Raise Ticket and Log Service are hidden
+    // or blocked for machines that are not Installed" — Installation
+    // tickets are exempt, that's precisely how a machine becomes Installed).
+    private function assertMachineEligibleForTicket(Machine $machine, string $type, int $hospitalId): void
+    {
+        abort_if((int) $machine->hospital_id !== $hospitalId, 422,
+            "{$machine->serial_no} does not belong to the selected hospital.");
+
+        if ($type === 'installation') {
+            // lifecycle_stage='allocated' is the Section 13 signal; status=
+            // pending_installation covers machines that predate that field
+            // or whose lifecycle_stage hasn't caught up (see the
+            // MachineRegistrationService fix landed alongside this section).
+            abort_if($machine->lifecycle_stage !== 'allocated' && $machine->status !== 'pending_installation', 422,
+                "{$machine->serial_no} is not awaiting installation.");
+        } else {
+            abort_if(! $machine->isInstalled(), 422,
+                "{$machine->serial_no} is not yet installed — raise an installation ticket instead.");
+        }
+    }
+
+    // Section 6, generalized to every ticket type: add a machine to an
+    // already-open ticket. "Machines can be added later while the ticket is
+    // open."
+    public function addMachine(Request $request, ServiceTicket $ticket)
+    {
+        abort_if(
+            ! $request->user()->hasCtoApprovalAuthority() && $ticket->assigned_to !== $request->user()->id,
+            403, 'Access Denied: you can only act on tickets assigned to you.',
+        );
+        abort_if($ticket->status === 'resolved', 422, 'This ticket is already resolved.');
+
+        $data = $request->validate(['machine_id' => ['required', 'exists:machines,id']]);
+        $machine = Machine::findOrFail($data['machine_id']);
+
+        abort_if($ticket->machines()->where('machines.id', $machine->id)->exists(), 422,
+            'This machine is already on the ticket.');
+
+        $this->assertMachineEligibleForTicket($machine, $ticket->type, $ticket->hospital_id);
+
+        DB::transaction(function () use ($ticket, $machine) {
+            $ticket->machinePivots()->create(['machine_id' => $machine->id, 'status' => 'pending']);
+            if ($ticket->type === 'installation') {
+                $machine->update(['installation_ticket_id' => $ticket->id]);
+            }
+        });
+
+        return response()->json([
+            'data' => new ServiceTicketResource($ticket->fresh()->load(['machine', 'machines', 'hospital', 'assignee'])),
+        ]);
+    }
+
+    // Section 6: "A machine can be removed from an open ticket (for example
+    // delivery delayed) with a required reason; it returns to Allocated" —
+    // it was never actually handed over by this ticket (still pending), so
+    // there's no lifecycle change to make; it just stops being on this list.
+    // Soft-removed, not deleted, so the reason stays in the audit trail.
+    public function removeMachine(Request $request, ServiceTicket $ticket, Machine $machine)
+    {
+        abort_if(
+            ! $request->user()->hasCtoApprovalAuthority() && $ticket->assigned_to !== $request->user()->id,
+            403, 'Access Denied: you can only act on tickets assigned to you.',
+        );
+        abort_if($ticket->status === 'resolved', 422, 'This ticket is already resolved.');
+
+        $data = $request->validate(['reason' => ['required', 'string', 'min:10']]);
+
+        $pivot = $ticket->machinePivots()->whereNull('removed_at')->where('machine_id', $machine->id)->first();
+        abort_if(! $pivot, 404, 'This machine is not on the ticket.');
+        abort_if($pivot->status === 'done', 422, 'This machine has already been completed on this ticket — it cannot be removed.');
+        abort_if($ticket->machinePivots()->whereNull('removed_at')->count() <= 1, 422,
+            'A ticket must reference at least one machine — remove it by cancelling the whole ticket instead.');
+
+        $pivot->update([
+            'removed_at'      => now(),
+            'removed_by'      => $request->user()->id,
+            'removal_reason'  => $data['reason'],
+        ]);
+
+        // It was never actually installed via this ticket (pivot was still
+        // 'pending' — checked above) — clear the pointer so the machine is
+        // free to be picked up by a different installation ticket later.
+        if ($ticket->type === 'installation' && $machine->installation_ticket_id === $ticket->id) {
+            $machine->update(['installation_ticket_id' => null]);
+        }
+
+        // The primary machine_id pointer (backward compat) may have been
+        // pointing at the one just removed — repoint it to whatever's left.
+        if ($ticket->machine_id === $machine->id) {
+            $next = $ticket->machines()->orderBy('machines.id')->first();
+            if ($next) {
+                $ticket->update(['machine_id' => $next->id]);
+            }
+        }
+
+        return response()->json([
+            'data' => new ServiceTicketResource($ticket->fresh()->load(['machine', 'machines', 'hospital', 'assignee'])),
+        ]);
+    }
+
+    // Section 6: per-machine completion, generalized to every ticket type.
+    // For an Installation ticket this IS the Section 13 handover (lifecycle
+    // -> Installed, ownership transfer, warranty starts) — Section 13's own
+    // permission line ("Handover by technician or CTO") is why this uses
+    // the same authority as resolve(), not a same-person exclusion like
+    // MachineController::signOff()'s separate Sales-Order-delivery path.
+    // For every other type it just marks that unit's work on this ticket
+    // done — no lifecycle change, since it's already Installed. Calling
+    // this per machine is optional for non-Installation tickets — resolve()
+    // auto-completes anything still pending for those, so today's
+    // single-machine repair flow needs no extra step.
+    public function completeMachine(Request $request, ServiceTicket $ticket, Machine $machine)
+    {
+        abort_if(! $request->user()->hasServiceTicketResolveAuthority(), 403,
+            'Access Denied: only the CTO or Director can complete a machine on a service ticket.');
+
+        $pivot = $ticket->machinePivots()->whereNull('removed_at')->where('machine_id', $machine->id)->first();
+        abort_if(! $pivot, 404, 'This machine is not on the ticket.');
+        abort_if($pivot->status === 'done', 422, 'This machine has already been completed on this ticket.');
+
+        if ($ticket->type === 'installation') {
+            $data = $request->validate([
+                'serial_no'        => ['sometimes', 'string', 'unique:machines,serial_no,' . $machine->id],
+                'ward'             => ['nullable', 'string'],
+                'install_date'     => ['nullable', 'date'],
+                'warranty_expiry'  => ['nullable', 'date'],
+            ]);
+
+            DB::transaction(function () use ($ticket, $machine, $pivot, $data, $request) {
+                $machine->update(array_filter([
+                    'serial_no'       => $data['serial_no'] ?? null,
+                    'ward'            => $data['ward'] ?? $machine->ward,
+                    'install_date'    => $data['install_date'] ?? now()->toDateString(),
+                    'warranty_expiry' => $data['warranty_expiry'] ?? $machine->warranty_expiry,
+                ], fn ($v) => $v !== null) + [
+                    'lifecycle_stage' => 'installed',
+                    'status'          => 'operational',
+                    'installed_by'    => $request->user()->id,
+                    'installed_at'    => now(),
+                ]);
+
+                $machine->transfers()->create([
+                    'transfer_type'  => 'handover',
+                    'to_hospital_id' => $machine->hospital_id,
+                    'approved_by'    => $request->user()->id,
+                ]);
+
+                $pivot->update(['status' => 'done', 'completed_at' => now(), 'completed_by' => $request->user()->id]);
+
+                MachineController::recomputeHospitalCounts($machine->hospital_id);
+            });
+        } else {
+            $pivot->update(['status' => 'done', 'completed_at' => now(), 'completed_by' => $request->user()->id]);
+        }
+
+        return response()->json([
+            'data' => new ServiceTicketResource($ticket->fresh()->load(['machine', 'machines', 'hospital', 'assignee'])),
+        ]);
     }
 
     public function show(ServiceTicket $ticket)
     {
-        $ticket->load(['machine.hospital', 'hospital', 'assignee', 'checklistItems', 'partsUsed.inventoryItem', 'attachments']);
+        $ticket->load(['machine.hospital', 'machines', 'hospital', 'assignee', 'checklistItems', 'partsUsed.inventoryItem', 'attachments']);
 
         return response()->json(['data' => new ServiceTicketResource($ticket)]);
     }
@@ -160,7 +335,7 @@ class ServiceTicketController extends Controller
             $this->notifyAssignee($ticket);
         }
 
-        return response()->json(['data' => new ServiceTicketResource($ticket->load(['machine', 'hospital', 'assignee', 'checklistItems']))]);
+        return response()->json(['data' => new ServiceTicketResource($ticket->load(['machine', 'machines', 'hospital', 'assignee', 'checklistItems']))]);
     }
 
     private function notifyAssignee(ServiceTicket $ticket): void
@@ -232,44 +407,102 @@ class ServiceTicketController extends Controller
             'parts_used.*.source_serial_number_id' => ['nullable', 'exists:serial_numbers,id'],
         ]);
 
-        // Auto-decide warranty vs billable from the machine's warranty_expiry
-        // — previously nothing ever made this call, so a resolved repair on
-        // an out-of-warranty machine had an equal chance of quietly never
-        // getting billed. CTO/Director can still override via
-        // overrideBilling() below for judgment calls (goodwill, a rejected
-        // warranty claim) — this is just the default, not the final word.
+        // Section 6, generalized to every ticket type: "the API refuses to
+        // resolve the ticket while any machine is Pending" — but only once
+        // a ticket actually uses the new multi-machine flow. A single-
+        // machine ticket (the only shape an app build older than this
+        // section can ever produce) instead falls back to exactly its
+        // pre-Section-6 behavior below, so an old client's resolve() call
+        // keeps working unchanged.
+        $activeMachines = $ticket->machinePivots()->whereNull('removed_at')->with('machine')->get();
+        $pendingMachines = $activeMachines->where('status', 'pending');
+        if ($ticket->type === 'installation' && $activeMachines->count() > 1) {
+            abort_if($pendingMachines->isNotEmpty(), 422,
+                'Not all machines on this ticket have been handed over yet.');
+        }
+
+        // Auto-decide warranty vs billable from the (primary) machine's
+        // warranty_expiry — previously nothing ever made this call, so a
+        // resolved repair on an out-of-warranty machine had an equal chance
+        // of quietly never getting billed. CTO/Director can still override
+        // via overrideBilling() below for judgment calls (goodwill, a
+        // rejected warranty claim) — this is just the default, not the
+        // final word. Billing stays a ticket-level decision even on a
+        // multi-machine ticket — Section 6 doesn't ask for per-machine
+        // billing, only per-machine cost attribution (MachineCostService).
         $warrantyExpiry = $ticket->machine->warranty_expiry;
         $billingStatus = ($warrantyExpiry && $warrantyExpiry->isFuture()) ? 'warranty_covered' : 'billable';
 
-        $ticket->update([
-            'status'              => 'resolved',
-            'resolution_notes'    => $data['resolution_notes'],
-            'resolved_at'         => now(),
-            'billing_status'      => $billingStatus,
-            'billing_decided_by'  => $request->user()->id,
-            'billing_decided_at'  => now(),
-        ]);
-
-        foreach ($data['parts_used'] ?? [] as $part) {
-            $this->createPartUsed($ticket, $part, $request->user()->id);
-        }
-
-        // Resolving the technician's installation ticket confirms the unit is
-        // physically installed — it still needs a supervisor sign-off
-        // (MachineController::signOff()) before it's truly 'operational'.
-        if ($ticket->type === 'installation' && $ticket->machine->status === 'pending_installation') {
-            $ticket->machine->update([
-                'installed_by' => $ticket->assigned_to ?? $request->user()->id,
-                'installed_at' => now(),
-                'status'       => 'pending_signoff',
+        DB::transaction(function () use ($ticket, $data, $request, $billingStatus, $pendingMachines) {
+            $ticket->update([
+                'status'              => 'resolved',
+                'resolution_notes'    => $data['resolution_notes'],
+                'resolved_at'         => now(),
+                'billing_status'      => $billingStatus,
+                'billing_decided_by'  => $request->user()->id,
+                'billing_decided_at'  => now(),
             ]);
-        }
+
+            foreach ($data['parts_used'] ?? [] as $part) {
+                $this->createPartUsed($ticket, $part, $request->user()->id);
+            }
+
+            foreach ($pendingMachines as $pivot) {
+                // Only reachable for a single-machine installation ticket
+                // (the multi-machine case already aborted above) — resolving
+                // confirms the unit is physically installed, but it still
+                // needs a supervisor sign-off (MachineController::signOff())
+                // before it's truly 'operational'. Exactly the pre-Section-6
+                // behavior, unchanged.
+                if ($ticket->type === 'installation' && $pivot->machine->status === 'pending_installation') {
+                    $pivot->machine->update([
+                        'installed_by' => $ticket->assigned_to ?? $request->user()->id,
+                        'installed_at' => now(),
+                        'status'       => 'pending_signoff',
+                    ]);
+                }
+                // Every other type: no lifecycle change, just marks that
+                // unit's work on this ticket done — the technician never had
+                // to call completeMachine() per line for the common
+                // single/few-machine repair case.
+                $pivot->update(['status' => 'done', 'completed_at' => now(), 'completed_by' => $request->user()->id]);
+            }
+        });
+
+        $this->notifyTicketComplete($ticket->fresh());
 
         return response()->json([
             'data' => new ServiceTicketResource(
-                $ticket->load(['machine', 'hospital', 'assignee', 'checklistItems', 'partsUsed.inventoryItem'])
+                $ticket->fresh()->load(['machine', 'machines', 'hospital', 'assignee', 'checklistItems', 'partsUsed.inventoryItem'])
             ),
         ]);
+    }
+
+    // Section 6 (Section 11 notification style): "requester and CTO are
+    // notified when the ticket is fully complete." There's no separate
+    // "requester" concept on a ticket (no created_by column) — the
+    // assignee is who actually did the work being reported complete.
+    private function notifyTicketComplete(ServiceTicket $ticket): void
+    {
+        $machineLabel = $ticket->machines()->count() > 1
+            ? "{$ticket->machines()->count()} machines"
+            : ($ticket->machine?->model ?? 'a machine');
+
+        $recipientIds = User::where('role', 'cto')->pluck('id');
+        if ($ticket->assigned_to) {
+            $recipientIds = $recipientIds->push($ticket->assigned_to);
+        }
+
+        $recipientIds->unique()->each(fn ($id) => AppNotification::create([
+            'user_id'     => $id,
+            ...app(NotificationTemplateService::class)->render('ticket.fully_resolved', [
+                'ticket_number' => $ticket->ticket_number,
+                'machine_label' => $machineLabel,
+            ]),
+            'entity_type' => 'service_ticket',
+            'entity_id'   => $ticket->id,
+            'is_read'     => false,
+        ]));
     }
 
     // CTO/Director judgment call over the automatic warranty-vs-billable
@@ -314,7 +547,7 @@ class ServiceTicketController extends Controller
 
         return response()->json([
             'data' => new ServiceTicketResource(
-                $ticket->fresh()->load(['machine', 'hospital', 'assignee', 'billingDecidedBy'])
+                $ticket->fresh()->load(['machine', 'machines', 'hospital', 'assignee', 'billingDecidedBy'])
             ),
         ]);
     }
@@ -341,7 +574,7 @@ class ServiceTicketController extends Controller
 
         return response()->json([
             'data' => new ServiceTicketResource(
-                $ticket->fresh()->load(['machine', 'hospital', 'assignee', 'checklistItems', 'partsUsed.inventoryItem'])
+                $ticket->fresh()->load(['machine', 'machines', 'hospital', 'assignee', 'checklistItems', 'partsUsed.inventoryItem'])
             ),
         ], 201);
     }
@@ -386,7 +619,7 @@ class ServiceTicketController extends Controller
         }
 
         return response()->json([
-            'data' => new ServiceTicketResource($ticket->fresh()->load(['machine', 'hospital', 'assignee', 'checklistItems'])),
+            'data' => new ServiceTicketResource($ticket->fresh()->load(['machine', 'machines', 'hospital', 'assignee', 'checklistItems'])),
         ]);
     }
 
@@ -415,7 +648,7 @@ class ServiceTicketController extends Controller
         ]);
 
         return response()->json([
-            'data' => new ServiceTicketResource($ticket->fresh()->load(['machine', 'hospital', 'assignee', 'checklistItems'])),
+            'data' => new ServiceTicketResource($ticket->fresh()->load(['machine', 'machines', 'hospital', 'assignee', 'checklistItems'])),
         ]);
     }
 

@@ -56,34 +56,22 @@ class MachineController extends Controller
     }
 
     // Machine IDs whose recorded service cost exceeds the configured
-    // replacement threshold (Section 12) — one grouped aggregate across the
-    // whole fleet, not N+1 per machine.
+    // replacement threshold (Section 12). Delegates to
+    // MachineCostService::exceedsThreshold() per candidate machine (not a
+    // hand-rolled flat aggregate) so this always agrees with the Service
+    // Costs tab's own number — Section 6's per-ticket cost-splitting across
+    // several machines can't be expressed as one direct machine_id join,
+    // and drifting the two calculations apart is worse than the N+1: the
+    // candidate set here is already narrowed to "has a purchase cost on
+    // record", which stays small in practice.
     private function replacementRecommendedIds(): array
     {
-        $thresholdPercent = (float) \App\Models\Setting::get('machine_replacement_threshold_percent', '0.5');
-
-        $partsByMachine = \DB::table('parts_used')
-            ->join('service_tickets', 'service_tickets.id', '=', 'parts_used.ticket_id')
-            ->select('service_tickets.machine_id', \DB::raw('SUM(parts_used.qty * parts_used.unit_cost) as cost'))
-            ->groupBy('service_tickets.machine_id')
-            ->pluck('cost', 'machine_id');
-
-        $travelByMachine = \DB::table('per_diem_lines')
-            ->join('per_diem_requests', 'per_diem_requests.id', '=', 'per_diem_lines.per_diem_request_id')
-            ->join('service_tickets', 'service_tickets.id', '=', 'per_diem_requests.service_ticket_id')
-            ->where('per_diem_requests.status', 'paid')
-            ->select('service_tickets.machine_id', \DB::raw('SUM(per_diem_lines.labor_cost + per_diem_lines.per_diem_cost + per_diem_lines.transport_fare) as cost'))
-            ->groupBy('service_tickets.machine_id')
-            ->pluck('cost', 'machine_id');
+        $costs = app(\App\Services\MachineCostService::class);
 
         return Machine::whereNotNull('purchase_cost_tsh')->where('purchase_cost_tsh', '>', 0)
-            ->pluck('purchase_cost_tsh', 'id')
-            ->filter(function ($purchaseCostTsh, $machineId) use ($partsByMachine, $travelByMachine, $thresholdPercent) {
-                $total = (int) ($partsByMachine[$machineId] ?? 0) + (int) ($travelByMachine[$machineId] ?? 0);
-
-                return $total > $thresholdPercent * $purchaseCostTsh;
-            })
-            ->keys()
+            ->get()
+            ->filter(fn ($machine) => $costs->exceedsThreshold($machine))
+            ->pluck('id')
             ->all();
     }
 
@@ -129,14 +117,24 @@ class MachineController extends Controller
         $data = $this->applyPurchaseCost($data);
 
         $machine = Machine::create($data);
-        $this->recomputeHospitalCounts($machine->hospital_id);
+        self::recomputeHospitalCounts($machine->hospital_id);
 
         return response()->json(['data' => new MachineResource($machine->load('hospital'))], 201);
     }
 
     public function show(Machine $machine)
     {
-        $machine->load(['hospital', 'tickets.assignee', 'tickets.checklistItems', 'tickets.partsUsed.inventoryItem']);
+        $machine->load('hospital');
+        // Section 6: Service History must include tickets this machine is
+        // on via the multi-machine picker too, not just ones that still
+        // point at it through the legacy machine_id column — see
+        // Machine::allTicketIds(). setRelation (not load) because this
+        // isn't a real Eloquent relation, but MachineResource's
+        // whenLoaded('tickets') only cares that something's been assigned.
+        $machine->setRelation('tickets', $machine->allTickets()
+            ->with(['assignee', 'checklistItems', 'partsUsed.inventoryItem'])
+            ->latest()
+            ->get());
 
         return response()->json(['data' => new MachineResource($machine)]);
     }
@@ -173,10 +171,10 @@ class MachineController extends Controller
         $machine->update($data);
 
         if ($machine->hospital_id) {
-            $this->recomputeHospitalCounts($machine->hospital_id);
+            self::recomputeHospitalCounts($machine->hospital_id);
         }
         if ($previousHospitalId && $previousHospitalId !== $machine->hospital_id) {
-            $this->recomputeHospitalCounts($previousHospitalId);
+            self::recomputeHospitalCounts($previousHospitalId);
         }
 
         return response()->json(['data' => new MachineResource($machine->load('hospital'))]);
@@ -289,7 +287,7 @@ class MachineController extends Controller
     {
         $hospitalId = $machine->hospital_id;
         $machine->delete();
-        $this->recomputeHospitalCounts($hospitalId);
+        self::recomputeHospitalCounts($hospitalId);
 
         return response()->json(null, 204);
     }
@@ -330,15 +328,18 @@ class MachineController extends Controller
             ]);
         }
 
-        $this->recomputeHospitalCounts($machine->hospital_id);
+        self::recomputeHospitalCounts($machine->hospital_id);
 
         return response()->json(['data' => new MachineResource($machine->load(['hospital', 'installedBy', 'signedOffBy']))]);
     }
 
     // Hospital.machine_count/machines_operational are denormalized for the
     // map/dashboard — recompute from the actual rows (not incremental math)
-    // so they can't drift out of sync.
-    private function recomputeHospitalCounts(?int $hospitalId): void
+    // so they can't drift out of sync. Public+static so
+    // ServiceTicketController::completeMachine() (Section 6's per-machine
+    // handover) can reuse the exact same recompute after its own handover,
+    // instead of duplicating this query.
+    public static function recomputeHospitalCounts(?int $hospitalId): void
     {
         if ($hospitalId === null) {
             return;

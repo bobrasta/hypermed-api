@@ -43,9 +43,44 @@ class ServiceTicket extends Model
         return self::STAGES[$idx + 1];
     }
 
+    // Kept for backward compatibility (Section 0 rule 5) — an old app build
+    // that only reads machine/machine_id keeps working. Always kept in sync
+    // with the lowest-id active row in machines() by ServiceTicketController
+    // whenever a machine is added/removed.
     public function machine()
     {
         return $this->belongsTo(Machine::class);
+    }
+
+    // Section 6 of hypermed_claude_code_prompt.md, generalized (2026-09-21)
+    // to every ticket type per direct user instruction, not just
+    // Installation: the machines this ticket actually covers. Excludes
+    // soft-removed lines (see the service_ticket_machines migration).
+    public function machines()
+    {
+        return $this->belongsToMany(Machine::class, 'service_ticket_machines')
+            ->using(ServiceTicketMachine::class)
+            ->withPivot(['id', 'status', 'completed_at', 'completed_by', 'removed_at', 'removed_by', 'removal_reason'])
+            ->wherePivotNull('removed_at')
+            ->withTimestamps();
+    }
+
+    // Every active pivot row, including removed_at IS NOT NULL ones excluded
+    // above — used where the full audit trail (e.g. a removed-machine log)
+    // matters, not just the ticket's current machine list.
+    public function machinePivots()
+    {
+        return $this->hasMany(ServiceTicketMachine::class);
+    }
+
+    public function pendingMachinesCount(): int
+    {
+        return $this->machines()->wherePivot('status', 'pending')->count();
+    }
+
+    public function isFullyComplete(): bool
+    {
+        return $this->pendingMachinesCount() === 0;
     }
 
     public function hospital()
