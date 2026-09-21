@@ -201,9 +201,16 @@ Route::prefix('v1')->group(function () {
             Route::get('reports', [ReportController::class, 'index']);
         });
 
-        // Machines (map is registered above in cache group)
+        // machines/in-stock must stay registered before the apiResource below
+        // (same reasoning as machines/map) — otherwise GET machines/{machine}
+        // would swallow it as if "in-stock" were an id.
+        Route::get('machines/in-stock', [MachineController::class, 'inStock']);
+        Route::post('machines/receive', [MachineController::class, 'receive']);
+
+        // Machines (map/in-stock/receive are registered above)
         Route::apiResource('machines', MachineController::class);
         Route::post('machines/{machine}/sign-off', [MachineController::class, 'signOff']);
+        Route::post('machines/{machine}/allocate', [MachineController::class, 'allocate']);
 
         // Hospitals
         Route::apiResource('hospitals', HospitalController::class);

@@ -72,6 +72,12 @@ class MachineController extends Controller
             // never set directly at creation.
             'status'           => ['required', 'in:operational,needs_service,down,warranty,idle,pending_installation'],
             'revenue_per_month' => ['nullable', 'integer', 'min:0'],
+            // This endpoint always targets a real hospital directly (unlike
+            // Receive Machine below) — Section 13's "admin fallback
+            // registration" path, so it goes straight to Installed.
+            'purchase_cost'          => ['nullable', 'integer', 'min:0'],
+            'purchase_cost_currency' => ['nullable', 'string', 'size:3'],
+            'purchase_cost_fx_rate'  => ['nullable', 'numeric', 'min:0'],
         ]);
 
         // Duplicate prevention server-side, not just in the combobox — a
@@ -80,6 +86,9 @@ class MachineController extends Controller
         if ($canonical = MachineModelNormalizer::canonicalFor($data['model'])) {
             $data['model'] = $canonical;
         }
+
+        $data['lifecycle_stage'] = 'installed';
+        $data = $this->applyPurchaseCost($data);
 
         $machine = Machine::create($data);
         $this->recomputeHospitalCounts($machine->hospital_id);
@@ -106,21 +115,136 @@ class MachineController extends Controller
             'warranty_expiry'  => ['nullable', 'date'],
             'status'           => ['sometimes', 'in:operational,needs_service,down,warranty,idle'],
             'revenue_per_month' => ['nullable', 'integer', 'min:0'],
+            // Editable here per Section 13 — audit-logged via Machine's
+            // LogsActivity (logOnlyDirty, so a no-op resubmit doesn't spam
+            // the trail).
+            'purchase_cost'          => ['nullable', 'integer', 'min:0'],
+            'purchase_cost_currency' => ['nullable', 'string', 'size:3'],
+            'purchase_cost_fx_rate'  => ['nullable', 'numeric', 'min:0'],
         ]);
 
         if (isset($data['model']) && ($canonical = MachineModelNormalizer::canonicalFor($data['model'])) && $canonical !== $data['model']) {
             $data['model'] = $canonical;
         }
 
+        if (array_key_exists('purchase_cost', $data)) {
+            $data = $this->applyPurchaseCost($data);
+        }
+
         $previousHospitalId = $machine->getOriginal('hospital_id');
         $machine->update($data);
 
-        $this->recomputeHospitalCounts($machine->hospital_id);
-        if ($previousHospitalId !== $machine->hospital_id) {
+        if ($machine->hospital_id) {
+            $this->recomputeHospitalCounts($machine->hospital_id);
+        }
+        if ($previousHospitalId && $previousHospitalId !== $machine->hospital_id) {
             $this->recomputeHospitalCounts($previousHospitalId);
         }
 
         return response()->json(['data' => new MachineResource($machine->load('hospital'))]);
+    }
+
+    // Section 13 of hypermed_claude_code_prompt.md: "Records serial, model,
+    // type, manufacturer, arrival date, store, condition, purchase cost, and
+    // invoice, packing list and warranty documents." Document upload isn't
+    // wired yet (see the checklist) — this covers the data fields, creating
+    // the machine In Stock, with no hospital.
+    public function receive(Request $request)
+    {
+        abort_if(! $request->user()->hasMachineReceiveAuthority(), 403,
+            'Access Denied: you do not have permission to receive new equipment.');
+
+        $data = $request->validate([
+            'serial_no'          => ['required', 'string', 'unique:machines'],
+            'model'              => ['required', 'string'],
+            'type'               => ['required', 'string'],
+            'manufacturer'       => ['nullable', 'string'],
+            'condition'          => ['nullable', 'string'],
+            'arrival_date'       => ['nullable', 'date'],
+            'store_location_id'  => ['required', 'exists:locations,id'],
+            'warranty_expiry'    => ['nullable', 'date'],
+            'purchase_cost'          => ['nullable', 'integer', 'min:0'],
+            'purchase_cost_currency' => ['nullable', 'string', 'size:3'],
+            'purchase_cost_fx_rate'  => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        if ($canonical = MachineModelNormalizer::canonicalFor($data['model'])) {
+            $data['model'] = $canonical;
+        }
+
+        $data['lifecycle_stage'] = 'in_stock';
+        $data['status'] = 'idle';
+        $data['arrival_date'] = $data['arrival_date'] ?? now()->toDateString();
+        $data = $this->applyPurchaseCost($data);
+
+        $machine = Machine::create($data);
+
+        return response()->json(['data' => new MachineResource($machine->load('storeLocation'))], 201);
+    }
+
+    // In Stock -> Allocated: reserves a machine for a hospital ahead of
+    // installation, tied to the sale that justified it. Section 13's
+    // "Allocate" move.
+    public function allocate(Request $request, Machine $machine)
+    {
+        abort_if(! $request->user()->hasMachineAllocateAuthority(), 403,
+            'Access Denied: you do not have permission to allocate equipment.');
+        abort_if($machine->lifecycle_stage !== 'in_stock', 422,
+            'Only an In Stock machine can be allocated.');
+
+        $data = $request->validate([
+            'hospital_id'   => ['required', 'exists:hospitals,id'],
+            'reason'        => ['nullable', 'string'],
+            'quotation_id'  => ['nullable', 'exists:quotations,id'],
+            'invoice_id'    => ['nullable', 'exists:invoices,id'],
+        ]);
+
+        $fromLocationId = $machine->store_location_id;
+
+        $machine->update([
+            'hospital_id'      => $data['hospital_id'],
+            'lifecycle_stage'  => 'allocated',
+            'store_location_id' => null,
+            // Matches the Sales-Order delivery path (MachineRegistrationService),
+            // which sets this same status at its own "Allocated" moment — an
+            // installation ticket's own gate (ServiceTicketController::store())
+            // checks status, not lifecycle_stage, so this keeps that check
+            // working for a machine that arrived via Receive+Allocate too.
+            'status'           => 'pending_installation',
+        ]);
+
+        $machine->transfers()->create([
+            'transfer_type'     => 'allocate',
+            'to_hospital_id'    => $data['hospital_id'],
+            'from_location_id'  => $fromLocationId,
+            'reason'            => $data['reason'] ?? null,
+            'quotation_id'      => $data['quotation_id'] ?? null,
+            'invoice_id'        => $data['invoice_id'] ?? null,
+            'approved_by'       => $request->user()->id,
+        ]);
+
+        return response()->json(['data' => new MachineResource($machine->load('hospital'))]);
+    }
+
+    // Original currency in, TSh comparison amount out — Section 12's
+    // viability calculation always reads purchase_cost_tsh so it never has
+    // to convert live. TZS itself always carries rate 1 (no conversion).
+    private function applyPurchaseCost(array $data): array
+    {
+        if (! array_key_exists('purchase_cost', $data) || $data['purchase_cost'] === null) {
+            return $data;
+        }
+
+        $currency = $data['purchase_cost_currency'] ?? 'TZS';
+        $rate = $currency === 'TZS' ? 1 : ($data['purchase_cost_fx_rate'] ?? null);
+        abort_if($rate === null, 422, 'purchase_cost_fx_rate is required when purchase_cost_currency is not TZS.');
+
+        $data['purchase_cost_currency'] = $currency;
+        $data['purchase_cost_fx_rate'] = $rate;
+        $data['purchase_cost_tsh'] = (int) round($data['purchase_cost'] * $rate);
+        $data['purchase_cost_recorded_at'] = now();
+
+        return $data;
     }
 
     public function destroy(Machine $machine)
@@ -145,11 +269,30 @@ class MachineController extends Controller
         abort_if($machine->installed_by === $request->user()->id, 403,
             'The person who installed this equipment cannot also sign off on it.');
 
+        // Section 13's Handover move — completes Allocated -> Installed for
+        // any machine that reached pending_signoff, whether it got there via
+        // the Sales-Order delivery path or a manual Receive+Allocate. Ownership
+        // passes to the hospital at this exact point (the spec's own stated
+        // assumption: "ownership passes at the signed handover after
+        // installation").
+        $wasAllocated = $machine->lifecycle_stage === 'allocated';
+
         $machine->update([
-            'signed_off_by' => $request->user()->id,
-            'signed_off_at' => now(),
-            'status'        => 'operational',
+            'signed_off_by'   => $request->user()->id,
+            'signed_off_at'   => now(),
+            'status'          => 'operational',
+            'lifecycle_stage' => 'installed',
         ]);
+
+        if ($wasAllocated) {
+            $machine->transfers()->create([
+                'transfer_type'  => 'handover',
+                'to_hospital_id' => $machine->hospital_id,
+                'approved_by'    => $request->user()->id,
+            ]);
+        }
+
+        $this->recomputeHospitalCounts($machine->hospital_id);
 
         return response()->json(['data' => new MachineResource($machine->load(['hospital', 'installedBy', 'signedOffBy']))]);
     }
@@ -157,21 +300,44 @@ class MachineController extends Controller
     // Hospital.machine_count/machines_operational are denormalized for the
     // map/dashboard — recompute from the actual rows (not incremental math)
     // so they can't drift out of sync.
-    private function recomputeHospitalCounts(int $hospitalId): void
+    private function recomputeHospitalCounts(?int $hospitalId): void
     {
+        if ($hospitalId === null) {
+            return;
+        }
+
+        // Allocated machines already carry this hospital_id (reserved target)
+        // but aren't installed yet — Section 13 excludes In Stock/Allocated
+        // from hospital counts, so only 'installed' counts here.
         Hospital::whereKey($hospitalId)->update([
-            'machine_count'        => Machine::where('hospital_id', $hospitalId)->count(),
-            'machines_operational' => Machine::where('hospital_id', $hospitalId)->where('status', 'operational')->count(),
+            'machine_count'        => Machine::where('hospital_id', $hospitalId)->where('lifecycle_stage', 'installed')->count(),
+            'machines_operational' => Machine::where('hospital_id', $hospitalId)->where('lifecycle_stage', 'installed')->where('status', 'operational')->count(),
         ]);
     }
 
     public function map()
     {
+        // In Stock/Allocated machines aren't anywhere real yet (Section 13)
+        // — excluded from the map, same as the dashboard's machine counts.
         $machines = Cache::remember('machines:map', 60, function () {
             return Machine::with('hospital:id,name,short_code,latitude,longitude,zone')
+                ->where('lifecycle_stage', 'installed')
                 ->select('id', 'serial_no', 'model', 'type', 'hospital_id', 'status')
                 ->get();
         });
+
+        return MachineResource::collection($machines);
+    }
+
+    // In Stock machines waiting to be allocated/installed — Section 13's
+    // "store view (stage = In Stock) shows what is on hand and how long
+    // each machine has been waiting."
+    public function inStock()
+    {
+        $machines = Machine::with('storeLocation')
+            ->where('lifecycle_stage', 'in_stock')
+            ->orderBy('arrival_date')
+            ->get();
 
         return MachineResource::collection($machines);
     }

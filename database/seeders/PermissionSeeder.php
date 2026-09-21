@@ -148,6 +148,10 @@ class PermissionSeeder extends Seeder
                 'logistics.deliver_order' => ['Deliver Sales Orders', 'Mark a sales order delivered to the customer'],
                 'logistics.receive_order' => ['Receive Purchase Orders', 'Mark a purchase order received from the vendor'],
             ],
+            'machines' => [
+                'machines.receive'  => ['Receive Machine', 'Record new equipment arriving into a store, before it belongs to any hospital'],
+                'machines.allocate' => ['Allocate Machine', 'Reserve an In Stock machine for a hospital ahead of installation'],
+            ],
         ];
 
         $permissions = [];
@@ -210,7 +214,7 @@ class PermissionSeeder extends Seeder
         }
 
         $grants = [
-            'sales_manager' => ['sales.create', 'sales.edit', 'sales.issue_quotation', 'sales.view_full_numbers', 'sales.create_subordinate_user', 'procurement.approve_po_sales_stage'],
+            'sales_manager' => ['sales.create', 'sales.edit', 'sales.issue_quotation', 'sales.view_full_numbers', 'sales.create_subordinate_user', 'procurement.approve_po_sales_stage', 'machines.receive', 'machines.allocate'],
             'sales'         => ['sales.create', 'sales.edit', 'sales.issue_quotation'],
             'finance_manager'=> ['finance.view_revenue', 'finance.approve_step2', 'finance.export_reports'],
             'finance'       => [], // scoped grant below — 'masked' revenue view only
@@ -218,7 +222,7 @@ class PermissionSeeder extends Seeder
             // work, not the assigned technician's; see hasServiceTicketResolveAuthority().
             'technician'    => ['services.issue_ticket', 'equipment.schedule_maintenance'],
             'cs'            => ['services.issue_ticket'],
-            'storekeeper'   => ['inventory.adjust_stock', 'inventory.transfer_stock', 'inventory.view_valuation', 'inventory.manage_catalog', 'logistics.receive_order'],
+            'storekeeper'   => ['inventory.adjust_stock', 'inventory.transfer_stock', 'inventory.view_valuation', 'inventory.manage_catalog', 'logistics.receive_order', 'machines.receive', 'machines.allocate'],
             'hr'            => ['hr.view_team_attendance', 'staff.manage', 'roles.manage'],
             'cto'           => ['services.assign_ticket', 'services.add_engineer', 'services.view_team_metrics', 'inventory.approve_writeoff', 'services.sign_off_installation', 'services.close_ticket', 'hospitals.manage'],
             'team_leader'   => ['services.view_team_metrics', 'services.assign_ticket', 'services.sign_off_installation', 'services.close_ticket'],

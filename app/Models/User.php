@@ -310,6 +310,16 @@ class User extends Authenticatable
         return app(EffectivePermissionResolver::class)->can($this, 'inventory.adjust_stock');
     }
 
+    public function hasMachineReceiveAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'machines.receive');
+    }
+
+    public function hasMachineAllocateAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'machines.allocate');
+    }
+
     // ServiceTicketController had no assign() method — assignment goes
     // through update(), gated CTO-tier only, so team_leader held
     // services.assign_ticket in the catalog but nothing ever checked it.

@@ -73,6 +73,15 @@ class ServiceTicketController extends Controller
             $machine = Machine::findOrFail($data['machine_id']);
             abort_if($machine->status !== 'pending_installation', 422,
                 'This machine is not awaiting installation.');
+        } else {
+            // Section 13 of hypermed_claude_code_prompt.md: "Raise Ticket
+            // and Log Service are hidden or blocked for machines that are
+            // not Installed." Installation tickets are exempt — that's
+            // precisely how an Allocated machine becomes Installed (see
+            // the check above).
+            $machine = Machine::findOrFail($data['machine_id']);
+            abort_if(! $machine->isInstalled(), 422,
+                'This machine is not yet installed — raise an installation ticket instead.');
         }
 
         $lastTicket = ServiceTicket::orderByDesc('id')->first();

@@ -4,16 +4,22 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class Machine extends Model
 {
     use HasFactory;
+    use LogsActivity;
 
     protected $fillable = [
         'serial_no', 'model', 'type', 'hospital_id', 'ward',
         'install_date', 'warranty_expiry', 'status', 'revenue_per_month',
         'sales_order_id', 'installation_ticket_id',
         'installed_by', 'installed_at', 'signed_off_by', 'signed_off_at',
+        'lifecycle_stage', 'manufacturer', 'condition', 'arrival_date', 'store_location_id',
+        'purchase_cost', 'purchase_cost_currency', 'purchase_cost_fx_rate',
+        'purchase_cost_tsh', 'purchase_cost_recorded_at',
     ];
 
     protected $casts = [
@@ -22,7 +28,20 @@ class Machine extends Model
         'revenue_per_month' => 'integer',
         'installed_at' => 'datetime',
         'signed_off_at' => 'datetime',
+        'arrival_date' => 'date',
+        'purchase_cost' => 'integer',
+        'purchase_cost_fx_rate' => 'decimal:4',
+        'purchase_cost_tsh' => 'integer',
+        'purchase_cost_recorded_at' => 'datetime',
     ];
+
+    // Section 13 of hypermed_claude_code_prompt.md: "Every step audit-logged".
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logOnly($this->fillable)
+            ->logOnlyDirty();
+    }
 
     // Maps DB status to Flutter CSS short code
     public static array $statusCodes = [
@@ -38,6 +57,11 @@ class Machine extends Model
     public function hospital()
     {
         return $this->belongsTo(Hospital::class);
+    }
+
+    public function storeLocation()
+    {
+        return $this->belongsTo(Location::class, 'store_location_id');
     }
 
     public function tickets()
@@ -68,5 +92,15 @@ class Machine extends Model
     public function signedOffBy()
     {
         return $this->belongsTo(User::class, 'signed_off_by');
+    }
+
+    public function transfers()
+    {
+        return $this->hasMany(MachineTransfer::class);
+    }
+
+    public function isInstalled(): bool
+    {
+        return $this->lifecycle_stage === 'installed';
     }
 }
