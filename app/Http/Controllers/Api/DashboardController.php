@@ -37,13 +37,22 @@ class DashboardController extends Controller
     private function overviewKpiSlices(): array
     {
         return Cache::remember('dashboard:kpi', 60, function () {
-            // Two queries instead of five — PostgreSQL FILTER aggregation
+            // Two queries instead of five — PostgreSQL FILTER aggregation.
+            // Section 2: "In Stock and Allocated machines are excluded from
+            // the map and the other fleet counts" — a machine sitting in
+            // the warehouse still carries some `status` value (it isn't
+            // actually operational/down/etc. anywhere), so without the
+            // lifecycle_stage filter it was inflating every fleet-uptime
+            // style KPI across every role's dashboard, not just admin's.
+            // Matches MachineController::recomputeHospitalCounts()'s own
+            // lifecycle_stage = 'installed' filter for per-hospital counts.
             $machines = DB::selectOne("
-                SELECT COUNT(*)                                          AS total,
-                       COUNT(*) FILTER (WHERE status = 'operational')    AS operational,
-                       COUNT(*) FILTER (WHERE status = 'needs_service')  AS needs_service,
-                       COUNT(*) FILTER (WHERE status = 'down')           AS down,
-                       COUNT(*) FILTER (WHERE status = 'warranty')       AS warranty
+                SELECT COUNT(*) FILTER (WHERE lifecycle_stage = 'installed')                          AS total,
+                       COUNT(*) FILTER (WHERE lifecycle_stage = 'installed' AND status = 'operational')   AS operational,
+                       COUNT(*) FILTER (WHERE lifecycle_stage = 'installed' AND status = 'needs_service') AS needs_service,
+                       COUNT(*) FILTER (WHERE lifecycle_stage = 'installed' AND status = 'down')          AS down,
+                       COUNT(*) FILTER (WHERE lifecycle_stage = 'installed' AND status = 'warranty')      AS warranty,
+                       COUNT(*) FILTER (WHERE lifecycle_stage = 'in_stock')                            AS in_stock
                 FROM machines
             ");
 
@@ -69,6 +78,7 @@ class DashboardController extends Controller
                     'needs_service'   => (int) $machines->needs_service,
                     'down'            => (int) $machines->down,
                     'warranty'        => (int) $machines->warranty,
+                    'in_stock'        => (int) $machines->in_stock,
                     'total_hospitals' => Hospital::count(),
                 ],
                 'tickets' => [

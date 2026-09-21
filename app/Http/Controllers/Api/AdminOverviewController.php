@@ -80,7 +80,11 @@ class AdminOverviewController extends Controller
                     'down'          => $fleet['down'],
                     'technician_en_route' => $enRouteCount,
                 ],
-                'zones' => $this->zoneBreakdown(),
+                'zones'    => $this->zoneBreakdown(),
+                // Section 2: a new "In Stock" tile — unallocated machines
+                // sitting in the warehouse, deliberately excluded from the
+                // map/legend/uptime counts above (they aren't deployed).
+                'in_stock' => $fleet['in_stock'],
             ],
             'attention'    => $this->attentionFeed($inventory),
             'technicians'  => $technicians,
