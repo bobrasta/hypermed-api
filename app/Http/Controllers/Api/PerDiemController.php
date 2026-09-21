@@ -33,7 +33,13 @@ class PerDiemController extends Controller
     {
         $user = $request->user();
 
-        $query = PerDiemRequest::with(['user', 'teamLeadReviewer', 'reviewer', 'paymentInitiatedBy', 'paidBy', 'lines']);
+        // Section 8: revisions/editGrants/adjustments eager-loaded here too
+        // (not just show()) — the existing UI renders full per-diem detail
+        // straight from this list response, no separate detail fetch.
+        $query = PerDiemRequest::with([
+            'user', 'teamLeadReviewer', 'reviewer', 'paymentInitiatedBy', 'paidBy', 'lines',
+            'revisions.editor', 'revisions.reviewer', 'editGrants.grantedBy', 'adjustments.createdBy',
+        ]);
 
         // Accountant needs visibility into everyone's approved-awaiting-payment
         // requests to act on markPaid() — same self-scoping exemption as
