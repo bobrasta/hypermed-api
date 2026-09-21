@@ -481,6 +481,7 @@ Route::prefix('v1')->group(function () {
         // Per-diem requests (approval workflow)
         Route::get('per-diem-requests', [PerDiemController::class, 'index']);
         Route::post('per-diem-requests', [PerDiemController::class, 'store']);
+        Route::get('per-diem-requests/{perDiemRequest}', [PerDiemController::class, 'show']);
         Route::post('per-diem-requests/{perDiemRequest}/approve-team-lead', [PerDiemController::class, 'approveTeamLead']);
         Route::post('per-diem-requests/{perDiemRequest}/reject-team-lead', [PerDiemController::class, 'rejectTeamLead']);
         Route::post('per-diem-requests/{perDiemRequest}/approve', [PerDiemController::class, 'approve']);
@@ -488,6 +489,13 @@ Route::prefix('v1')->group(function () {
         Route::post('per-diem-requests/{perDiemRequest}/initiate-payment', [PerDiemController::class, 'initiatePayment']);
         Route::post('per-diem-requests/{perDiemRequest}/mark-paid', [PerDiemController::class, 'markPaid']);
         Route::post('per-diem-requests/{perDiemRequest}/cancel', [PerDiemController::class, 'cancel']);
+        // Section 8: CTO day-by-day editing, technician edit grants, revision history.
+        Route::post('per-diem-requests/{perDiemRequest}/revise', [PerDiemController::class, 'revise']);
+        Route::post('per-diem-requests/{perDiemRequest}/edit-grants', [PerDiemController::class, 'grantEditAccess']);
+        Route::delete('per-diem-requests/{perDiemRequest}/edit-grants', [PerDiemController::class, 'revokeEditAccess']);
+        Route::post('per-diem-requests/{perDiemRequest}/propose-edit', [PerDiemController::class, 'submitTechnicianEdit']);
+        Route::post('per-diem-requests/{perDiemRequest}/revisions/{revision}/approve', [PerDiemController::class, 'approveTechnicianEdit']);
+        Route::post('per-diem-requests/{perDiemRequest}/revisions/{revision}/reject', [PerDiemController::class, 'rejectTechnicianEdit']);
 
         // Part cannibalizations (parts pulled from stocked units to fix field machines)
         Route::get('part-cannibalizations', [PartCannibalizationController::class, 'index']);

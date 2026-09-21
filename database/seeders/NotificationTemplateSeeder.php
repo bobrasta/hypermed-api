@@ -90,12 +90,43 @@ class NotificationTemplateSeeder extends Seeder
             ['per_diem.final_authorization_director', 'per_diem_approved', 'Per-Diem — Final Authorization',
                 "Finance initiated payment for {name}'s per-diem request — needs your authorization to pay.",
                 'Director — final sign-off needed after finance initiated payment'],
+            // Section 11: found missing during the audit — only the
+            // Director was notified when payment was initiated; the
+            // requester is a recipient at every stage change.
+            ['per_diem.payment_initiated_requester', 'per_diem_approved', 'Payment Initiated',
+                "Payment for your per-diem request for {destination} has been initiated — awaiting final Director authorization.",
+                'Requester — finance initiated payment on their per-diem request'],
             ['per_diem.approved_requester', 'per_diem_approved', 'Per-Diem Approved',
                 "Your per-diem request for {destination} was approved.",
                 'Requester — their per-diem request was approved'],
             ['per_diem.rejected_requester', 'per_diem_rejected', 'Per-Diem Rejected',
                 "Your per-diem request for {destination} was rejected.{reason_suffix}",
                 'Requester — their per-diem request was rejected'],
+            // Section 8: day-by-day CTO editing, technician edit grants.
+            // Reuses existing notification types (per_diem_approved/
+            // per_diem_rejected/per_diem_requested) rather than adding new
+            // ones to the notifications table's type check constraint.
+            ['per_diem.plan_edited', 'per_diem_approved', 'Your Travel Plan Was Edited',
+                "The CTO edited your travel plan for {destination}. Check the revision history for what changed.",
+                'Requester — the CTO edited their travel plan'],
+            ['per_diem.adjustment_created', 'per_diem_approved', 'Travel Plan Adjustment Recorded',
+                "An adjustment was recorded on {name}'s paid travel plan for {destination} — review the amount owed or to return.",
+                'Finance — a paid travel plan was edited or cancelled, creating an adjustment'],
+            ['per_diem.edit_access_granted', 'per_diem_approved', 'Travel Plan Edit Access Granted',
+                "The CTO granted you edit access to your travel plan for {destination}.",
+                'Requester — the CTO granted them edit access to their travel plan'],
+            ['per_diem.edit_access_revoked', 'per_diem_rejected', 'Travel Plan Edit Access Revoked',
+                "The CTO revoked your edit access to your travel plan for {destination}.",
+                'Requester — the CTO revoked their travel plan edit access'],
+            ['per_diem.technician_edit_submitted', 'per_diem_requested', 'Travel Plan Edit Submitted',
+                "{name} proposed changes to their travel plan for {destination} — needs your review.",
+                'CTO — a technician proposed an edit to their travel plan'],
+            ['per_diem.technician_edit_approved', 'per_diem_approved', 'Your Proposed Edit Was Approved',
+                "Your proposed changes to the travel plan for {destination} were approved and applied.",
+                'Requester — the CTO approved their proposed travel plan edit'],
+            ['per_diem.technician_edit_rejected', 'per_diem_rejected', 'Your Proposed Edit Was Rejected',
+                "Your proposed changes to the travel plan for {destination} were not approved.",
+                'Requester — the CTO rejected their proposed travel plan edit'],
 
             // ── Tasks ─────────────────────────────────────────────────────
             ['task.completed_managers', 'task_completed', 'Task Completed',

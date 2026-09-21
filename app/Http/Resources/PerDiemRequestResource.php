@@ -44,6 +44,14 @@ class PerDiemRequestResource extends JsonResource
             'cancellation_reason'         => $this->cancellation_reason,
             'created_at'                  => $this->created_at?->toIso8601String(),
             'lines'                       => PerDiemLineResource::collection($this->whenLoaded('lines')),
+            // Section 8: revision history, technician edit grants, and any
+            // post-payment adjustments ("the original release is never
+            // rewritten").
+            'revisions'                   => PerDiemRevisionResource::collection($this->whenLoaded('revisions')),
+            'edit_grants'                 => PerDiemEditGrantResource::collection($this->whenLoaded('editGrants')),
+            'adjustments'                 => PerDiemAdjustmentResource::collection($this->whenLoaded('adjustments')),
+            'has_active_edit_grant'       => $this->whenLoaded('editGrants', fn () => $this->editGrants->contains(fn ($g) => $g->isActive())),
+            'was_edited'                  => $this->whenLoaded('revisions', fn () => $this->revisions->contains(fn ($r) => $r->status === 'applied')),
         ];
     }
 }

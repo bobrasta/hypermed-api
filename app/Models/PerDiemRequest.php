@@ -77,4 +77,28 @@ class PerDiemRequest extends Model
     {
         return $this->hasMany(PerDiemLine::class)->orderBy('seq_no');
     }
+
+    // Section 8: revision history, technician edit grants and post-payment
+    // adjustments.
+    public function revisions()
+    {
+        return $this->hasMany(PerDiemRevision::class)->latest();
+    }
+
+    public function editGrants()
+    {
+        return $this->hasMany(PerDiemEditGrant::class)->latest();
+    }
+
+    public function adjustments()
+    {
+        return $this->hasMany(PerDiemAdjustment::class)->latest();
+    }
+
+    // "A technician cannot edit by default" — true unless an active,
+    // unexpired, unrevoked grant exists.
+    public function hasActiveEditGrant(): bool
+    {
+        return $this->editGrants()->get()->contains(fn (PerDiemEditGrant $g) => $g->isActive());
+    }
 }
