@@ -91,6 +91,24 @@ class DocumentPdfService
         ]))->setPaper('a4');
     }
 
+    // Section 7: "the plan PDF always reflects the latest version, marks
+    // changed days, and includes the revision history." Takes the model
+    // directly (not a pre-shaped array like hrReportPdf) since there's no
+    // separate report-building step — the plan's own current state and
+    // relations are the whole document.
+    public function perDiemPdf(\App\Models\PerDiemRequest $perDiemRequest): PdfInstance
+    {
+        $perDiemRequest->loadMissing([
+            'user', 'lines', 'reviewer', 'teamLeadReviewer', 'paidBy',
+            'revisions.editor', 'adjustments.createdBy',
+        ]);
+
+        return Pdf::loadView('pdf.per_diem', [
+            'plan'    => $perDiemRequest,
+            'company' => config('company'),
+        ])->setPaper('a4');
+    }
+
     public function payslipPdf(array $data): PdfInstance
     {
         return Pdf::loadView('pdf.payslip', array_merge($data, [

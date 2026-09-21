@@ -363,6 +363,18 @@ class PerDiemController extends Controller
         ]))]);
     }
 
+    // Section 7: "can open details and download the plan as a PDF" — same
+    // ownership/authority gate as show() above, since this is just another
+    // representation of the same data.
+    public function pdf(Request $request, PerDiemRequest $perDiemRequest, \App\Services\DocumentPdfService $pdfService)
+    {
+        $user = $request->user();
+        abort_if($perDiemRequest->user_id !== $user->id && ! $user->hasTeamLeadAuthority() && ! $user->hasAccountantAuthority(), 403,
+            'Not authorised.');
+
+        return $pdfService->perDiemPdf($perDiemRequest)->stream("travel-plan-{$perDiemRequest->id}.pdf");
+    }
+
     // "The CTO can edit any active plan (not completed, rejected or
     // cancelled) in three modes: edit a single day; edit from a chosen day
     // onwards; add or remove days." One endpoint covers all three: send

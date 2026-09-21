@@ -44,6 +44,7 @@ use App\Http\Controllers\Api\StockMovementController;
 use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\LateArrivalController;
 use App\Http\Controllers\Api\StockOutRequestController;
+use App\Http\Controllers\Api\MyReportsController;
 use App\Http\Controllers\Api\PerDiemController;
 use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Api\LeaveController;
@@ -231,6 +232,9 @@ Route::prefix('v1')->group(function () {
         Route::post('tickets/{ticket}/attachments', [TicketAttachmentController::class, 'store']);
         Route::delete('tickets/{ticket}/attachments/{attachment}', [TicketAttachmentController::class, 'destroy']);
         Route::apiResource('tickets', ServiceTicketController::class);
+
+        // Section 7: technician self-service — own service/installation reports.
+        Route::get('my/service-reports', [MyReportsController::class, 'serviceReports']);
 
         // Invoices & Revenue
         Route::post('invoices/{invoice}/send',    [InvoiceController::class, 'send']);
@@ -482,6 +486,7 @@ Route::prefix('v1')->group(function () {
         Route::get('per-diem-requests', [PerDiemController::class, 'index']);
         Route::post('per-diem-requests', [PerDiemController::class, 'store']);
         Route::get('per-diem-requests/{perDiemRequest}', [PerDiemController::class, 'show']);
+        Route::get('per-diem-requests/{perDiemRequest}/pdf', [PerDiemController::class, 'pdf']);
         Route::post('per-diem-requests/{perDiemRequest}/approve-team-lead', [PerDiemController::class, 'approveTeamLead']);
         Route::post('per-diem-requests/{perDiemRequest}/reject-team-lead', [PerDiemController::class, 'rejectTeamLead']);
         Route::post('per-diem-requests/{perDiemRequest}/approve', [PerDiemController::class, 'approve']);
