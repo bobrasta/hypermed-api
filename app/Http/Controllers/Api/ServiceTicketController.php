@@ -96,10 +96,15 @@ class ServiceTicketController extends Controller
         unset($data['checklist'], $data['machine_ids']);
 
         $ticket = DB::transaction(function () use ($data, $machineIds, $checklist) {
+            // ServiceTicket::booted()'s created-event safety net already
+            // creates a pending pivot row for $data['machine_id'] (the
+            // first entry) the instant this line runs — firstOrCreate so
+            // this loop doesn't collide with it on the (ticket, machine)
+            // unique constraint for a multi-machine ticket.
             $ticket = ServiceTicket::create($data);
 
             foreach ($machineIds as $id) {
-                $ticket->machinePivots()->create(['machine_id' => $id, 'status' => 'pending']);
+                $ticket->machinePivots()->firstOrCreate(['machine_id' => $id], ['status' => 'pending']);
             }
 
             if ($ticket->type === 'installation') {

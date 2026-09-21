@@ -13,6 +13,29 @@ class ServiceTicket extends Model
     // just the ticket's created_at, no column of its own.
     public const STAGES = ['assigned', 'travelling', 'on_site', 'repair', 'signed_off'];
 
+    // Section 6: ServiceTicketController::store() creates the pivot row(s)
+    // itself, but it isn't the only thing that ever creates a ServiceTicket
+    // — ServiceTicketSeeder (chained from DatabaseSeeder, run manually
+    // against production for demo data on 2026-09-21, after this section's
+    // own migration/backfill had already run) writes rows directly and has
+    // no idea the pivot table exists. Found in production: 24 tickets with
+    // zero service_ticket_machines rows. A model-level guarantee here means
+    // ANY creation path — this seeder, a factory, code not yet written —
+    // can never produce a ticket with no machine list, instead of chasing
+    // down every call site by hand.
+    protected static function booted(): void
+    {
+        static::created(function (ServiceTicket $ticket) {
+            if ($ticket->machine_id && $ticket->machinePivots()->doesntExist()) {
+                $ticket->machinePivots()->create([
+                    'machine_id'   => $ticket->machine_id,
+                    'status'       => $ticket->status === 'resolved' ? 'done' : 'pending',
+                    'completed_at' => $ticket->status === 'resolved' ? $ticket->resolved_at : null,
+                ]);
+            }
+        });
+    }
+
     protected $fillable = [
         'ticket_number', 'machine_id', 'hospital_id', 'ward', 'type',
         'assigned_to', 'status', 'description', 'priority', 'stage',
