@@ -211,6 +211,7 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('machines', MachineController::class);
         Route::post('machines/{machine}/sign-off', [MachineController::class, 'signOff']);
         Route::post('machines/{machine}/allocate', [MachineController::class, 'allocate']);
+        Route::get('machines/{machine}/costs', [MachineController::class, 'costs']);
 
         // Hospitals
         Route::apiResource('hospitals', HospitalController::class);

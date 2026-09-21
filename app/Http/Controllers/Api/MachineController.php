@@ -18,7 +18,7 @@ class MachineController extends Controller
         // big batch once and reveal/filter locally, don't silently truncate.
         $perPage = min($request->integer('per_page', 20), 1000);
         $page    = $request->integer('page', 1);
-        $filters = $request->only(['status', 'hospital_id', 'type', 'model', 'zone']);
+        $filters = $request->only(['status', 'hospital_id', 'type', 'model', 'zone', 'replacement_recommended']);
 
         // Same TTL-cache pattern as DashboardController/HospitalController —
         // was a big chunk of the 2-3s load time on the Machines screen.
@@ -42,11 +42,49 @@ class MachineController extends Controller
                 $zone = $request->zone;
                 $query->whereHas('hospital', fn ($q) => $q->where('zone', $zone));
             }
+            if ($request->boolean('replacement_recommended')) {
+                // Section 12's list badge/filter — a single aggregate query
+                // (not one cost lookup per row) against every machine with a
+                // purchase cost on record.
+                $query->whereIn('id', $this->replacementRecommendedIds());
+            }
 
             return $query->paginate($perPage);
         });
 
         return MachineResource::collection($machines);
+    }
+
+    // Machine IDs whose recorded service cost exceeds the configured
+    // replacement threshold (Section 12) — one grouped aggregate across the
+    // whole fleet, not N+1 per machine.
+    private function replacementRecommendedIds(): array
+    {
+        $thresholdPercent = (float) \App\Models\Setting::get('machine_replacement_threshold_percent', '0.5');
+
+        $partsByMachine = \DB::table('parts_used')
+            ->join('service_tickets', 'service_tickets.id', '=', 'parts_used.ticket_id')
+            ->select('service_tickets.machine_id', \DB::raw('SUM(parts_used.qty * parts_used.unit_cost) as cost'))
+            ->groupBy('service_tickets.machine_id')
+            ->pluck('cost', 'machine_id');
+
+        $travelByMachine = \DB::table('per_diem_lines')
+            ->join('per_diem_requests', 'per_diem_requests.id', '=', 'per_diem_lines.per_diem_request_id')
+            ->join('service_tickets', 'service_tickets.id', '=', 'per_diem_requests.service_ticket_id')
+            ->where('per_diem_requests.status', 'paid')
+            ->select('service_tickets.machine_id', \DB::raw('SUM(per_diem_lines.labor_cost + per_diem_lines.per_diem_cost + per_diem_lines.transport_fare) as cost'))
+            ->groupBy('service_tickets.machine_id')
+            ->pluck('cost', 'machine_id');
+
+        return Machine::whereNotNull('purchase_cost_tsh')->where('purchase_cost_tsh', '>', 0)
+            ->pluck('purchase_cost_tsh', 'id')
+            ->filter(function ($purchaseCostTsh, $machineId) use ($partsByMachine, $travelByMachine, $thresholdPercent) {
+                $total = (int) ($partsByMachine[$machineId] ?? 0) + (int) ($travelByMachine[$machineId] ?? 0);
+
+                return $total > $thresholdPercent * $purchaseCostTsh;
+            })
+            ->keys()
+            ->all();
     }
 
     public function store(Request $request)
@@ -340,5 +378,21 @@ class MachineController extends Controller
             ->get();
 
         return MachineResource::collection($machines);
+    }
+
+    // Section 12: Service Costs tab data (expense history + stats +
+    // viability). "the tab and cost endpoints are visible only to Admin,
+    // Director, CTO and finance roles, enforced server-side."
+    public function costs(Machine $machine, \App\Services\MachineCostService $costs)
+    {
+        $user = request()->user();
+        abort_if(
+            ! $user->hasDirectorAuthority()
+                && ! $user->hasCtoApprovalAuthority()
+                && ! in_array($user->role, ['finance', 'finance_manager'], true),
+            403, 'Access Denied: Service Costs is visible to Admin, Director, CTO and finance roles only.'
+        );
+
+        return response()->json(['data' => $costs->breakdown($machine)]);
     }
 }
