@@ -41,7 +41,38 @@ class ServiceTicketController extends Controller
         // big batch once and reveal/filter locally, don't silently truncate.
         $perPage = min($request->integer('per_page', 20), 1000);
 
-        return ServiceTicketResource::collection($query->latest()->paginate($perPage));
+        // Section 10: "All"/"All Technicians"/"My Assignments" (no single
+        // status filter) need Overdue-then-Open-then-In-Progress-then-
+        // Resolved grouping with priority inside each active group — a
+        // single-status tab (Open/In Progress/Resolved) is already
+        // homogeneous by status, so it just wants newest-first, same as
+        // before. Raw CASE expressions so the ordering happens in the query
+        // itself and pagination stays correct.
+        if ($request->filled('status')) {
+            $query->latest();
+        } else {
+            $query->orderByRaw("
+                CASE status
+                    WHEN 'overdue' THEN 0
+                    WHEN 'open' THEN 1
+                    WHEN 'in_progress' THEN 2
+                    WHEN 'resolved' THEN 3
+                    ELSE 4
+                END ASC
+            ")->orderByRaw("
+                CASE WHEN status = 'resolved' THEN 0 ELSE
+                    CASE priority
+                        WHEN 'critical' THEN 0
+                        WHEN 'high' THEN 1
+                        WHEN 'medium' THEN 2
+                        WHEN 'low' THEN 3
+                        ELSE 4
+                    END
+                END ASC
+            ")->latest();
+        }
+
+        return ServiceTicketResource::collection($query->paginate($perPage));
     }
 
     public function store(Request $request)
