@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Hospital;
+use App\Models\Setting;
 use Illuminate\Database\Seeder;
 
 /**
@@ -15,11 +16,31 @@ use Illuminate\Database\Seeder;
  * (hospital_id set null) rather than being deleted, since those aren't
  * hospital-scoped records.
  *
- * Guarded like the other seeders in this chain -- no-ops once no non-real
- * hospital remains, safe to leave in the deploy chain permanently.
+ * Found 2026-09-22 while adding ImportNationalFacilityRegistrySeeder:
+ * REAL_CODES had silently drifted stale -- 27 genuinely real hospitals
+ * added since this list was last updated (Amana/Chato/Dodoma/Iringa/
+ * Kitete/Lindi/Mt.Meru/Shinyanga/Singida/Temeke RRH and others, several
+ * with real machines/tickets/invoices attached) were NOT in it, so the
+ * next deploy would have deleted all of them, cascading to their data.
+ * This was a live, undetected bug -- the old "no-ops once no non-real
+ * hospital remains" guard only holds if REAL_CODES is exhaustive, and
+ * every hospital added by any means other than editing this list directly
+ * (the UI, another seeder, a migration) silently broke that invariant.
+ *
+ * Fixed at the root instead of just patching REAL_CODES again: this now
+ * runs its deletion logic at most once, ever, via a `hospitals_demo_data_removed`
+ * Setting row. Once it has run successfully, it never re-evaluates "is
+ * this row real" again -- so a future real hospital (via the UI,
+ * ImportNationalFacilityRegistrySeeder's ~13,600 rows, or anything else)
+ * can never be caught by a stale whitelist again. REAL_CODES itself is
+ * left as-is (harmless once this only fires once) rather than expanded,
+ * since expanding it would just recreate the same fragility next time
+ * something new gets added.
  */
 class RemoveDemoDataSeeder extends Seeder
 {
+    private const DONE_FLAG = 'hospitals_demo_data_removed';
+
     /** short_codes produced by RealFacilityImportSeeder -- everything else is demo/test data. */
     private const REAL_CODES = [
         'ARTH', 'BADH', 'BADH2', 'BADH3', 'BADH4', 'BIHC', 'BU', 'BUDC',
@@ -55,14 +76,16 @@ class RemoveDemoDataSeeder extends Seeder
 
     public function run(): void
     {
-        $demo = Hospital::whereNotIn('short_code', self::REAL_CODES)->get();
-
-        if ($demo->isEmpty()) {
+        if (Setting::get(self::DONE_FLAG)) {
             return;
         }
+
+        $demo = Hospital::whereNotIn('short_code', self::REAL_CODES)->get();
 
         foreach ($demo as $hospital) {
             $hospital->delete();
         }
+
+        Setting::set(self::DONE_FLAG, '1');
     }
 }

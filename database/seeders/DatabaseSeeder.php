@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             RealFacilityImportSeeder::class,
             UpdateFacilityCoordinatesSeeder::class,
             ImportGovernmentFacilityCoordinatesSeeder::class,
+            ImportNationalFacilityRegistrySeeder::class,
             RemoveDemoDataSeeder::class,
             ImportDvasOpgCbctSeeder::class,
             NormalizeKilimanjaroDistrictsSeeder::class,
