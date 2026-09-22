@@ -113,7 +113,25 @@ class PerDiemController extends Controller
                 ->diffInDays(\Carbon\Carbon::parse($data['end_date'])) + 1;
         }
 
-        $data['user_id'] = $request->user()->id;
+        $user = $request->user();
+
+        // Section 15.7: "If the requester has no payment profile, block
+        // submission with a clear validation message."
+        $paymentProfile = $user->paymentProfile;
+        abort_if(! $paymentProfile, 422, 'Add your payment details to your profile before submitting a travel plan.');
+
+        // Section 15.2: staff name/designation and payment details are
+        // snapshotted at submission — a later profile change (a new
+        // position, a changed bank account) never alters an
+        // already-submitted plan.
+        $data['user_id'] = $user->id;
+        $data['staff_name_snapshot'] = $user->name;
+        $data['staff_designation_snapshot'] = $user->position?->title ?? ucfirst(str_replace('_', ' ', $user->role));
+        $data['payment_snapshot'] = [
+            'provider'       => $paymentProfile->provider,
+            'account_number' => $paymentProfile->account_number,
+            'account_name'   => $paymentProfile->account_name,
+        ];
         $data['status']  = 'pending_team_lead';
 
         $perDiem = DB::transaction(function () use ($data, $lines) {
@@ -372,7 +390,42 @@ class PerDiemController extends Controller
         abort_if($perDiemRequest->user_id !== $user->id && ! $user->hasTeamLeadAuthority() && ! $user->hasAccountantAuthority(), 403,
             'Not authorised.');
 
-        return $pdfService->perDiemPdf($perDiemRequest)->stream("travel-plan-{$perDiemRequest->id}.pdf");
+        $canSeeFullPayment = $user->id === $perDiemRequest->user_id
+            || $user->hasAccountantAuthority()
+            || $user->hasFinanceApprovalAuthority()
+            || $user->isAdminTier();
+
+        activity()->causedBy($user)->performedOn($perDiemRequest)->log('exported per-diem travel plan as PDF');
+
+        return $pdfService->perDiemPdf($perDiemRequest, $canSeeFullPayment)->stream("travel-plan-{$perDiemRequest->id}.pdf");
+    }
+
+    // Section 15.5/15.8: same ownership/authority gate as show()/pdf() —
+    // "available to the requester, the approvers on that plan, the CTO,
+    // finance and admins." Every export is audit-logged (15.8); account
+    // numbers are never written to the log itself (Section 0/15.8 both
+    // rule out logging payment PII).
+    public function xlsx(Request $request, PerDiemRequest $perDiemRequest, \App\Services\PerDiemXlsxExportService $xlsxService)
+    {
+        $user = $request->user();
+        abort_if($perDiemRequest->user_id !== $user->id && ! $user->hasTeamLeadAuthority() && ! $user->hasAccountantAuthority(), 403,
+            'Not authorised.');
+
+        $canSeeFullPayment = $user->id === $perDiemRequest->user_id
+            || $user->hasAccountantAuthority()
+            || $user->hasFinanceApprovalAuthority()
+            || $user->isAdminTier();
+
+        $spreadsheet = $xlsxService->build($perDiemRequest, $canSeeFullPayment);
+
+        activity()->causedBy($user)->performedOn($perDiemRequest)->log('exported per-diem travel plan as XLSX');
+
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        $filename = $xlsxService->filename($perDiemRequest);
+
+        return response()->streamDownload(function () use ($writer) {
+            $writer->save('php://output');
+        }, $filename, ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
     }
 
     // "The CTO can edit any active plan (not completed, rejected or

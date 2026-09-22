@@ -51,7 +51,7 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
-        return response()->json(['data' => new UserResource($request->user()->load(['position', 'manager']))]);
+        return response()->json(['data' => new UserResource($request->user()->load(['position', 'manager', 'paymentProfile']))]);
     }
 
     public function updateProfile(Request $request)
@@ -86,5 +86,29 @@ class AuthController extends Controller
         $user->update(['password' => $data['new_password']]);
 
         return response()->json(['message' => 'Password changed successfully.']);
+    }
+
+    // Section 15.7: own payment details, editable only by the owner —
+    // full (never masked) here, since this is always a self-view. Used to
+    // pre-fill the Settings screen's payment-profile form and gate
+    // per-diem submission (PerDiemController::store()).
+    public function updatePaymentProfile(Request $request)
+    {
+        $data = $request->validate([
+            'provider'       => ['required', 'string', 'max:255'],
+            'account_number' => ['required', 'string', 'max:255'],
+            'account_name'   => ['required', 'string', 'max:255'],
+        ]);
+
+        $profile = $request->user()->paymentProfile()->updateOrCreate(
+            ['user_id' => $request->user()->id],
+            $data
+        );
+
+        return response()->json(['data' => [
+            'provider'       => $profile->provider,
+            'account_number' => $profile->account_number,
+            'account_name'   => $profile->account_name,
+        ]]);
     }
 }

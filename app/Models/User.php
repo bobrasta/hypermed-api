@@ -96,6 +96,14 @@ class User extends Authenticatable
         return $this->belongsTo(Position::class);
     }
 
+    // Section 15.7: where a staff member's own payment details live —
+    // per-diem submission snapshots this onto the plan (payment_snapshot),
+    // so later profile edits never alter an already-submitted plan.
+    public function paymentProfile()
+    {
+        return $this->hasOne(StaffPaymentProfile::class);
+    }
+
     public function tickets()
     {
         return $this->hasMany(ServiceTicket::class, 'assigned_to');

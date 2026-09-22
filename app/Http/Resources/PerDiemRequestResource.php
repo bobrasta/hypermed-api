@@ -2,6 +2,8 @@
 
 namespace App\Http\Resources;
 
+use App\Models\User;
+use App\Services\PerDiemSignatureBlockService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -13,6 +15,11 @@ class PerDiemRequestResource extends JsonResource
             'id'                          => $this->id,
             'user_id'                     => $this->user_id,
             'user_name'                   => $this->user?->name,
+            // Section 15.2: snapshotted at submission so a later profile
+            // edit never alters an already-submitted plan.
+            'staff_name_snapshot'         => $this->staff_name_snapshot,
+            'staff_designation_snapshot'  => $this->staff_designation_snapshot,
+            'payment_snapshot'            => $this->paymentSnapshotForViewer($request->user()),
             'service_ticket_id'           => $this->service_ticket_id,
             'destination'                 => $this->destination,
             'start_date'                  => $this->start_date?->toDateString(),
@@ -52,6 +59,43 @@ class PerDiemRequestResource extends JsonResource
             'adjustments'                 => PerDiemAdjustmentResource::collection($this->whenLoaded('adjustments')),
             'has_active_edit_grant'       => $this->whenLoaded('editGrants', fn () => $this->editGrants->contains(fn ($g) => $g->isActive())),
             'was_edited'                  => $this->whenLoaded('revisions', fn () => $this->revisions->contains(fn ($r) => $r->status === 'applied')),
+            // Section 15.3/15.6: computed here (not left to each client to
+            // derive separately) so web, Flutter, PDF and XLSX always agree.
+            'summary'                     => $this->whenLoaded('lines', fn () => $this->resource->summary()),
+            'signature_block'             => app(PerDiemSignatureBlockService::class)->build($this->resource),
         ];
+    }
+
+    // Section 15.7/15.8: full account number only to the plan's own
+    // requester, accountant/finance-tier, and admin-tier — everyone else
+    // (e.g. a team lead reviewing for approval) sees the last 4 digits.
+    private function paymentSnapshotForViewer(?User $viewer): ?array
+    {
+        $snapshot = $this->payment_snapshot;
+
+        if (! $snapshot) {
+            return null;
+        }
+
+        $canViewFull = $viewer !== null && (
+            $viewer->id === $this->user_id
+            || $viewer->hasAccountantAuthority()
+            || $viewer->hasFinanceApprovalAuthority()
+            || $viewer->isAdminTier()
+        );
+
+        $accountNumber = (string) ($snapshot['account_number'] ?? '');
+
+        return [
+            'provider'       => $snapshot['provider'] ?? null,
+            'account_number' => $canViewFull ? $accountNumber : $this->maskAccountNumber($accountNumber),
+            'account_name'   => $snapshot['account_name'] ?? null,
+            'masked'         => ! $canViewFull,
+        ];
+    }
+
+    private function maskAccountNumber(string $number): string
+    {
+        return strlen($number) <= 4 ? $number : str_repeat('*', strlen($number) - 4).substr($number, -4);
     }
 }

@@ -107,6 +107,7 @@ Route::prefix('v1')->group(function () {
         Route::get('auth/me', [AuthController::class, 'me']);
         Route::put('auth/profile', [AuthController::class, 'updateProfile']);
         Route::post('auth/change-password', [AuthController::class, 'changePassword']);
+        Route::put('auth/payment-profile', [AuthController::class, 'updatePaymentProfile']);
 
         // Global search — cross-entity, permission-filtered
         Route::get('search', [SearchController::class, 'index']);
@@ -487,6 +488,7 @@ Route::prefix('v1')->group(function () {
         Route::post('per-diem-requests', [PerDiemController::class, 'store']);
         Route::get('per-diem-requests/{perDiemRequest}', [PerDiemController::class, 'show']);
         Route::get('per-diem-requests/{perDiemRequest}/pdf', [PerDiemController::class, 'pdf']);
+        Route::get('per-diem-requests/{perDiemRequest}/xlsx', [PerDiemController::class, 'xlsx']);
         Route::post('per-diem-requests/{perDiemRequest}/approve-team-lead', [PerDiemController::class, 'approveTeamLead']);
         Route::post('per-diem-requests/{perDiemRequest}/reject-team-lead', [PerDiemController::class, 'rejectTeamLead']);
         Route::post('per-diem-requests/{perDiemRequest}/approve', [PerDiemController::class, 'approve']);

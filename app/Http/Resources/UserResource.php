@@ -40,6 +40,15 @@ class UserResource extends JsonResource
             'tin_number'   => $this->tin_number,
             'nida_number'  => $this->nida_number,
             'biometric_id' => $this->biometric_id,
+            // Section 15.7: always a self-view (auth/me), so the full
+            // account number is fine here — masking only applies when
+            // someone ELSE views a plan's payment_snapshot (see
+            // PerDiemRequestResource::paymentSnapshotForViewer()).
+            'payment_profile' => $this->whenLoaded('paymentProfile', fn () => $this->paymentProfile ? [
+                'provider'       => $this->paymentProfile->provider,
+                'account_number' => $this->paymentProfile->account_number,
+                'account_name'   => $this->paymentProfile->account_name,
+            ] : null),
             'current_task' => $this->whenLoaded('currentTask', function () {
                 return $this->currentTask
                     ? ['id' => $this->currentTask->id, 'title' => $this->currentTask->ticket_number . ' — ' . $this->currentTask->description]

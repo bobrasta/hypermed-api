@@ -96,16 +96,21 @@ class DocumentPdfService
     // directly (not a pre-shaped array like hrReportPdf) since there's no
     // separate report-building step — the plan's own current state and
     // relations are the whole document.
-    public function perDiemPdf(\App\Models\PerDiemRequest $perDiemRequest): PdfInstance
+    public function perDiemPdf(\App\Models\PerDiemRequest $perDiemRequest, bool $viewerCanSeeFullPayment = false): PdfInstance
     {
         $perDiemRequest->loadMissing([
-            'user', 'lines', 'reviewer', 'teamLeadReviewer', 'paidBy',
+            'user', 'lines', 'reviewer', 'teamLeadReviewer', 'paymentInitiatedBy', 'paidBy',
             'revisions.editor', 'adjustments.createdBy',
         ]);
 
+        // Section 15.4/15.5: same layout, order and computed numbers as
+        // the XLSX export and in-app viewer, so the three never disagree.
         return Pdf::loadView('pdf.per_diem', [
-            'plan'    => $perDiemRequest,
-            'company' => config('company'),
+            'plan'             => $perDiemRequest,
+            'company'          => config('company'),
+            'summary'          => $perDiemRequest->summary(),
+            'signatureBlock'   => app(PerDiemSignatureBlockService::class)->build($perDiemRequest),
+            'canSeeFullPayment' => $viewerCanSeeFullPayment,
         ])->setPaper('a4');
     }
 
