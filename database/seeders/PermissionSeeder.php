@@ -289,7 +289,15 @@ class PermissionSeeder extends Seeder
             'finance_manager' => ['dashboard', 'revenue', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'finance'         => ['dashboard', 'revenue', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'cs'              => ['dashboard', 'customers', 'service', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
-            'storekeeper'     => ['dashboard', 'inventory', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            // 'machines' added 2026-09-22 — storekeeper has held
+            // machines.receive/allocate authority since Section 13 shipped
+            // but had no screens.machines grant, so no nav path to reach
+            // it at all. This source list only applies to a fresh seed —
+            // an already-seeded DB needs the migration backfill too (see
+            // 2026_09_22_*_grant_machines_screen_to_storekeeper.php),
+            // since seedScreenPermissions() early-returns once
+            // screens.notifications already exists.
+            'storekeeper'     => ['dashboard', 'machines', 'inventory', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             // No 'staff' (the task-assignment board) — that's Operations' job.
             'hr'              => [
                 'dashboard', 'my_leave', 'hr_dashboard', 'hr_directory', 'hr_recruitment',
