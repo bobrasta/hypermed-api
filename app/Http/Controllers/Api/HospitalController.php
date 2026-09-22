@@ -19,6 +19,11 @@ class HospitalController extends Controller
         // thousands (national facility registry import), so a combobox
         // backing it must never assume the full list is cheap to hold client
         // side — see hypermed_claude_code_prompt.md Section 4.
+        //
+        // A caller that also sends `page` (only the paginated Hospitals
+        // browse screen's search box does — no combobox ever sends `page`)
+        // gets a real paginate() with meta instead of a bare capped list, so
+        // searching within that screen doesn't silently lose its page count.
         if ($request->filled('q')) {
             $perPage = min($request->integer('per_page', 20), 50);
             $q       = trim((string) $request->string('q'));
@@ -39,15 +44,29 @@ class HospitalController extends Controller
             if ($request->filled('zone')) {
                 $query->where('zone', $request->zone);
             }
+            if ($request->boolean('has_machines')) {
+                $query->where('machine_count', '>', 0);
+            }
+
+            if ($request->filled('page')) {
+                return HospitalResource::collection($query->paginate($perPage));
+            }
 
             return HospitalResource::collection($query->limit($perPage)->get());
         }
 
         // See InventoryController::index() — same reasoning: callers load a
         // big batch once and reveal/filter locally, don't silently truncate.
+        //
+        // has_machines=1 restricts to real client facilities (machine_count
+        // > 0) — added 2026-09-22 alongside the ~13,600-row national facility
+        // registry import. Fleet views (the map, the admin dashboard's fleet
+        // panel, revenue-by-hospital) only ever meant "our client sites" by
+        // "hospitals" before that import; without this filter they'd now
+        // also load thousands of prospect rows with no machines or revenue.
         $perPage = min($request->integer('per_page', 20), 1000);
         $page    = $request->integer('page', 1);
-        $filters = $request->only(['type', 'region', 'zone']);
+        $filters = $request->only(['type', 'region', 'zone', 'has_machines']);
 
         // Same TTL-cache pattern as DashboardController — this list barely
         // changes between requests, and was a big chunk of the 2-3s load
@@ -64,6 +83,9 @@ class HospitalController extends Controller
             }
             if ($request->filled('zone')) {
                 $query->where('zone', $request->zone);
+            }
+            if ($request->boolean('has_machines')) {
+                $query->where('machine_count', '>', 0);
             }
 
             return $query->paginate($perPage);
