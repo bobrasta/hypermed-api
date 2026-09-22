@@ -323,6 +323,36 @@ class User extends Authenticatable
         return app(EffectivePermissionResolver::class)->can($this, 'machines.receive');
     }
 
+    // PurchaseOrderController::index()/show() had no gate at all — any
+    // authenticated user (a technician, a CS rep) could list every PO
+    // including supplier/cost data, or view any single one. Reuses the
+    // union of the two screen keys that actually govern where a PO
+    // list/detail is reachable from today (Inventory's Purchase Orders
+    // tab, Approvals' PO tab) rather than re-deriving a narrower
+    // procurement-permission list — cto and team_leader have real,
+    // working read access via those screens without holding any
+    // procurement.* permission, same reasoning as
+    // hasRevenueViewAuthority() above ("the screen key is the boundary
+    // that actually matches who should see this data"). Also includes
+    // the procurement-domain authorities directly: every role that
+    // already reaches a PO screen holds one of these two screen keys
+    // today (confirmed against live role_has_permissions), so this is
+    // belt-and-suspenders for the read gate specifically — but
+    // sales_manager holds procurement.approve_po_sales_stage without
+    // screens.approvals (a separate, pre-existing nav gap), so without
+    // this a role that can approve a PO stage couldn't read the PO it's
+    // approving.
+    public function hasPurchaseOrderReadAuthority(): bool
+    {
+        return $this->hasProcurementCreateAuthority()
+            || $this->hasProcurementSalesStageAuthority()
+            || $this->hasAccountantAuthority()
+            || $this->hasLogisticsReceiveAuthority()
+            || $this->hasDirectorAuthority()
+            || app(EffectivePermissionResolver::class)->can($this, 'screens.inventory')
+            || app(EffectivePermissionResolver::class)->can($this, 'screens.approvals');
+    }
+
     public function hasMachineAllocateAuthority(): bool
     {
         return app(EffectivePermissionResolver::class)->can($this, 'machines.allocate');

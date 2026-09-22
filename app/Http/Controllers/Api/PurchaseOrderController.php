@@ -37,6 +37,8 @@ class PurchaseOrderController extends Controller
 
     public function index(Request $request)
     {
+        abort_if(! $request->user()->hasPurchaseOrderReadAuthority(), 403, 'Not authorised.');
+
         $pos = PurchaseOrder::with(self::RELATIONS)
             ->when($request->status,      fn ($q, $s) => $q->where('status', $s))
             ->when($request->supplier_id, fn ($q, $id) => $q->where('supplier_id', $id))
@@ -110,8 +112,10 @@ class PurchaseOrderController extends Controller
         });
     }
 
-    public function show(PurchaseOrder $purchaseOrder)
+    public function show(Request $request, PurchaseOrder $purchaseOrder)
     {
+        abort_if(! $request->user()->hasPurchaseOrderReadAuthority(), 403, 'Not authorised.');
+
         $purchaseOrder->load([...self::RELATIONS, 'requisition']);
 
         return response()->json(['data' => $purchaseOrder]);
