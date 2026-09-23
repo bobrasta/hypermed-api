@@ -43,6 +43,17 @@ class NotificationTemplateSeeder extends Seeder
                 "Your expense '{expense_name}' was rejected.{reason_suffix}",
                 'Requester — their expense was rejected'],
 
+            // ── Section 16: vendor fees ──────────────────────────────────
+            ['vendor_fee.ready_for_payment', 'vendor_fee_ready_for_payment', 'Vendor Fee Ready for Payment',
+                "A vendor fee for {vendor_name} (TZS {billed_amount}) is ready for payment approval.",
+                'Director — a vendor fee has been submitted for payment'],
+            ['vendor_fee.paid', 'vendor_fee_paid', 'Vendor Fee Paid',
+                "The {vendor_name} fee (TZS {billed_amount}) you recorded has been paid.",
+                'Creator — a vendor fee they recorded has been paid'],
+            ['vendor_fee.rejected', 'vendor_fee_rejected', 'Vendor Fee Rejected',
+                "The {vendor_name} fee (TZS {billed_amount}) you recorded was rejected.{reason_suffix}",
+                'Creator — a vendor fee they recorded was rejected'],
+
             // ── HR: late arrival, leave, contract/probation alerts ──────
             ['late_arrival.notify_hr', 'late_arrival', 'Running Late',
                 "{name} will be late today{when_suffix}.{reason_suffix}",

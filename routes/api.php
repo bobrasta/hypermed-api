@@ -8,7 +8,11 @@ use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\AdminOverviewController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\DeliveryJobController;
 use App\Http\Controllers\Api\DocumentSequenceController;
+use App\Http\Controllers\Api\ReceiptController;
+use App\Http\Controllers\Api\VendorController;
+use App\Http\Controllers\Api\VendorFeeController;
 use App\Http\Controllers\Api\NotificationTemplateController;
 use App\Http\Controllers\Api\UnifiedDashboardController;
 use App\Http\Controllers\Api\EmailAccountController;
@@ -141,6 +145,19 @@ Route::prefix('v1')->group(function () {
         Route::post('expenses/{expense}/mark-paid', [ExpenseController::class, 'markPaid']);
         Route::post('expenses/{expense}/stop-recurring', [ExpenseController::class, 'stopRecurring']);
         Route::apiResource('expenses', ExpenseController::class);
+
+        // Section 16: transit/delivery vendor fees
+        Route::apiResource('vendors', VendorController::class)->only(['index', 'show', 'store', 'update']);
+        Route::post('delivery-jobs/{deliveryJob}/delivery-note', [DeliveryJobController::class, 'uploadDeliveryNote']);
+        Route::apiResource('delivery-jobs', DeliveryJobController::class)->only(['index', 'show', 'store']);
+        Route::post('vendor-fees/{vendorFee}/receipts', [ReceiptController::class, 'store']);
+        Route::post('vendor-fees/{vendorFee}/receipts/{receipt}/verify', [ReceiptController::class, 'verify']);
+        Route::delete('vendor-fees/{vendorFee}/receipts/{receipt}', [ReceiptController::class, 'destroy']);
+        Route::post('vendor-fees/{vendorFee}/submit-for-payment', [VendorFeeController::class, 'submitForPayment']);
+        Route::post('vendor-fees/{vendorFee}/approve', [VendorFeeController::class, 'approve']);
+        Route::post('vendor-fees/{vendorFee}/reject', [VendorFeeController::class, 'reject']);
+        Route::apiResource('vendor-fees', VendorFeeController::class)->only(['index', 'show', 'store']);
+
         Route::get('settings', [SettingController::class, 'index']);
         Route::put('settings/{key}', [SettingController::class, 'update']);
 

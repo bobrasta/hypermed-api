@@ -65,6 +65,7 @@ class User extends Authenticatable
         'manager_id', 'position_id', 'gender', 'hire_date',
         'next_of_kin_name', 'next_of_kin_phone', 'next_of_kin_relationship',
         'nssf_number', 'tin_number', 'nida_number', 'biometric_id',
+        'vendor_id',
     ];
 
     protected $hidden = ['password', 'remember_token'];
@@ -400,6 +401,19 @@ class User extends Authenticatable
     public function leaveRequests()
     {
         return $this->hasMany(LeaveRequest::class);
+    }
+
+    public function vendor()
+    {
+        return $this->belongsTo(Vendor::class);
+    }
+
+    // vendor_staff never holds a screens.* permission (Section 16.6 #1) —
+    // scoped purely to their own vendor_id in VendorFeeController/
+    // ReceiptController/DeliveryJobController, not the internal app's nav.
+    public function isVendorStaff(): bool
+    {
+        return $this->role === 'vendor_staff';
     }
 
     public function contracts()
