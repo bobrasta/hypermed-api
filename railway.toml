@@ -29,7 +29,20 @@ builder = "nixpacks"
 # generic fallback message rather than a 500 if a template row is missing,
 # but every notification would show that fallback instead of real wording
 # until someone remembered to seed it by hand. Also self-guards.
-startCommand = "php artisan config:cache && php artisan route:cache && php artisan migrate --force && php artisan db:seed --class=PermissionSeeder --force && php artisan db:seed --class=TestAccessControlSeeder --force && php artisan db:seed --class=RealFacilityImportSeeder --force && php artisan db:seed --class=UpdateFacilityCoordinatesSeeder --force && php artisan db:seed --class=ImportGovernmentFacilityCoordinatesSeeder --force && php artisan db:seed --class=ImportNationalFacilityRegistrySeeder --force && php artisan db:seed --class=RemoveDemoDataSeeder --force && php artisan db:seed --class=ImportDvasOpgCbctSeeder --force && php artisan db:seed --class=NormalizeKilimanjaroDistrictsSeeder --force && php artisan db:seed --class=FlowDepartmentSeeder --force && php artisan db:seed --class=DocumentSequenceSeeder --force && php artisan db:seed --class=NotificationTemplateSeeder --force && (php artisan schedule:work &) && php artisan serve --host=0.0.0.0 --port=$PORT"
+#
+# `storage:link` (--force since every deploy is a genuinely fresh
+# container filesystem — public/storage never already exists at start,
+# unlike the seeders above) creates the public/storage -> storage/app/public
+# symlink. Never run anywhere in this deploy pipeline before — every file
+# upload this app has ever shipped (ticket attachments, service reports,
+# vendor receipts, delivery notes, and now avatars) has been writing real
+# files to storage/app/public and returning a public URL for them, but
+# without this symlink that URL 404s: public/storage was just an empty
+# directory, not a link to where the files actually are. Paired with the
+# new persistent volume mounted at storage/app/public (previously
+# ephemeral — wiped on every deploy) so uploads now both persist AND are
+# actually reachable at the URL the app hands back.
+startCommand = "php artisan config:cache && php artisan route:cache && php artisan storage:link --force && php artisan migrate --force && php artisan db:seed --class=PermissionSeeder --force && php artisan db:seed --class=TestAccessControlSeeder --force && php artisan db:seed --class=RealFacilityImportSeeder --force && php artisan db:seed --class=UpdateFacilityCoordinatesSeeder --force && php artisan db:seed --class=ImportGovernmentFacilityCoordinatesSeeder --force && php artisan db:seed --class=ImportNationalFacilityRegistrySeeder --force && php artisan db:seed --class=RemoveDemoDataSeeder --force && php artisan db:seed --class=ImportDvasOpgCbctSeeder --force && php artisan db:seed --class=NormalizeKilimanjaroDistrictsSeeder --force && php artisan db:seed --class=FlowDepartmentSeeder --force && php artisan db:seed --class=DocumentSequenceSeeder --force && php artisan db:seed --class=NotificationTemplateSeeder --force && (php artisan schedule:work &) && php artisan serve --host=0.0.0.0 --port=$PORT"
 healthcheckPath = "/up"
 healthcheckTimeout = 30
 restartPolicyType = "on_failure"
