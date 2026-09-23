@@ -18,7 +18,10 @@ class LateArrivalController extends Controller
 
         $query = LateArrival::with('user');
 
-        if ($user->hasHrAuthority()) {
+        // Same self-scoping guarantee as LeaveController::index() — mine=1
+        // forces self-scoping even for hr/admin callers, regardless of
+        // whether user_id was also passed.
+        if ($user->hasHrAuthority() && ! $request->boolean('mine')) {
             if ($request->filled('user_id')) {
                 $query->where('user_id', $request->user_id);
             }

@@ -20,7 +20,11 @@ class LeaveController extends Controller
 
         $query = LeaveRequest::with(['user', 'reviewer', 'leaveType']);
 
-        if ($user->hasHrAuthority()) {
+        // mine=1 forces self-scoping even for hr/admin callers, regardless
+        // of user_id — this is what "My Leave" screens send, so a caller
+        // never has to be trusted to pass its own id correctly to avoid
+        // seeing the whole company's leave requests.
+        if ($user->hasHrAuthority() && ! $request->boolean('mine')) {
             if ($request->filled('user_id')) {
                 $query->where('user_id', $request->user_id);
             }
