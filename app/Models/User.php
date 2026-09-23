@@ -65,7 +65,7 @@ class User extends Authenticatable
         'manager_id', 'position_id', 'gender', 'hire_date',
         'next_of_kin_name', 'next_of_kin_phone', 'next_of_kin_relationship',
         'nssf_number', 'tin_number', 'nida_number', 'biometric_id',
-        'vendor_id',
+        'vendor_id', 'avatar_path',
     ];
 
     protected $hidden = ['password', 'remember_token'];

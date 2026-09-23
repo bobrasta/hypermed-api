@@ -90,6 +90,10 @@ class PerformanceController extends Controller
             ->where('confirmed_at', '>=', $startOfMonth)
             ->sum('commission_amount');
 
+        // Career totals for the profile page's header stat strip — real
+        // aggregates, same reasoning as myField()'s all-time additions.
+        $wonLeads = SalesLead::where('assigned_to', $user->id)->where('stage', 'won');
+
         return [
             'pipeline_value' => $pipelineValue,
             'open_leads' => $leads->count(),
@@ -99,11 +103,26 @@ class PerformanceController extends Controller
             'monthly_chart' => $months,
             'accept_rate' => $totalSent6m > 0 ? round($totalAccepted6m / $totalSent6m * 100) : 0,
             'commission_mtd' => $commissionMtd,
+            'deals_won_all_time' => (clone $wonLeads)->count(),
+            'accounts_served' => (clone $wonLeads)->whereNotNull('hospital_id')->distinct()->count('hospital_id'),
         ];
     }
 
     private function myField(User $user, Carbon $startOfMonth): array
     {
+        // All-time counterparts to the monthly figures below — used for the
+        // profile page's header stat strip, which shows career totals
+        // rather than this month's activity. Real aggregates, not
+        // fabricated: no first-time-fix concept exists in the schema (no
+        // repeat-visit/reopened flag on ServiceTicket), so that number from
+        // the original design mock is deliberately left out rather than
+        // invented.
+        $hospitalsServed = Machine::where('installed_by', $user->id)->whereNotNull('hospital_id')
+            ->distinct()->pluck('hospital_id')
+            ->merge(ServiceTicket::where('assigned_to', $user->id)->whereNotNull('hospital_id')
+                ->distinct()->pluck('hospital_id'))
+            ->unique()->count();
+
         return [
             'machines_installed_this_month' => Machine::where('installed_by', $user->id)
                 ->where('installed_at', '>=', $startOfMonth)->count(),
@@ -111,6 +130,10 @@ class PerformanceController extends Controller
                 ->where('status', 'resolved')->where('resolved_at', '>=', $startOfMonth)->count(),
             'tickets_open' => ServiceTicket::where('assigned_to', $user->id)
                 ->whereIn('status', ['open', 'in_progress'])->count(),
+            'machines_installed_all_time' => Machine::where('installed_by', $user->id)->count(),
+            'tickets_resolved_all_time' => ServiceTicket::where('assigned_to', $user->id)
+                ->where('status', 'resolved')->count(),
+            'hospitals_served' => $hospitalsServed,
         ];
     }
 

@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Storage;
 
 class UserResource extends JsonResource
 {
@@ -24,6 +25,9 @@ class UserResource extends JsonResource
             'avail_status' => $this->avail_status,
             'workload'     => $this->workload ?? 0.0,
             'initials'     => $initials,
+            // Falls back to null (client shows the initials avatar) until a
+            // real photo is uploaded via POST /auth/avatar.
+            'avatar_url'   => $this->avatar_path ? Storage::disk('public')->url($this->avatar_path) : null,
             'is_active'    => $this->is_active,
             'max_discount_percent' => $this->max_discount_percent,
             'commission_percent'   => $this->commission_percent,
@@ -31,6 +35,7 @@ class UserResource extends JsonResource
             'manager_name'        => $this->whenLoaded('manager', fn () => $this->manager?->name),
             'position_id'         => $this->position_id,
             'position_title'      => $this->whenLoaded('position', fn () => $this->position?->title),
+            'position_department' => $this->whenLoaded('position', fn () => $this->position?->department),
             'gender'              => $this->gender,
             'hire_date'           => $this->hire_date?->toDateString(),
             'next_of_kin_name'         => $this->next_of_kin_name,

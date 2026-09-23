@@ -7,6 +7,7 @@ use App\Http\Resources\UserResource;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -61,9 +62,42 @@ class AuthController extends Controller
         $data = $request->validate([
             'name'  => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email,' . $user->id],
+            // Phone was HR-managed only until now — self-service editing
+            // added for the profile redesign, same field, same column.
+            'phone' => ['nullable', 'string', 'max:50'],
         ]);
 
         $user->update($data);
+
+        return response()->json(['data' => new UserResource($user)]);
+    }
+
+    public function updateAvatar(Request $request)
+    {
+        $user = $request->user();
+
+        $data = $request->validate([
+            'file' => ['required', 'file', 'mimes:jpg,jpeg,png', 'max:5120'],
+        ]);
+
+        if ($user->avatar_path) {
+            Storage::disk('public')->delete($user->avatar_path);
+        }
+
+        $path = $data['file']->store('avatars', 'public');
+        $user->update(['avatar_path' => $path]);
+
+        return response()->json(['data' => new UserResource($user)]);
+    }
+
+    public function deleteAvatar(Request $request)
+    {
+        $user = $request->user();
+
+        if ($user->avatar_path) {
+            Storage::disk('public')->delete($user->avatar_path);
+            $user->update(['avatar_path' => null]);
+        }
 
         return response()->json(['data' => new UserResource($user)]);
     }

@@ -112,6 +112,8 @@ Route::prefix('v1')->group(function () {
         Route::put('auth/profile', [AuthController::class, 'updateProfile']);
         Route::post('auth/change-password', [AuthController::class, 'changePassword']);
         Route::put('auth/payment-profile', [AuthController::class, 'updatePaymentProfile']);
+        Route::post('auth/avatar', [AuthController::class, 'updateAvatar']);
+        Route::delete('auth/avatar', [AuthController::class, 'deleteAvatar']);
 
         // Global search — cross-entity, permission-filtered
         Route::get('search', [SearchController::class, 'index']);
