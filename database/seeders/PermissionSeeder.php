@@ -264,6 +264,10 @@ class PermissionSeeder extends Seeder
             // Section 7: technician self-service — own service/installation
             // reports, own per-diem/travel-plan submissions.
             'my_service_reports', 'my_travel_plans',
+            // Section 16: Vendor Fees screen (Vendor Fees/Delivery Jobs/
+            // Vendors registry, gated as one screen key like 'finance' or
+            // 'inventory' already are).
+            'vendor_fees',
         ];
 
         $roles = Role::whereIn('name', User::ROLES)->get()->keyBy('name');
@@ -286,8 +290,8 @@ class PermissionSeeder extends Seeder
             'team_leader'     => ['dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'sales_manager'   => ['dashboard', 'machines', 'detail', 'sales', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'sales'           => ['dashboard', 'machines', 'detail', 'sales', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
-            'finance_manager' => ['dashboard', 'revenue', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
-            'finance'         => ['dashboard', 'revenue', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'finance_manager' => ['dashboard', 'revenue', 'finance', 'vendor_fees', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'finance'         => ['dashboard', 'revenue', 'finance', 'vendor_fees', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'cs'              => ['dashboard', 'customers', 'service', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             // 'machines' added 2026-09-22 — storekeeper has held
             // machines.receive/allocate authority since Section 13 shipped
@@ -304,11 +308,11 @@ class PermissionSeeder extends Seeder
                 'hr_leave_calendar', 'hr_attendance', 'hr_payroll', 'hr_approvals',
                 'hr_reports', 'hr_settings', 'reports', 'settings', 'notifications',
             ],
-            'procurement_manager' => ['dashboard', 'approvals', 'inventory', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'procurement_manager' => ['dashboard', 'approvals', 'inventory', 'vendor_fees', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             // No 'staff' (the task-assignment board) — accountant handles
             // payments, not staff task assignment.
-            'accountant'      => ['dashboard', 'approvals', 'revenue', 'finance', 'my_leave', 'reports', 'settings', 'notifications'],
-            'logistics'       => ['dashboard', 'inventory', 'sales', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'accountant'      => ['dashboard', 'approvals', 'revenue', 'finance', 'vendor_fees', 'my_leave', 'reports', 'settings', 'notifications'],
+            'logistics'       => ['dashboard', 'inventory', 'sales', 'vendor_fees', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
         ];
 
         foreach ($grants as $roleName => $keys) {
