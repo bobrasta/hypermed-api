@@ -63,7 +63,9 @@ class DeliveryJobController extends Controller
             $query->where('status', $request->status);
         }
 
-        return response()->json(['data' => $query->latest()->paginate(50)->through(fn ($j) => $this->fmt($j))]);
+        // Same shape fix as VendorFeeController::index() — return the
+        // paginator directly so 'data' is a flat list, not double-nested.
+        return $query->latest()->paginate(50)->through(fn ($j) => $this->fmt($j));
     }
 
     public function show(Request $request, DeliveryJob $deliveryJob)

@@ -108,7 +108,12 @@ class VendorFeeController extends Controller
             $query->where('status', $request->status);
         }
 
-        return response()->json(['data' => $query->latest()->paginate(50)->through(fn ($f) => $this->fmt($f))]);
+        // Returning the paginator directly (not wrapped in another
+        // ['data' => ...]) — Laravel serializes it to a flat
+        // {current_page, data: [...], last_page, ...} at the top level,
+        // which is what unwrapList() on both Flutter and hypermed-web
+        // expect. Wrapping it again would double-nest 'data'.
+        return $query->latest()->paginate(50)->through(fn ($f) => $this->fmt($f));
     }
 
     public function show(Request $request, VendorFee $vendorFee)
