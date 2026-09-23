@@ -46,14 +46,21 @@ class DeliveryJobController extends Controller
 
     public function index(Request $request)
     {
-        $this->assertOpsAccess($request);
-
+        $user = $request->user();
         $query = DeliveryJob::with(['vendor', 'destinationHospital', 'fee']);
+
+        if ($user->isVendorStaff()) {
+            // Forced, not filtered — same reasoning as VendorFeeController.
+            $query->where('vendor_id', $user->vendor_id);
+        } else {
+            $this->assertOpsAccess($request);
+            if ($request->filled('vendor_id')) {
+                $query->where('vendor_id', $request->vendor_id);
+            }
+        }
+
         if ($request->filled('status')) {
             $query->where('status', $request->status);
-        }
-        if ($request->filled('vendor_id')) {
-            $query->where('vendor_id', $request->vendor_id);
         }
 
         return response()->json(['data' => $query->latest()->paginate(50)->through(fn ($j) => $this->fmt($j))]);
@@ -61,7 +68,12 @@ class DeliveryJobController extends Controller
 
     public function show(Request $request, DeliveryJob $deliveryJob)
     {
-        $this->assertOpsAccess($request);
+        $user = $request->user();
+        if ($user->isVendorStaff()) {
+            abort_if($deliveryJob->vendor_id !== $user->vendor_id, 403, 'You can only view your own vendor\'s jobs.');
+        } else {
+            $this->assertOpsAccess($request);
+        }
 
         return response()->json(['data' => $this->fmt($deliveryJob)]);
     }

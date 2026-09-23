@@ -16,7 +16,10 @@ class VendorFeeController extends Controller
 {
     // Same "who'd plausibly touch this" set as VendorController — vendor
     // fees are created/managed by the same procurement/logistics/finance
-    // staff who'd already see the vendor registry.
+    // staff who'd already see the vendor registry. vendor_staff never
+    // passes this — it gets its own strictly-scoped read path below instead
+    // (the portal it uses to know what to upload against, not general
+    // fee-browsing authority).
     private function assertOpsAccess(Request $request): void
     {
         $user = $request->user();
@@ -86,14 +89,23 @@ class VendorFeeController extends Controller
 
     public function index(Request $request)
     {
-        $this->assertOpsAccess($request);
-
+        $user = $request->user();
         $query = VendorFee::with(['vendor', 'deliveryJob', 'receipts']);
+
+        if ($user->isVendorStaff()) {
+            // Forced, not just filtered — a vendor_staff caller can never
+            // see another vendor's fees, regardless of what vendor_id it
+            // sends. Mirrors LeaveController's mine=1 fix from earlier.
+            $query->where('vendor_id', $user->vendor_id);
+        } else {
+            $this->assertOpsAccess($request);
+            if ($request->filled('vendor_id')) {
+                $query->where('vendor_id', $request->vendor_id);
+            }
+        }
+
         if ($request->filled('status')) {
             $query->where('status', $request->status);
-        }
-        if ($request->filled('vendor_id')) {
-            $query->where('vendor_id', $request->vendor_id);
         }
 
         return response()->json(['data' => $query->latest()->paginate(50)->through(fn ($f) => $this->fmt($f))]);
@@ -101,7 +113,12 @@ class VendorFeeController extends Controller
 
     public function show(Request $request, VendorFee $vendorFee)
     {
-        $this->assertOpsAccess($request);
+        $user = $request->user();
+        if ($user->isVendorStaff()) {
+            abort_if($vendorFee->vendor_id !== $user->vendor_id, 403, 'You can only view your own vendor\'s fees.');
+        } else {
+            $this->assertOpsAccess($request);
+        }
 
         return response()->json(['data' => $this->fmt($vendorFee)]);
     }
