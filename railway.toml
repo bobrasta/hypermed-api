@@ -42,7 +42,16 @@ builder = "nixpacks"
 # new persistent volume mounted at storage/app/public (previously
 # ephemeral — wiped on every deploy) so uploads now both persist AND are
 # actually reachable at the URL the app hands back.
-startCommand = "php artisan config:cache && php artisan route:cache && php artisan storage:link --force && php artisan migrate --force && php artisan db:seed --class=PermissionSeeder --force && php artisan db:seed --class=TestAccessControlSeeder --force && php artisan db:seed --class=RealFacilityImportSeeder --force && php artisan db:seed --class=UpdateFacilityCoordinatesSeeder --force && php artisan db:seed --class=ImportGovernmentFacilityCoordinatesSeeder --force && php artisan db:seed --class=ImportNationalFacilityRegistrySeeder --force && php artisan db:seed --class=RemoveDemoDataSeeder --force && php artisan db:seed --class=ImportDvasOpgCbctSeeder --force && php artisan db:seed --class=NormalizeKilimanjaroDistrictsSeeder --force && php artisan db:seed --class=FlowDepartmentSeeder --force && php artisan db:seed --class=DocumentSequenceSeeder --force && php artisan db:seed --class=NotificationTemplateSeeder --force && (php artisan schedule:work &) && php artisan serve --host=0.0.0.0 --port=$PORT"
+#
+# The server is PHP's built-in `-S` server started directly, not `artisan
+# serve`: that is exactly what artisan serve runs under the hood (same
+# router script, same public/ working dir, single worker), but artisan
+# serve gives no way to pass ini flags to the child process. Without the
+# -d flags PHP's defaults apply (upload_max_filesize=2M, post_max_size=8M —
+# confirmed live via railway ssh 2026-09-24), so any upload over 2MB (phone
+# photos, scanned receipts, PDF service reports) failed with "The file
+# failed to upload." before Laravel validation ever ran.
+startCommand = "php artisan config:cache && php artisan route:cache && php artisan storage:link --force && php artisan migrate --force && php artisan db:seed --class=PermissionSeeder --force && php artisan db:seed --class=TestAccessControlSeeder --force && php artisan db:seed --class=RealFacilityImportSeeder --force && php artisan db:seed --class=UpdateFacilityCoordinatesSeeder --force && php artisan db:seed --class=ImportGovernmentFacilityCoordinatesSeeder --force && php artisan db:seed --class=ImportNationalFacilityRegistrySeeder --force && php artisan db:seed --class=RemoveDemoDataSeeder --force && php artisan db:seed --class=ImportDvasOpgCbctSeeder --force && php artisan db:seed --class=NormalizeKilimanjaroDistrictsSeeder --force && php artisan db:seed --class=FlowDepartmentSeeder --force && php artisan db:seed --class=DocumentSequenceSeeder --force && php artisan db:seed --class=NotificationTemplateSeeder --force && (php artisan schedule:work &) && cd public && php -d upload_max_filesize=20M -d post_max_size=25M -S 0.0.0.0:$PORT ../vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php"
 healthcheckPath = "/up"
 healthcheckTimeout = 30
 restartPolicyType = "on_failure"
