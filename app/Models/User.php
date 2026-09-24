@@ -65,7 +65,7 @@ class User extends Authenticatable
         'manager_id', 'position_id', 'gender', 'hire_date',
         'next_of_kin_name', 'next_of_kin_phone', 'next_of_kin_relationship',
         'nssf_number', 'tin_number', 'nida_number', 'biometric_id',
-        'vendor_id', 'avatar_path',
+        'vendor_id', 'avatar_path', 'bio', 'qualifications',
     ];
 
     protected $hidden = ['password', 'remember_token'];
@@ -79,6 +79,7 @@ class User extends Authenticatable
             'max_discount_percent' => 'float',
             'commission_percent'   => 'float',
             'hire_date' => 'date',
+            'qualifications' => 'array',
         ];
     }
 

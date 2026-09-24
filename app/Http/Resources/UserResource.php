@@ -28,6 +28,8 @@ class UserResource extends JsonResource
             // Falls back to null (client shows the initials avatar) until a
             // real photo is uploaded via POST /auth/avatar.
             'avatar_url'   => $this->avatar_path ? Storage::disk('public')->url($this->avatar_path) : null,
+            'bio'             => $this->bio,
+            'qualifications'  => $this->qualifications ?? [],
             'is_active'    => $this->is_active,
             'max_discount_percent' => $this->max_discount_percent,
             'commission_percent'   => $this->commission_percent,

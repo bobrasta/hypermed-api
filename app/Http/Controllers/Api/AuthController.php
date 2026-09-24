@@ -65,6 +65,11 @@ class AuthController extends Controller
             // Phone was HR-managed only until now — self-service editing
             // added for the profile redesign, same field, same column.
             'phone' => ['nullable', 'string', 'max:50'],
+            // Self-authored, freeform — a degree, a specialization, a years-
+            // of-experience line, whatever the user wants shown as a badge.
+            'bio'               => ['nullable', 'string', 'max:1000'],
+            'qualifications'    => ['nullable', 'array', 'max:12'],
+            'qualifications.*'  => ['string', 'max:80'],
         ]);
 
         $user->update($data);
