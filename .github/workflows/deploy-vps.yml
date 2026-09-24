@@ -1,0 +1,50 @@
+# Railway-style auto-deploy to the VPS: every push to master goes live.
+# Runs /usr/local/bin/hypermed-deploy on the server through a restricted
+# SSH key (it can only deploy this one app): new release dir, composer,
+# migrations, caches, atomic switch, health check, automatic rollback on
+# failure. Actions tab = deploy history + logs. "Run workflow" also offers a
+# one-click rollback to the previous release.
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: deploy the current master, or roll back to the previous release
+        type: choice
+        options: [deploy, rollback]
+        default: deploy
+
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build front-end assets (welcome page)
+        run: npm install --no-audit --no-fund && npm run build
+      - name: SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_DEPLOY_KEY }}" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          echo "${{ secrets.VPS_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+      - name: Deploy
+        if: github.event_name == 'push' || inputs.action == 'deploy'
+        run: |
+          tar -czf - --exclude=.git --exclude=node_modules --exclude=.github . \
+            | ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes hmdeploy@${{ secrets.VPS_HOST }} "deploy ${{ github.sha }}"
+      - name: Roll back
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'rollback'
+        run: ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes hmdeploy@${{ secrets.VPS_HOST }} rollback
+      - name: Live release
+        if: always()
+        run: ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes hmdeploy@${{ secrets.VPS_HOST }} status || true
