@@ -1,0 +1,7 @@
+APP_ROOT=/home/api.hypermed.co.tz/app
+SITE_USER=apihy7135
+SITE_HOME=/home/api.hypermed.co.tz
+PHP=/usr/local/lsws/lsphp84/bin/php
+HEALTH_URL=https://api.hypermed.co.tz/up
+MIGRATE=1
+QUEUE_SERVICE=hypermed-api-queue

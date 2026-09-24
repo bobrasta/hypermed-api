@@ -1,0 +1,169 @@
+#!/bin/bash
+# hypermed-deploy — Railway-style release deploys for the Hypermed Laravel apps.
+#
+#   hypermed-deploy <app> deploy <sha>   # reads a .tar.gz of the source on stdin
+#   hypermed-deploy <app> rollback       # switch back to the previous release
+#   hypermed-deploy <app> status         # list releases, show the live one
+#
+# <app> is a config in /etc/hypermed-deploy/<app>.conf (APP_ROOT, SITE_USER,
+# PHP, HEALTH_URL, MIGRATE, QUEUE_SERVICE). Layout under APP_ROOT:
+#   releases/<utc-time>-<sha7>/   one dir per deploy (last KEEP kept)
+#   shared/.env, shared/storage/  persisted across releases
+#   current -> releases/...       what's live (the site's public_html points
+#                                 at current/public)
+#
+# Called by GitHub Actions over SSH as the restricted `hmdeploy` user (forced
+# command + a sudoers rule for this script only). Every step runs as the
+# site's own user; root is only used to switch ownership and restart the
+# queue unit. A failed build, migration or health check leaves (or puts back)
+# the previous release live.
+set -euo pipefail
+
+APP="${1:-}"; ACTION="${2:-}"; SHA="${3:-}"
+[[ "$APP" =~ ^[a-z0-9-]+$ ]] || { echo "usage: hypermed-deploy <app> deploy <sha>|rollback|status" >&2; exit 2; }
+CONF="/etc/hypermed-deploy/$APP.conf"
+[ -f "$CONF" ] || { echo "unknown app: $APP" >&2; exit 2; }
+# shellcheck disable=SC1090
+source "$CONF"
+KEEP="${KEEP:-5}"
+REL_DIR="$APP_ROOT/releases"
+SHARED="$APP_ROOT/shared"
+
+log() { printf '\033[1;36m[%s]\033[0m %s\n' "$(date -u +%H:%M:%S)" "$*"; }
+as_site() { runuser -u "$SITE_USER" -- env HOME="$SITE_HOME" COMPOSER_HOME="$SITE_HOME/.composer" "$@"; }
+artisan() { as_site "$PHP" "$1/artisan" "${@:2}"; }
+
+reload_php() {
+  # OpenLiteSpeed caches each directory's .htaccess (Laravel's rewrite rules)
+  # by real path, and lsphp workers cache compiled code — neither notices the
+  # `current` symlink moving. A graceful restart (in-flight requests finish,
+  # other sites keep serving) picks up the new release.
+  /usr/local/lsws/bin/lswsctrl restart >/dev/null 2>&1 || pkill -u "$SITE_USER" -f lsphp || true
+  sleep 2
+}
+
+switch_to() {
+  ln -sfn "$1" "$APP_ROOT/current.tmp"
+  mv -Tf "$APP_ROOT/current.tmp" "$APP_ROOT/current"
+  chown -h "$SITE_USER:$SITE_USER" "$APP_ROOT/current"
+  reload_php
+  if [ -n "${QUEUE_SERVICE:-}" ]; then
+    artisan "$1" queue:restart >/dev/null 2>&1 || true
+    systemctl restart "$QUEUE_SERVICE" || true
+  fi
+}
+
+healthy() {
+  local host; host="$(echo "$HEALTH_URL" | sed -E 's#https?://([^/]+).*#\1#')"
+  for _ in 1 2 3 4 5 6; do
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 --resolve "$host:443:127.0.0.1" "$HEALTH_URL" || true)"
+    [ "$code" = "200" ] && return 0
+    sleep 2
+  done
+  echo "health check $HEALTH_URL returned $code" >&2
+  return 1
+}
+
+previous_release() {
+  local live=""; [ -L "$APP_ROOT/current" ] && live="$(readlink -f "$APP_ROOT/current")"
+  ls -1d "$REL_DIR"/*/ 2>/dev/null | sed 's#/$##' | grep -vx "$live" | tail -1
+}
+
+exec 9>"/run/lock/hypermed-deploy-$APP.lock"
+flock -n 9 || { echo "another $APP deploy is running" >&2; exit 3; }
+
+case "$ACTION" in
+status)
+  echo "live: $(readlink -f "$APP_ROOT/current" 2>/dev/null || echo none)"
+  ls -1 "$REL_DIR" 2>/dev/null || true
+  exit 0 ;;
+rollback)
+  prev="$(previous_release)"
+  [ -n "$prev" ] || { echo "no previous release to roll back to" >&2; exit 1; }
+  log "rolling $APP back to $(basename "$prev")"
+  switch_to "$prev"
+  healthy && log "rollback healthy" || { echo "rolled back, but health check still failing" >&2; exit 1; }
+  exit 0 ;;
+deploy) ;;
+*) echo "unknown action: $ACTION" >&2; exit 2 ;;
+esac
+
+[[ "$SHA" =~ ^[0-9a-f]{7,40}$ ]] || { echo "deploy needs a git sha" >&2; exit 2; }
+NEW="$REL_DIR/$(date -u +%Y%m%d-%H%M%S)-${SHA:0:7}"
+# Only a real, existing release counts as "previous" (readlink -f happily
+# returns a path for a missing target, which would make a failed first
+# deploy "restore" current to point at itself).
+PREV=""
+if [ -L "$APP_ROOT/current" ] && [ -d "$(readlink -f "$APP_ROOT/current")" ]; then
+  PREV="$(readlink -f "$APP_ROOT/current")"
+fi
+
+log "deploying $APP @ ${SHA:0:7} -> $(basename "$NEW")"
+mkdir -p "$NEW"
+tar -xzf - -C "$NEW"
+[ -f "$NEW/artisan" ] || { rm -rf "$NEW"; echo "archive has no artisan file" >&2; exit 1; }
+echo "$SHA" > "$NEW/REVISION"
+
+# Shared state: .env and storage/ live outside the release.
+rm -rf "$NEW/storage"
+ln -s "$SHARED/storage" "$NEW/storage"
+ln -sfn "$SHARED/.env" "$NEW/.env"
+# Extra shared dirs served from public/ (e.g. web's desktop-app updates).
+for l in ${SHARED_PUBLIC_LINKS:-}; do
+  mkdir -p "$SHARED/$l"; chown "$SITE_USER:$SITE_USER" "$SHARED/$l"
+  ln -sfn "$SHARED/$l" "$NEW/public/$l"
+done
+chown -R "$SITE_USER:$SITE_USER" "$NEW"
+
+fail() {
+  echo "deploy failed: $*" >&2
+  if [ "${KEEP_FAILED:-0}" = "1" ]; then
+    echo "KEEP_FAILED=1: leaving $(basename "$NEW") in place for inspection" >&2
+    exit 1
+  fi
+  if [ -n "$PREV" ] && [ "$(readlink -f "$APP_ROOT/current")" != "$PREV" ]; then
+    log "restoring previous release $(basename "$PREV")"
+    switch_to "$PREV"
+  elif [ -z "$PREV" ]; then
+    rm -f "$APP_ROOT/current"   # first deploy failed: nothing to fall back to
+  fi
+  rm -rf "$NEW"
+  exit 1
+}
+
+log "composer install"
+# Retried: package downloads come from GitHub/Packagist, which have the
+# occasional 5xx — not a reason to fail a deploy.
+ok=0
+for attempt in 1 2 3; do
+  if as_site "$PHP" /usr/bin/composer install --no-dev --optimize-autoloader --no-interaction --no-progress -d "$NEW"; then ok=1; break; fi
+  log "composer install failed (attempt $attempt), retrying in 10s"; sleep 10
+done
+[ "$ok" = 1 ] || fail "composer install"
+
+if [ "${MIGRATE:-0}" = "1" ]; then
+  log "migrate"
+  artisan "$NEW" migrate --force || fail "migrations"
+fi
+if [ -f "$NEW/deploy/post-deploy.sh" ]; then
+  log "post-deploy hook"
+  as_site env PHP="$PHP" bash "$NEW/deploy/post-deploy.sh" "$NEW" || fail "post-deploy hook"
+fi
+
+log "cache config/routes/views"
+artisan "$NEW" config:cache >/dev/null || fail "config:cache"
+artisan "$NEW" route:cache >/dev/null || fail "route:cache"
+artisan "$NEW" view:cache >/dev/null || fail "view:cache"
+artisan "$NEW" storage:link --force >/dev/null 2>&1 || true
+
+log "switching live release"
+switch_to "$NEW"
+if ! healthy; then
+  fail "health check"
+fi
+
+# Prune old releases (never the live one).
+ls -1d "$REL_DIR"/*/ | sed 's#/$##' | head -n -"$KEEP" | while read -r old; do
+  [ "$old" = "$(readlink -f "$APP_ROOT/current")" ] || rm -rf "$old"
+done
+log "done — $APP is live on ${SHA:0:7}"

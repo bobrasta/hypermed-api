@@ -1,0 +1,15 @@
+#!/bin/bash
+# Forced command for the hmdeploy user's CI keys (see authorized_keys):
+#   command="/usr/local/bin/hypermed-deploy-ssh <app>" <key>
+# The key is pinned to one app; the client may only ask for
+#   deploy <sha>   (source tarball on stdin) | rollback | status
+set -euo pipefail
+APP="$1"
+read -r -a ARGS <<< "${SSH_ORIGINAL_COMMAND:-}"
+ACTION="${ARGS[0]:-}"; SHA="${ARGS[1]:-}"
+case "$ACTION" in
+  deploy)   [[ "$SHA" =~ ^[0-9a-f]{7,40}$ ]] || { echo "bad sha" >&2; exit 2; }
+            exec sudo -n /usr/local/bin/hypermed-deploy "$APP" deploy "$SHA" ;;
+  rollback|status) exec sudo -n /usr/local/bin/hypermed-deploy "$APP" "$ACTION" ;;
+  *) echo "allowed: deploy <sha> | rollback | status" >&2; exit 2 ;;
+esac

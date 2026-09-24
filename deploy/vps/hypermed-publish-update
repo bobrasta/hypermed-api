@@ -1,0 +1,32 @@
+#!/bin/bash
+# Forced command for the desktop-release CI key: reads a tar on stdin with
+# the release files and publishes them to the updates folder served at
+# https://app.hypermed.co.tz/updates. Packages land first, the signed feed
+# last, so no app ever sees a latest.json pointing at a missing file.
+set -euo pipefail
+DEST=/home/app.hypermed.co.tz/app/shared/updates
+STAGE="$(mktemp -d)"; trap 'rm -rf "$STAGE"' EXIT
+tar -xf - -C "$STAGE" --no-same-owner --no-same-permissions
+for f in "$STAGE"/* "$STAGE"/.[!.]*; do
+  [ -e "$f" ] || continue
+  case "$(basename "$f")" in
+    Hypermed-Setup-*.exe|hypermed-*-linux-x64.tar.gz|latest.json|latest.json.sig) [ -f "$f" ] && [ ! -L "$f" ] || { echo "rejected: $(basename "$f")" >&2; exit 2; } ;;
+    *) echo "rejected: $(basename "$f")" >&2; exit 2 ;;
+  esac
+done
+[ -f "$STAGE/latest.json" ] && [ -f "$STAGE/latest.json.sig" ] || { echo "latest.json and latest.json.sig are required" >&2; exit 2; }
+install -d -m 755 "$DEST"
+for f in "$STAGE"/Hypermed-Setup-*.exe "$STAGE"/hypermed-*-linux-x64.tar.gz; do
+  [ -f "$f" ] && install -m 644 "$f" "$DEST/"
+done
+exe="$(ls "$STAGE"/Hypermed-Setup-*.exe 2>/dev/null | head -1 || true)"
+[ -n "$exe" ] && install -m 644 "$exe" "$DEST/Hypermed-Setup-latest.exe.tmp" && mv -f "$DEST/Hypermed-Setup-latest.exe.tmp" "$DEST/Hypermed-Setup-latest.exe"
+install -m 644 "$STAGE/latest.json.sig" "$DEST/latest.json.sig.tmp"
+install -m 644 "$STAGE/latest.json" "$DEST/latest.json.tmp"
+mv -f "$DEST/latest.json.sig.tmp" "$DEST/latest.json.sig"
+mv -f "$DEST/latest.json.tmp" "$DEST/latest.json"
+# Keep the 3 newest versions of each package type.
+ls -1t "$DEST"/Hypermed-Setup-[0-9]*.exe 2>/dev/null | tail -n +4 | xargs -r rm -f
+ls -1t "$DEST"/hypermed-*-linux-x64.tar.gz 2>/dev/null | tail -n +4 | xargs -r rm -f
+chown -R apphy4492:apphy4492 "$DEST"
+echo "published: $(python3 -c "import json;print(json.load(open('$DEST/latest.json'))['version'])")"

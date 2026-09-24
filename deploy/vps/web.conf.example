@@ -1,0 +1,8 @@
+APP_ROOT=/home/app.hypermed.co.tz/app
+SITE_USER=apphy4492
+SITE_HOME=/home/app.hypermed.co.tz
+PHP=/usr/local/lsws/lsphp84/bin/php
+HEALTH_URL=https://app.hypermed.co.tz/up
+MIGRATE=1
+QUEUE_SERVICE=
+SHARED_PUBLIC_LINKS=updates
