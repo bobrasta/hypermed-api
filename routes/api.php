@@ -33,7 +33,10 @@ use App\Http\Controllers\Api\PurchaseRequisitionController;
 use App\Http\Controllers\Api\QuotationController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RevenueController;
+use App\Http\Controllers\Api\SalesActivityController;
 use App\Http\Controllers\Api\SalesLeadController;
+use App\Http\Controllers\Api\SalesOverviewController;
+use App\Http\Controllers\Api\SalesTargetController;
 use App\Http\Controllers\Api\PerformanceController;
 use App\Http\Controllers\Api\ActivityLogController;
 use App\Http\Controllers\Api\TaxRateController;
@@ -122,6 +125,7 @@ Route::prefix('v1')->group(function () {
         Route::get('dashboard', [DashboardController::class, 'index']);
         Route::get('dashboard/inventory', [DashboardController::class, 'inventory']);
         Route::get('dashboard/sales', [DashboardController::class, 'sales']);
+        Route::get('dashboard/sales/overview', [SalesOverviewController::class, 'index']);
         Route::get('dashboard/unified', [UnifiedDashboardController::class, 'index']);
         Route::get('dashboard/admin-overview', [AdminOverviewController::class, 'index']);
 
@@ -271,6 +275,13 @@ Route::prefix('v1')->group(function () {
         // Sales Leads
         Route::patch('leads/{lead}/stage', [SalesLeadController::class, 'updateStage']);
         Route::apiResource('leads', SalesLeadController::class);
+
+        // Sales targets (manager-set, per rep per month) + rep activity log
+        Route::get('sales-targets', [SalesTargetController::class, 'index']);
+        Route::put('sales-targets', [SalesTargetController::class, 'update']);
+        Route::get('sales-activities', [SalesActivityController::class, 'index']);
+        Route::post('sales-activities', [SalesActivityController::class, 'store']);
+        Route::delete('sales-activities/{activity}', [SalesActivityController::class, 'destroy']);
 
         // Performance — universal "my performance" + manager-only team view
         Route::get('performance/mine', [PerformanceController::class, 'mine']);
