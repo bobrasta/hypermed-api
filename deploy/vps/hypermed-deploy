@@ -38,7 +38,12 @@ reload_php() {
   # by real path, and lsphp workers cache compiled code — neither notices the
   # `current` symlink moving. A graceful restart (in-flight requests finish,
   # other sites keep serving) picks up the new release.
-  /usr/local/lsws/bin/lswsctrl restart >/dev/null 2>&1 || pkill -u "$SITE_USER" -f lsphp || true
+  /usr/local/lsws/bin/lswsctrl restart >/dev/null 2>&1 || true
+  # Detached lsphp workers can outlive that restart and keep serving the old
+  # release (seen 2026-09-27: web routes added since the last release 404'd
+  # after a "successful" deploy). Always recycle this site's own workers —
+  # other sites' workers run as other users and are left alone.
+  pkill -u "$SITE_USER" -f lsphp || true
   sleep 2
 }
 
