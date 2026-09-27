@@ -41,12 +41,15 @@ class PeriodCloseService
         $totalExpense = (int) $expenseAccounts->sum('balance');
         $netIncome = $totalRevenue - $totalExpense;
 
+        // A contra account (e.g. 4004 Cancelled Sales) carries a balance
+        // against its normal side, so it closes on the opposite side — a
+        // negative leg amount would be rejected by recordTransaction().
         $entries = [];
         foreach ($revenueAccounts as $account) {
-            $entries[] = ['account_id' => $account->id, 'type' => 'debit', 'amount' => $account->balance];
+            $entries[] = ['account_id' => $account->id, 'type' => $account->balance > 0 ? 'debit' : 'credit', 'amount' => abs($account->balance)];
         }
         foreach ($expenseAccounts as $account) {
-            $entries[] = ['account_id' => $account->id, 'type' => 'credit', 'amount' => $account->balance];
+            $entries[] = ['account_id' => $account->id, 'type' => $account->balance > 0 ? 'credit' : 'debit', 'amount' => abs($account->balance)];
         }
 
         $retainedEarningsId = $this->accounting->accountIdByCode(self::RETAINED_EARNINGS_CODE);

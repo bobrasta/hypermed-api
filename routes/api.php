@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\EmailAccountController;
 use App\Http\Controllers\Api\EmailController;
 use App\Http\Controllers\Api\ExpenseController;
 use App\Http\Controllers\Api\FinanceReportController;
+use App\Http\Controllers\Api\FinancialStatementsController;
 use App\Http\Controllers\Api\FlowController;
 use App\Http\Controllers\Api\HospitalController;
 use App\Http\Controllers\Api\InventoryController;
@@ -199,6 +200,9 @@ Route::prefix('v1')->group(function () {
         Route::get('finance-reports/stock-valuation', [FinanceReportController::class, 'stockValuation']);
         Route::get('finance-reports/cash-flow',     [FinanceReportController::class, 'cashFlow']);
         Route::get('finance-reports/monthly-trend', [FinanceReportController::class, 'monthlyTrend']);
+        Route::get('finance-reports/financial-statements/profile', [FinancialStatementsController::class, 'profile']);
+        Route::put('finance-reports/financial-statements/profile', [FinancialStatementsController::class, 'updateProfile']);
+        Route::get('finance-reports/financial-statements/pdf',     [FinancialStatementsController::class, 'pdf']);
 
         // Bank Reconciliation
         Route::post('bank-reconciliations/{bankReconciliation}/import-statement', [BankReconciliationController::class, 'importStatement']);
