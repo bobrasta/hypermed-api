@@ -195,6 +195,21 @@ class StaffController extends Controller
             abort(422, 'A staff member cannot be their own manager.');
         }
 
+        // Same segregation-of-duty rule as store(): staff.manage alone must
+        // not be a way to promote someone (including yourself) into the
+        // admin tier, nor to edit/demote an existing admin-tier account.
+        $director = $request->user()->hasDirectorAuthority();
+        abort_if(
+            ! $director && isset($data['role']) && in_array($data['role'], User::ADMIN_TIER, true),
+            403,
+            'Only a Director can grant an admin-tier role.',
+        );
+        abort_if(
+            ! $director && $user->isAdminTier(),
+            403,
+            'Only a Director can edit an admin-tier account.',
+        );
+
         // Position changes are a director-level call (org structure), not a
         // routine HR edit — HR can see/manage everything else on this form,
         // but only admin tier can move someone's position. Also covers
@@ -218,6 +233,8 @@ class StaffController extends Controller
     public function destroy(Request $request, User $user)
     {
         abort_if(! $request->user()->hasStaffManageAuthority(), 403, 'You are not authorised to deactivate staff accounts.');
+        abort_if($user->isAdminTier() && ! $request->user()->hasDirectorAuthority(), 403,
+            'Only a Director can deactivate an admin-tier account.');
 
         $user->update(['is_active' => false]);
 
@@ -243,6 +260,9 @@ class StaffController extends Controller
 
     public function updateAvailStatus(Request $request, User $user)
     {
+        abort_if($request->user()->id !== $user->id && ! $request->user()->hasStaffManageAuthority(), 403,
+            'You can only change your own availability.');
+
         $data = $request->validate([
             'avail_status' => ['required', 'in:Available,On task,Assigned,At desk,Busy'],
             'workload'     => ['nullable', 'numeric', 'min:0'],
