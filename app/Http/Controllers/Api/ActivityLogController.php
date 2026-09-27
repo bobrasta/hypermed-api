@@ -40,7 +40,9 @@ class ActivityLogController extends Controller
             'subject_type' => class_basename($a->subject_type),
             'subject_id'   => $a->subject_id,
             'causer_name'  => $a->causer?->name,
-            'changes'      => $a->changes,
+            // Hand-written activity() entries have no attribute diff; an empty
+            // collection would serialise as [] rather than an object.
+            'changes'      => $a->changes->isEmpty() ? null : $a->changes,
             'created_at'   => $a->created_at?->toIso8601String(),
         ]);
 
