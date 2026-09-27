@@ -81,7 +81,7 @@ class ShipmentController extends Controller
     {
         $this->assertView($request);
 
-        $q = Shipment::with(['supplier:id,name', 'purchaseOrder:id,po_number', 'department:id,name', 'documents:id,shipment_id,type', 'vendorFee.receipts'])
+        $q = Shipment::with(['supplier:id,name', 'purchaseOrder:id,po_number', 'department:id,name', 'documents:id,shipment_id,type', 'vendorFee.receipts', 'vendorFee.vendor:id,name', 'vendorFee.deliveryJob'])
             ->latest('updated_at');
         if (! $this->seesAll($request)) {
             $q->whereIn('department_id', $this->managedDepartmentIds($request));
@@ -499,6 +499,15 @@ class ShipmentController extends Controller
             'expected_arrival' => $s->expected_arrival?->toDateString(),
             'location_notes' => $s->location_notes,
             'fee_status' => $s->vendorFee?->status,
+            // For the TMDA Permits and Clearing Fees lists.
+            'tmda' => $s->direction === 'import' ? [
+                'application_ref' => $s->tmda_application_ref,
+                'applied_at' => $s->tmda_applied_at?->toDateString(),
+                'issued_at' => $s->tmda_issued_at?->toDateString(),
+                'permit_uploaded' => $s->documents->contains('type', 'tmda_permit'),
+            ] : null,
+            'control_number' => $s->control_number,
+            'clearing_fee' => $this->feePayload($s->vendorFee),
             'updated_at' => $s->updated_at?->toIso8601String(),
         ];
     }
@@ -523,13 +532,6 @@ class ShipmentController extends Controller
             'purchase_order' => $s->purchaseOrder ? ['id' => $s->purchaseOrder->id, 'po_number' => $s->purchaseOrder->po_number,
                 'status' => $s->purchaseOrder->status, 'total' => (int) $s->purchaseOrder->total_amount] : null,
             'department_manager' => $s->department?->manager?->name,
-            'tmda' => $s->direction === 'import' ? [
-                'application_ref' => $s->tmda_application_ref,
-                'applied_at' => $s->tmda_applied_at?->toDateString(),
-                'issued_at' => $s->tmda_issued_at?->toDateString(),
-                'permit_uploaded' => $docs->has('tmda_permit'),
-            ] : null,
-            'control_number' => $s->control_number,
             'documents' => collect(ShipmentFlow::allowedDocTypes($s->direction))
                 ->filter(fn ($t) => in_array($t, $required, true) || $docs->has($t) || in_array($t, ['tmda_permit', 'recipient_receipt'], true))
                 ->map(fn ($t) => [
@@ -540,7 +542,6 @@ class ShipmentController extends Controller
                     'uploaded_by' => $docs->get($t)?->uploader?->name,
                     'uploaded_at' => $docs->get($t)?->updated_at?->toIso8601String(),
                 ])->values(),
-            'clearing_fee' => $this->feePayload($s->vendorFee),
             'machines' => $s->machines->map(fn (Machine $m) => ['id' => $m->id, 'serial_no' => $m->serial_no, 'model' => $m->model, 'type' => $m->type])->values(),
             'events' => $s->events->map(fn (ShipmentEvent $e) => [
                 'from_step' => $e->from_step,
