@@ -82,6 +82,9 @@ class FinancialStatementsController extends Controller
             }
             $data['auditor'] += $defaults['auditor'];
         }
+        if (isset($data['finance_head'])) {
+            $data['finance_head'] = array_map('strval', array_intersect_key($data['finance_head'], $defaults['finance_head'])) + $defaults['finance_head'];
+        }
         $profile = array_replace(FinancialStatementsService::profile(), array_intersect_key($data, $defaults));
         foreach (['md_note', 'md_note_name', 'principal_activities', 'chairman', 'dep_note'] as $k) {
             $profile[$k] = (string) ($profile[$k] ?? '');
