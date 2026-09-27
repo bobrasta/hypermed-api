@@ -13,11 +13,13 @@ class SalesLead extends Model
         'hospital_id', 'hospital_name_raw', 'contact_id', 'contact_name_raw',
         'source', 'source_notes', 'notes',
         'machine_type', 'deal_value', 'stage', 'demo_date', 'follow_up_date', 'assigned_to',
+        'expected_close_date', 'forecast_category',
     ];
 
     protected $casts = [
         'demo_date' => 'date',
         'follow_up_date' => 'date',
+        'expected_close_date' => 'date',
         'deal_value' => 'integer',
     ];
 

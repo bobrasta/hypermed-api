@@ -28,6 +28,8 @@ class SalesLeadResource extends JsonResource
             'stage'              => $this->stage,
             'demo_date'          => $this->demo_date?->toDateString(),
             'follow_up_date'     => $this->follow_up_date?->toDateString(),
+            'expected_close_date' => $this->expected_close_date?->toDateString(),
+            'forecast_category'  => $this->forecast_category,
             'assigned_to'        => $this->assigned_to,
             'assignee'           => new UserResource($this->whenLoaded('assignee')),
             'events'             => $this->whenLoaded('events', fn () => $this->events->map(fn ($e) => [

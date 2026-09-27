@@ -45,6 +45,8 @@ class SalesLeadController extends Controller
             'stage'             => ['required', 'in:lead,qualified,demo_scheduled,proposal_sent,negotiation,won,lost'],
             'demo_date'         => ['nullable', 'date'],
             'follow_up_date'    => ['nullable', 'date'],
+            'expected_close_date' => ['nullable', 'date'],
+            'forecast_category' => ['nullable', 'in:commit,best_case,pipeline'],
             'assigned_to'       => ['nullable', 'exists:users,id'],
         ]);
 
@@ -85,6 +87,8 @@ class SalesLeadController extends Controller
             'stage'             => ['sometimes', 'in:lead,qualified,demo_scheduled,proposal_sent,negotiation,won,lost'],
             'demo_date'         => ['nullable', 'date'],
             'follow_up_date'    => ['nullable', 'date'],
+            'expected_close_date' => ['nullable', 'date'],
+            'forecast_category' => ['nullable', 'in:commit,best_case,pipeline'],
             'assigned_to'       => ['nullable', 'exists:users,id'],
         ]);
 
