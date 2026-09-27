@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\ExpenseController;
 use App\Http\Controllers\Api\FinanceReportController;
 use App\Http\Controllers\Api\FinancialStatementsController;
 use App\Http\Controllers\Api\TenderController;
+use App\Http\Controllers\Api\ShipmentController;
 use App\Http\Controllers\Api\DeviceRegistrationController;
 use App\Http\Controllers\Api\FlowController;
 use App\Http\Controllers\Api\HospitalController;
@@ -236,6 +237,22 @@ Route::prefix('v1')->group(function () {
         Route::delete('device-registrations/{device}/files/{file}', [DeviceRegistrationController::class, 'deleteFile']);
         Route::post('device-registrations/{device}/import-letter', [DeviceRegistrationController::class, 'importLetter']);
         Route::get('device-registrations/{device}/checklist-document', [DeviceRegistrationController::class, 'checklistDocument']);
+
+        // Section 18: import/export shipments (clearing fee = Section 16 vendor fee)
+        Route::get('shipments',                                 [ShipmentController::class, 'index']);
+        Route::post('shipments',                                [ShipmentController::class, 'store']);
+        Route::get('shipments/options',                         [ShipmentController::class, 'options']);
+        Route::get('shipments/settings',                        [ShipmentController::class, 'settings']);
+        Route::put('shipments/settings',                        [ShipmentController::class, 'updateSettings']);
+        Route::get('shipments/{shipment}',                      [ShipmentController::class, 'show'])->whereNumber('shipment');
+        Route::put('shipments/{shipment}',                      [ShipmentController::class, 'update'])->whereNumber('shipment');
+        Route::post('shipments/{shipment}/status',              [ShipmentController::class, 'updateStatus'])->whereNumber('shipment');
+        Route::post('shipments/{shipment}/documents',           [ShipmentController::class, 'uploadDocument'])->whereNumber('shipment');
+        Route::get('shipments/{shipment}/documents/{type}',     [ShipmentController::class, 'downloadDocument'])->whereNumber('shipment');
+        Route::post('shipments/{shipment}/clearing-fee',        [ShipmentController::class, 'linkClearingFee'])->whereNumber('shipment');
+        Route::put('shipments/{shipment}/machines',             [ShipmentController::class, 'syncMachines'])->whereNumber('shipment');
+        Route::post('departments',                              [ShipmentController::class, 'storeDepartment']);
+        Route::put('departments/{department}',                  [ShipmentController::class, 'updateDepartment']);
 
         // Bank Reconciliation
         Route::post('bank-reconciliations/{bankReconciliation}/import-statement', [BankReconciliationController::class, 'importStatement']);
