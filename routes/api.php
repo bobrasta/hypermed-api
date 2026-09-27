@@ -20,6 +20,8 @@ use App\Http\Controllers\Api\EmailController;
 use App\Http\Controllers\Api\ExpenseController;
 use App\Http\Controllers\Api\FinanceReportController;
 use App\Http\Controllers\Api\FinancialStatementsController;
+use App\Http\Controllers\Api\TenderController;
+use App\Http\Controllers\Api\DeviceRegistrationController;
 use App\Http\Controllers\Api\FlowController;
 use App\Http\Controllers\Api\HospitalController;
 use App\Http\Controllers\Api\InventoryController;
@@ -203,6 +205,33 @@ Route::prefix('v1')->group(function () {
         Route::get('finance-reports/financial-statements/profile', [FinancialStatementsController::class, 'profile']);
         Route::put('finance-reports/financial-statements/profile', [FinancialStatementsController::class, 'updateProfile']);
         Route::get('finance-reports/financial-statements/pdf',     [FinancialStatementsController::class, 'pdf']);
+
+        // Section 19: Tenders & Contracts, TMDA device registrations
+        Route::get('tenders',                                   [TenderController::class, 'index']);
+        Route::post('tenders',                                  [TenderController::class, 'store']);
+        Route::get('tenders/{tender}',                          [TenderController::class, 'show'])->whereNumber('tender');
+        Route::put('tenders/{tender}',                          [TenderController::class, 'update'])->whereNumber('tender');
+        Route::post('tenders/{tender}/status',                  [TenderController::class, 'updateStatus'])->whereNumber('tender');
+        Route::post('tenders/{tender}/documents/{type}/generate', [TenderController::class, 'generate'])->whereNumber('tender');
+        Route::post('tenders/{tender}/documents/{type}/executed', [TenderController::class, 'uploadExecuted'])->whereNumber('tender');
+        Route::get('tenders/{tender}/documents/{type}/{which}', [TenderController::class, 'download'])->whereNumber('tender')->whereIn('which', ['draft', 'executed']);
+        Route::get('procuring-entities',                        [TenderController::class, 'entities']);
+        Route::post('procuring-entities',                       [TenderController::class, 'storeEntity']);
+        Route::put('procuring-entities/{entity}',               [TenderController::class, 'updateEntity']);
+        Route::get('board-resolutions',                         [TenderController::class, 'resolutions']);
+        Route::post('board-resolutions',                        [TenderController::class, 'storeResolution']);
+        Route::get('company-profile',                           [TenderController::class, 'companyProfile']);
+        Route::put('company-profile',                           [TenderController::class, 'updateCompanyProfile']);
+        Route::get('device-registrations',                      [DeviceRegistrationController::class, 'index']);
+        Route::post('device-registrations',                     [DeviceRegistrationController::class, 'store']);
+        Route::get('device-registrations/{device}',             [DeviceRegistrationController::class, 'show']);
+        Route::put('device-registrations/{device}',             [DeviceRegistrationController::class, 'update']);
+        Route::put('device-registrations/{device}/requirements/{no}', [DeviceRegistrationController::class, 'updateRequirement'])->whereNumber('no');
+        Route::post('device-registrations/{device}/files',      [DeviceRegistrationController::class, 'uploadFile']);
+        Route::get('device-registrations/{device}/files/{file}', [DeviceRegistrationController::class, 'downloadFile']);
+        Route::delete('device-registrations/{device}/files/{file}', [DeviceRegistrationController::class, 'deleteFile']);
+        Route::post('device-registrations/{device}/import-letter', [DeviceRegistrationController::class, 'importLetter']);
+        Route::get('device-registrations/{device}/checklist-document', [DeviceRegistrationController::class, 'checklistDocument']);
 
         // Bank Reconciliation
         Route::post('bank-reconciliations/{bankReconciliation}/import-statement', [BankReconciliationController::class, 'importStatement']);
