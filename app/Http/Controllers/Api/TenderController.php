@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\BoardResolution;
 use App\Models\ProcuringEntity;
+use App\Models\Shipment;
 use App\Models\Tender;
 use App\Models\TenderDocument;
 use App\Services\EffectivePermissionResolver;
+use App\Services\Shipment\ShipmentFlow;
 use App\Services\Tender\CompanyProfile;
 use App\Services\Tender\TenderDeadlineService;
 use App\Services\Tender\TenderDocumentService;
@@ -322,6 +324,7 @@ class TenderController extends Controller
 
     private function detail(Tender $t): array
     {
+        $flow = app(ShipmentFlow::class);
         $deadlines = $this->deadlines->forTender($t);
         $docs = $t->documents->keyBy('type');
 
@@ -330,6 +333,11 @@ class TenderController extends Controller
             'entity_ref', 'our_ref', 'bid_validity_days', 'performance_security_form', 'notes',
         ]) + [
             'entity_ref_date' => $t->entity_ref_date?->toDateString(),
+            // Section 19.6: shipments raised against this tender (Section 18).
+            'shipments' => Shipment::where('tender_id', $t->id)->orderBy('id')->get()->map(fn (Shipment $s) => [
+                'id' => $s->id, 'reference' => $s->reference, 'description' => $s->description, 'direction' => $s->direction,
+                'step' => $s->step, 'last_step' => $flow->lastStep($s), 'status_label' => $flow->label($s),
+            ])->values(),
             'bid_submission_deadline' => $t->bid_submission_deadline?->toDateString(),
             'tender_expiry_date' => $t->tender_expiry_date?->toDateString(),
             'computed_tender_expiry' => $this->deadlines->tenderExpiry($t)?->toDateString(),
