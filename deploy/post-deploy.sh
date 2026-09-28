@@ -20,7 +20,8 @@ for seeder in \
   NormalizeKilimanjaroDistrictsSeeder \
   FlowDepartmentSeeder \
   DocumentSequenceSeeder \
-  NotificationTemplateSeeder
+  NotificationTemplateSeeder \
+  RealStaffOrgSeeder
 do
   "$PHP" artisan db:seed --class="$seeder" --force
 done
