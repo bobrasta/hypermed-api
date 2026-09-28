@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\FiltersByPeriod;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\InvoiceResource;
 use App\Http\Resources\PaymentResource;
@@ -18,6 +19,8 @@ use Illuminate\Support\Facades\URL;
 
 class InvoiceController extends Controller
 {
+    use FiltersByPeriod;
+
     // ── PDF / sharing ─────────────────────────────────────────────────────────────
 
     public function pdf(Invoice $invoice, DocumentPdfService $pdfService)
@@ -70,6 +73,9 @@ class InvoiceController extends Controller
         if ($request->filled('sales_order_id')) {
             $query->where('sales_order_id', $request->sales_order_id);
         }
+        if ($request->filled('machine_id')) {
+            $query->where('machine_id', $request->machine_id);
+        }
         if ($request->filled('search')) {
             $q = $request->search;
             $query->where(function ($qb) use ($q) {
@@ -77,14 +83,9 @@ class InvoiceController extends Controller
                    ->orWhere('client_name', 'like', "%$q%");
             });
         }
-        if ($request->filled('date_from')) {
-            $query->where('issue_date', '>=', $request->date_from);
-        }
-        if ($request->filled('date_to')) {
-            $query->where('issue_date', '<=', $request->date_to);
-        }
+        $this->applyPeriod($query, $request, 'issue_date');
 
-        return InvoiceResource::collection($query->latest('issue_date')->paginate(50));
+        return InvoiceResource::collection($query->latest('issue_date')->paginate($this->perPage($request, 50)));
     }
 
     public function store(Request $request, CreditCheckService $creditCheck, FinancePostingService $financePosting, DocumentNumberService $documentNumbers)

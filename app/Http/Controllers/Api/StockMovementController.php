@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\FiltersByPeriod;
 use App\Http\Controllers\Controller;
 use App\Models\InventoryItem;
 use App\Models\Location;
@@ -11,14 +12,17 @@ use Illuminate\Http\Request;
 
 class StockMovementController extends Controller
 {
+    use FiltersByPeriod;
+
     public function index(Request $request)
     {
         $movements = StockMovement::with(['inventoryItem', 'location', 'locationFrom', 'locationTo', 'performedBy'])
             ->when($request->inventory_item_id, fn ($q, $id) => $q->where('inventory_item_id', $id))
             ->when($request->location_id, fn ($q, $id) => $q->where('location_id', $id))
             ->when($request->type, fn ($q, $t) => $q->where('type', $t))
+            ->tap(fn ($q) => $this->applyPeriod($q, $request, 'created_at'))
             ->latest()
-            ->paginate(50);
+            ->paginate($this->perPage($request, 50));
 
         return response()->json($movements);
     }

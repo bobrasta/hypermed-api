@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\FiltersByPeriod;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ServiceTicketResource;
 use App\Models\AppNotification;
@@ -18,6 +19,8 @@ use Illuminate\Support\Facades\DB;
 
 class ServiceTicketController extends Controller
 {
+    use FiltersByPeriod;
+
     public function index(Request $request)
     {
         // machines eager-loaded so the list can show "Installation, N
@@ -36,6 +39,7 @@ class ServiceTicketController extends Controller
         if ($request->filled('assigned_to')) {
             $query->where('assigned_to', $request->assigned_to);
         }
+        $this->applyPeriod($query, $request, 'created_at');
 
         // See InventoryController::index() — same reasoning: callers load a
         // big batch once and reveal/filter locally, don't silently truncate.

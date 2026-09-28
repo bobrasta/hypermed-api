@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\FiltersByPeriod;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\InvoiceResource;
 use App\Http\Resources\SalesOrderResource;
@@ -21,6 +22,8 @@ use Illuminate\Support\Facades\DB;
 
 class SalesOrderController extends Controller
 {
+    use FiltersByPeriod;
+
     // Mirrors SalesLeadController::index()'s scoping — a plain 'sales' rep
     // saw every order in the company, commission figures included.
     public function index(Request $request)
@@ -32,8 +35,9 @@ class SalesOrderController extends Controller
                 $q->where('client_name', 'like', "%$s%")
                   ->orWhere('order_number', 'like', "%$s%");
             }))
+            ->tap(fn ($q) => $this->applyPeriod($q, $request, 'created_at'))
             ->latest()
-            ->paginate(25);
+            ->paginate($this->perPage($request, 25));
 
         return SalesOrderResource::collection($orders);
     }

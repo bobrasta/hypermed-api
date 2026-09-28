@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\FiltersByPeriod;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\QuotationResource;
 use App\Http\Resources\SalesOrderResource;
@@ -16,6 +17,8 @@ use Illuminate\Support\Facades\URL;
 
 class QuotationController extends Controller
 {
+    use FiltersByPeriod;
+
     // ── PDF / sharing ─────────────────────────────────────────────────────────────
 
     public function pdf(Quotation $quotation, DocumentPdfService $pdfService)
@@ -62,8 +65,9 @@ class QuotationController extends Controller
                 $q->where('client_name', 'like', "%$s%")
                   ->orWhere('quotation_number', 'like', "%$s%");
             }))
+            ->tap(fn ($q) => $this->applyPeriod($q, $request, 'created_at'))
             ->latest()
-            ->paginate(25);
+            ->paginate($this->perPage($request, 25));
 
         return QuotationResource::collection($quotations);
     }

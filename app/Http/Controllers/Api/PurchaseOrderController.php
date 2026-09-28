@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\FiltersByPeriod;
 use App\Http\Controllers\Controller;
 use App\Models\AppNotification;
 use App\Models\ApprovalLog;
@@ -17,6 +18,8 @@ use Illuminate\Support\Facades\DB;
 
 class PurchaseOrderController extends Controller
 {
+    use FiltersByPeriod;
+
     // Every stage-approver relation, so the Flutter side can show real names
     // ("Approved by Jane") at each step without a second round-trip. Shared
     // by index/show/store and every stage-transition response below.
@@ -43,8 +46,9 @@ class PurchaseOrderController extends Controller
             ->when($request->status,      fn ($q, $s) => $q->where('status', $s))
             ->when($request->supplier_id, fn ($q, $id) => $q->where('supplier_id', $id))
             ->when($request->location_id, fn ($q, $id) => $q->where('location_id', $id))
+            ->tap(fn ($q) => $this->applyPeriod($q, $request, 'created_at'))
             ->latest()
-            ->paginate(25);
+            ->paginate($this->perPage($request, 25));
 
         return response()->json([
             'data' => $pos->items(),

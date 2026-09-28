@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\FiltersByPeriod;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ExpenseResource;
 use App\Models\AppNotification;
@@ -18,6 +19,8 @@ use Illuminate\Support\Facades\DB;
 
 class ExpenseController extends Controller
 {
+    use FiltersByPeriod;
+
     // Expense read endpoints had no gate at all — any of the 15 roles could
     // list/view every expense record. Reuses screens.finance, the same
     // permission that governs the Finance module's other read screens (see
@@ -133,17 +136,12 @@ class ExpenseController extends Controller
         if ($request->filled('status')) {
             $query->where('status', $request->status);
         }
-        if ($request->filled('date_from')) {
-            $query->where('expense_date', '>=', $request->date_from);
-        }
-        if ($request->filled('date_to')) {
-            $query->where('expense_date', '<=', $request->date_to);
-        }
+        $this->applyPeriod($query, $request, 'expense_date');
         if ($request->filled('search')) {
             $query->where('name', 'like', "%{$request->search}%");
         }
 
-        return ExpenseResource::collection($query->latest('expense_date')->paginate(50));
+        return ExpenseResource::collection($query->latest('expense_date')->paginate($this->perPage($request, 50)));
     }
 
     public function store(Request $request, ExpenseService $expenseService)

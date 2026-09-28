@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\FiltersByPeriod;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\VendorBillResource;
 use App\Models\ApprovalLog;
@@ -14,6 +15,8 @@ use Illuminate\Support\Facades\DB;
 
 class VendorBillController extends Controller
 {
+    use FiltersByPeriod;
+
     // index()/show() had no gate at all — any of the 15 roles could read
     // full vendor bill records. Reuses screens.finance, the same permission
     // that governs the Finance module's other read screens.
@@ -46,7 +49,9 @@ class VendorBillController extends Controller
             });
         }
 
-        return VendorBillResource::collection($query->latest('issue_date')->paginate(50));
+        $this->applyPeriod($query, $request, 'issue_date');
+
+        return VendorBillResource::collection($query->latest('issue_date')->paginate($this->perPage($request, 50)));
     }
 
     public function store(Request $request, FinancePostingService $financePosting, DocumentNumberService $documentNumbers)
