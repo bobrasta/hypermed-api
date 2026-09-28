@@ -38,7 +38,9 @@ class StaffController extends Controller
         // screens.staff by design (that's Operations' task-board key), 403'd
         // out of its own dashboard's staff count.
         if ($user->hasStaffViewAuthority() || $user->hasStaffManageAuthority()) {
-            $staff = User::with(['currentTask', 'position'])->where('is_active', true)->get();
+            // Last activity = the newest Sanctum token use (updated on every
+            // authenticated request) — shown as "Last active" in Team & Roles.
+            $staff = User::with(['currentTask', 'position'])->withMax('tokens', 'last_used_at')->where('is_active', true)->get();
 
             return UserResource::collection($staff);
         }
@@ -48,6 +50,7 @@ class StaffController extends Controller
         // seeing/building their own reports, never the company roster.
         if ($user->hasSalesCreateSubordinateAuthority()) {
             $staff = User::with(['currentTask', 'position'])
+                ->withMax('tokens', 'last_used_at')
                 ->where('is_active', true)
                 ->where('manager_id', $user->id)
                 ->get();

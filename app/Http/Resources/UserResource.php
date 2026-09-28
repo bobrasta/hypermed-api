@@ -31,6 +31,10 @@ class UserResource extends JsonResource
             'bio'             => $this->bio,
             'qualifications'  => $this->qualifications ?? [],
             'is_active'    => $this->is_active,
+            // Present when the query used withMax('tokens', 'last_used_at').
+            'last_active_at' => $this->tokens_max_last_used_at
+                ? \Illuminate\Support\Carbon::parse($this->tokens_max_last_used_at, 'UTC')->toIso8601String()
+                : null,
             'max_discount_percent' => $this->max_discount_percent,
             'commission_percent'   => $this->commission_percent,
             'manager_id'          => $this->manager_id,
