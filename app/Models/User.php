@@ -29,15 +29,6 @@ class User extends Authenticatable
             ->dontSubmitEmptyLogs();
     }
 
-    // Single source of truth for the role list — mirrors the users_role_check
-    // constraint AND the seeded Spatie roles (see PermissionSeeder). Keep in
-    // sync when adding a role.
-    public const ROLES = [
-        'super_admin', 'admin', 'sales_manager', 'sales',
-        'finance_manager', 'finance', 'technician', 'cs', 'storekeeper', 'hr',
-        'cto', 'team_leader', 'procurement_manager', 'accountant', 'logistics',
-    ];
-
     // These tier lists are NOT used for the hasXAuthority() boolean checks
     // below anymore (those now go through EffectivePermissionResolver) — they
     // still back several controllers' `User::whereIn('role', User::CTO_TIER)`

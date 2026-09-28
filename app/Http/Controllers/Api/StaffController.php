@@ -8,11 +8,26 @@ use App\Models\Contract;
 use App\Models\User;
 use App\Services\EffectivePermissionResolver;
 use Illuminate\Http\Request;
+use Spatie\Permission\Models\Role;
+use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class StaffController extends Controller
 {
+    // Admin-tier = a built-in admin role OR any custom role carrying the
+    // authority.admin_tier permission — so a Role Builder role can't be used
+    // to slip past the Director-only rule.
+    private static function roleGrantsAdminTier(string $roleName): bool
+    {
+        if (in_array($roleName, User::ADMIN_TIER, true)) {
+            return true;
+        }
+        $role = Role::where('name', $roleName)->first();
+
+        return $role !== null && $role->permissions()->where('name', 'authority.admin_tier')->exists();
+    }
+
     public function index(Request $request)
     {
         $user = $request->user();
@@ -54,7 +69,9 @@ class StaffController extends Controller
             'name'         => ['required', 'string'],
             'email'        => ['required', 'email', 'unique:users,email'],
             'phone'        => ['nullable', 'string'],
-            'role'         => ['required', 'in:' . implode(',', User::ROLES)],
+            // Any role that exists in the Role Builder (roles table) — no
+            // hard-coded list.
+            'role'         => ['required', 'string', Rule::exists('roles', 'name')],
             'group'        => ['nullable', 'in:field,office,admin'],
             'zone'         => ['nullable', 'string'],
             'avail_status' => ['nullable', 'in:Available,On task,Assigned,At desk,Busy'],
@@ -80,7 +97,7 @@ class StaffController extends Controller
         // to Director authority specifically, same segregation-of-duty
         // reasoning as SalaryAdjustment's approval-only self-escalation gap.
         abort_if(
-            in_array($data['role'], User::ADMIN_TIER, true) && ! $user->hasDirectorAuthority(),
+            self::roleGrantsAdminTier($data['role']) && ! $user->hasDirectorAuthority(),
             403,
             'Only a Director can create an admin-tier account.',
         );
@@ -167,7 +184,7 @@ class StaffController extends Controller
             'email'        => ['sometimes', 'email', 'unique:users,email,' . $user->id],
             'phone'        => ['nullable', 'string'],
             'region'       => ['nullable', 'string'],
-            'role'         => ['sometimes', 'in:' . implode(',', User::ROLES)],
+            'role'         => ['sometimes', 'string', Rule::exists('roles', 'name')],
             'group'        => ['nullable', 'in:field,office,admin'],
             'zone'         => ['nullable', 'string'],
             'avail_status' => ['sometimes', 'in:Available,On task,Assigned,At desk,Busy'],
@@ -200,7 +217,7 @@ class StaffController extends Controller
         // admin tier, nor to edit/demote an existing admin-tier account.
         $director = $request->user()->hasDirectorAuthority();
         abort_if(
-            ! $director && isset($data['role']) && in_array($data['role'], User::ADMIN_TIER, true),
+            ! $director && isset($data['role']) && self::roleGrantsAdminTier($data['role']),
             403,
             'Only a Director can grant an admin-tier role.',
         );
