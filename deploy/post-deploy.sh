@@ -12,7 +12,6 @@ cd "$1"
 PHP="${PHP:-php}"
 for seeder in \
   PermissionSeeder \
-  TestAccessControlSeeder \
   RealFacilityImportSeeder \
   UpdateFacilityCoordinatesSeeder \
   ImportGovernmentFacilityCoordinatesSeeder \
