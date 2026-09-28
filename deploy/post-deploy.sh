@@ -17,7 +17,6 @@ for seeder in \
   ImportGovernmentFacilityCoordinatesSeeder \
   ImportNationalFacilityRegistrySeeder \
   RemoveDemoDataSeeder \
-  ImportDvasOpgCbctSeeder \
   NormalizeKilimanjaroDistrictsSeeder \
   FlowDepartmentSeeder \
   DocumentSequenceSeeder \
