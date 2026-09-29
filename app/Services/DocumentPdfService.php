@@ -29,7 +29,8 @@ class DocumentPdfService
             number_format($i->total_price, 2),
         ])->all();
 
-        $client = array_values(array_filter([$quotation->client_name, $quotation->client_contact, $quotation->client_email]));
+        $client = array_values(array_filter([$quotation->client_name, $quotation->client_contact, $quotation->client_email,
+            $quotation->client_tin ? 'TIN: ' . $quotation->client_tin : null]));
 
         return $this->render([
             'title'        => 'PROFORMA INVOICE',
@@ -63,6 +64,7 @@ class DocumentPdfService
 
         $client = array_values(array_filter([
             $invoice->hospital?->name ?? $invoice->client_name, $invoice->client_contact, $invoice->client_email,
+            ($invoice->client_tin ?? $invoice->hospital?->tin) ? 'TIN: ' . ($invoice->client_tin ?? $invoice->hospital?->tin) : null,
         ]));
 
         return $this->render([

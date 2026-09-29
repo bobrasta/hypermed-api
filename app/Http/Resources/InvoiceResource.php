@@ -24,6 +24,7 @@ class InvoiceResource extends JsonResource
                                     ?? $this->whenLoaded('hospital', fn () => $this->hospital?->name),
             'client_contact'   => $this->client_contact,
             'client_email'     => $this->client_email,
+            'client_tin'       => $this->client_tin ?? $this->hospital?->tin,
             // Dates
             'issue_date'       => $this->issue_date?->toDateString(),
             'due_date'         => $this->due_date?->toDateString(),

@@ -16,6 +16,7 @@ use App\Services\FinancePostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
+use App\Support\Tin;
 
 class InvoiceController extends Controller
 {
@@ -98,6 +99,7 @@ class InvoiceController extends Controller
             'client_name'  => ['nullable', 'string', 'max:255'],
             'client_contact' => ['nullable', 'string', 'max:255'],
             'client_email' => ['nullable', 'email'],
+            'client_tin'   => ['required', ...Tin::RULE],
             'issue_date'   => ['required', 'date'],
             'due_date'     => ['required', 'date', 'after_or_equal:issue_date'],
             'tax_rate'     => ['nullable', 'numeric', 'min:0', 'max:100'],
@@ -107,7 +109,8 @@ class InvoiceController extends Controller
             'line_items.*.description' => ['required', 'string'],
             'line_items.*.quantity'    => ['required', 'numeric', 'min:0.01'],
             'line_items.*.unit_price'  => ['required', 'integer', 'min:0'],
-        ]);
+        ], ['client_tin.regex' => Tin::MESSAGE, 'client_tin.required' => 'Client TIN is required.']);
+        $data['client_tin'] = Tin::normalize($data['client_tin']);
 
         $lineItems = $data['line_items'];
         unset($data['line_items']);
@@ -142,6 +145,7 @@ class InvoiceController extends Controller
             }
 
             $financePosting->postInvoiceIssued($invoice);
+            Tin::rememberOn($invoice->hospital, $invoice->client_tin);
 
             return $invoice;
         });

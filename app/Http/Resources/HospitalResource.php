@@ -26,6 +26,7 @@ class HospitalResource extends JsonResource
             'contact_name'        => $this->contact_name,
             'contact_phone'       => $this->contact_phone,
             'contact_email'       => $this->contact_email,
+            'tin'                 => $this->tin,
             'notes'               => $this->notes,
             'machines'            => MachineResource::collection($this->whenLoaded('machines')),
         ];

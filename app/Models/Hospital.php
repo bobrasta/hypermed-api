@@ -13,7 +13,7 @@ class Hospital extends Model
         'name', 'short_code', 'type', 'region', 'district',
         'latitude', 'longitude', 'zone',
         'machine_count', 'machines_operational', 'revenue_monthly', 'credit_limit',
-        'contact_name', 'contact_phone', 'contact_email', 'notes',
+        'contact_name', 'contact_phone', 'contact_email', 'tin', 'notes',
     ];
 
     protected $casts = [

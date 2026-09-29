@@ -19,7 +19,7 @@ class Quotation extends Model
     }
 
     protected $fillable = [
-        'quotation_number', 'lead_id', 'client_name', 'client_contact', 'client_email',
+        'quotation_number', 'lead_id', 'client_name', 'client_contact', 'client_email', 'client_tin',
         'status', 'valid_until', 'currency',
         'subtotal', 'discount_amount', 'tax_amount', 'total_amount',
         'notes', 'terms', 'created_by', 'sent_at', 'accepted_at',

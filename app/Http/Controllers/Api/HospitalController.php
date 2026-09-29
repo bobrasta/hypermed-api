@@ -8,6 +8,7 @@ use App\Models\Hospital;
 use App\Services\CreditCheckService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use App\Support\Tin;
 
 class HospitalController extends Controller
 {
@@ -113,8 +114,12 @@ class HospitalController extends Controller
             'contact_name'        => ['nullable', 'string'],
             'contact_phone'       => ['nullable', 'string'],
             'contact_email'       => ['nullable', 'email'],
+            'tin'                 => ['nullable', ...Tin::RULE],
             'notes'               => ['nullable', 'string'],
-        ]);
+        ], ['tin.regex' => Tin::MESSAGE]);
+        if (! empty($data['tin'])) {
+            $data['tin'] = Tin::normalize($data['tin']);
+        }
 
         $hospital = Hospital::create($data);
 
@@ -160,8 +165,12 @@ class HospitalController extends Controller
             'contact_name'        => ['nullable', 'string'],
             'contact_phone'       => ['nullable', 'string'],
             'contact_email'       => ['nullable', 'email'],
+            'tin'                 => ['nullable', ...Tin::RULE],
             'notes'               => ['nullable', 'string'],
-        ]);
+        ], ['tin.regex' => Tin::MESSAGE]);
+        if (! empty($data['tin'])) {
+            $data['tin'] = Tin::normalize($data['tin']);
+        }
 
         $hospital->update($data);
 

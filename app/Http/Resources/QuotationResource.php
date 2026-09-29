@@ -16,6 +16,7 @@ class QuotationResource extends JsonResource
             'client_name'      => $this->client_name,
             'client_contact'   => $this->client_contact,
             'client_email'     => $this->client_email,
+            'client_tin'       => $this->client_tin,
             'status'           => $this->status,
             'approval_status'  => $this->approval_status,
             'approval_reason'  => $this->approval_reason,

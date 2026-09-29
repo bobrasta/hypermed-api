@@ -14,6 +14,7 @@ use App\Services\DocumentPdfService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
+use App\Support\Tin;
 
 class QuotationController extends Controller
 {
@@ -81,6 +82,7 @@ class QuotationController extends Controller
             'client_name'               => 'required|string|max:200',
             'client_contact'            => 'nullable|string|max:200',
             'client_email'              => 'nullable|email|max:200',
+            'client_tin'                => ['required', ...Tin::RULE],
             'valid_until'               => 'nullable|date',
             'currency'                  => 'nullable|string|max:10',
             'discount_amount'           => 'nullable|integer|min:0',
@@ -94,7 +96,8 @@ class QuotationController extends Controller
             'items.*.quantity'          => 'required|integer|min:1',
             'items.*.unit_price'        => 'required|integer|min:0',
             'items.*.discount_percent'  => 'nullable|numeric|min:0|max:100',
-        ]);
+        ], ['client_tin.regex' => Tin::MESSAGE, 'client_tin.required' => 'Client TIN is required.']);
+        $data['client_tin'] = Tin::normalize($data['client_tin']);
 
         return DB::transaction(function () use ($data, $request, $approval, $documentNumbers) {
             $totals = $this->calcTotals(
@@ -119,6 +122,7 @@ class QuotationController extends Controller
                 'client_name'      => $data['client_name'],
                 'client_contact'   => $data['client_contact'] ?? null,
                 'client_email'     => $data['client_email'] ?? null,
+                'client_tin'       => $data['client_tin'],
                 'status'           => 'draft',
                 'valid_until'      => $data['valid_until'] ?? null,
                 'currency'         => $data['currency'] ?? 'TZS',
@@ -165,14 +169,18 @@ class QuotationController extends Controller
             'client_name'    => 'sometimes|string|max:200',
             'client_contact' => 'nullable|string|max:200',
             'client_email'   => 'nullable|email|max:200',
+            'client_tin'     => ['sometimes', 'required', ...Tin::RULE],
             'valid_until'    => 'nullable|date',
             'currency'       => 'nullable|string|max:10',
             'discount_amount'=> 'nullable|integer|min:0',
             'tax_amount'     => 'nullable|integer|min:0',
             'notes'          => 'nullable|string',
             'terms'          => 'nullable|string',
-        ]);
+        ], ['client_tin.regex' => Tin::MESSAGE, 'client_tin.required' => 'Client TIN is required.']);
 
+        if (isset($data['client_tin'])) {
+            $data['client_tin'] = Tin::normalize($data['client_tin']);
+        }
         $quotation->update($data);
 
         return new QuotationResource($quotation->fresh(['createdBy', 'items']));
