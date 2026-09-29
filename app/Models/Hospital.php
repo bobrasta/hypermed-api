@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use App\Support\Tin;
 
 class Hospital extends Model
 {
@@ -13,7 +14,7 @@ class Hospital extends Model
         'name', 'short_code', 'type', 'region', 'district',
         'latitude', 'longitude', 'zone',
         'machine_count', 'machines_operational', 'revenue_monthly', 'credit_limit',
-        'contact_name', 'contact_phone', 'contact_email', 'tin', 'notes',
+        'contact_name', 'contact_phone', 'contact_email', 'address', 'tin', 'notes',
     ];
 
     protected $casts = [

@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Support\Tin;
 
 class HospitalResource extends JsonResource
 {
@@ -27,6 +28,7 @@ class HospitalResource extends JsonResource
             'contact_phone'       => $this->contact_phone,
             'contact_email'       => $this->contact_email,
             'tin'                 => $this->tin,
+            'address'             => $this->address,
             'notes'               => $this->notes,
             'machines'            => MachineResource::collection($this->whenLoaded('machines')),
         ];

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Supplier;
 use Illuminate\Http\Request;
+use App\Support\Tin;
 
 class SupplierController extends Controller
 {
@@ -31,7 +32,8 @@ class SupplierController extends Controller
             'type'          => 'required|in:manufacturer,distributor,importer,local_vendor',
             'contact_name'  => 'nullable|string|max:255',
             'contact_email' => 'nullable|email',
-            'contact_phone' => 'nullable|string|max:30',
+            'contact_phone' => 'nullable|string|max:60',
+            'tin'           => ['nullable', ...Tin::RULE],
             'website'       => 'nullable|url',
             'address'       => 'nullable|string',
             'city'          => 'nullable|string|max:100',
@@ -42,7 +44,10 @@ class SupplierController extends Controller
             'rating'        => 'nullable|integer|min:1|max:5',
             'notes'         => 'nullable|string',
             'is_active'     => 'boolean',
-        ]);
+        ], ['tin.regex' => Tin::MESSAGE]);
+        if (! empty($data['tin'])) {
+            $data['tin'] = Tin::normalize($data['tin']);
+        }
 
         $supplier = Supplier::create($data);
 
@@ -66,7 +71,8 @@ class SupplierController extends Controller
             'type'          => 'sometimes|in:manufacturer,distributor,importer,local_vendor',
             'contact_name'  => 'nullable|string|max:255',
             'contact_email' => 'nullable|email',
-            'contact_phone' => 'nullable|string|max:30',
+            'contact_phone' => 'nullable|string|max:60',
+            'tin'           => ['nullable', ...Tin::RULE],
             'website'       => 'nullable|url',
             'address'       => 'nullable|string',
             'city'          => 'nullable|string|max:100',
@@ -77,7 +83,10 @@ class SupplierController extends Controller
             'rating'        => 'nullable|integer|min:1|max:5',
             'notes'         => 'nullable|string',
             'is_active'     => 'boolean',
-        ]);
+        ], ['tin.regex' => Tin::MESSAGE]);
+        if (! empty($data['tin'])) {
+            $data['tin'] = Tin::normalize($data['tin']);
+        }
 
         $supplier->update($data);
 

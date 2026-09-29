@@ -115,6 +115,7 @@ class HospitalController extends Controller
             'contact_phone'       => ['nullable', 'string'],
             'contact_email'       => ['nullable', 'email'],
             'tin'                 => ['nullable', ...Tin::RULE],
+            'address'             => ['nullable', 'string', 'max:255'],
             'notes'               => ['nullable', 'string'],
         ], ['tin.regex' => Tin::MESSAGE]);
         if (! empty($data['tin'])) {
@@ -166,6 +167,7 @@ class HospitalController extends Controller
             'contact_phone'       => ['nullable', 'string'],
             'contact_email'       => ['nullable', 'email'],
             'tin'                 => ['nullable', ...Tin::RULE],
+            'address'             => ['nullable', 'string', 'max:255'],
             'notes'               => ['nullable', 'string'],
         ], ['tin.regex' => Tin::MESSAGE]);
         if (! empty($data['tin'])) {

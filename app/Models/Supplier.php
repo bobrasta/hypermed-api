@@ -3,12 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Support\Tin;
 
 class Supplier extends Model
 {
     protected $fillable = [
         'name', 'short_code', 'type', 'contact_name', 'contact_email',
-        'contact_phone', 'website', 'address', 'city', 'country',
+        'contact_phone', 'tin', 'website', 'address', 'city', 'country',
         'currency', 'payment_terms', 'lead_time_days', 'rating', 'notes', 'is_active',
     ];
 
