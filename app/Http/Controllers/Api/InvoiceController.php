@@ -13,6 +13,7 @@ use App\Services\CreditCheckService;
 use App\Services\DocumentNumberService;
 use App\Services\DocumentPdfService;
 use App\Services\FinancePostingService;
+use App\Services\InvoicePaymentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
@@ -89,7 +90,7 @@ class InvoiceController extends Controller
         return InvoiceResource::collection($query->latest('issue_date')->paginate($this->perPage($request, 50)));
     }
 
-    public function store(Request $request, CreditCheckService $creditCheck, FinancePostingService $financePosting, DocumentNumberService $documentNumbers)
+    public function store(Request $request, CreditCheckService $creditCheck, FinancePostingService $financePosting, DocumentNumberService $documentNumbers, InvoicePaymentService $payments)
     {
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to create invoices.');
 
@@ -101,8 +102,17 @@ class InvoiceController extends Controller
             'client_email' => ['nullable', 'email'],
             'client_tin'   => ['required', ...Tin::RULE],
             'issue_date'   => ['required', 'date'],
-            'due_date'     => ['required', 'date', 'after_or_equal:issue_date'],
+            // Either a payment term (Clickhuduma style: "30 days", "4 months")
+            // that sets the due date, or an explicit due date.
+            'pay_term_number' => ['nullable', 'integer', 'min:0', 'max:3650', 'required_without:due_date'],
+            'pay_term_type'   => ['nullable', 'in:days,months', 'required_with:pay_term_number'],
+            'due_date'     => ['nullable', 'date', 'after_or_equal:issue_date', 'required_without:pay_term_number'],
             'tax_rate'     => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'shipping_charges' => ['nullable', 'integer', 'min:0'],
+            // Optional first payment taken with the invoice (hire-purchase deposit).
+            'deposit_amount'   => ['nullable', 'integer', 'min:1'],
+            'deposit_method'   => ['nullable', 'in:cash,bank_transfer,mobile_money,cheque', 'required_with:deposit_amount'],
+            'deposit_reference'=> ['nullable', 'string', 'max:255'],
             'currency'     => ['nullable', 'string', 'max:10'],
             'notes'        => ['nullable', 'string'],
             'line_items'   => ['required', 'array', 'min:1'],
@@ -113,26 +123,48 @@ class InvoiceController extends Controller
         $data['client_tin'] = Tin::normalize($data['client_tin']);
 
         $lineItems = $data['line_items'];
-        unset($data['line_items']);
+        $deposit = isset($data['deposit_amount']) ? [
+            'amount'         => (int) $data['deposit_amount'],
+            'payment_method' => $data['deposit_method'],
+            'reference'      => $data['deposit_reference'] ?? null,
+            'paid_at'        => $data['issue_date'],
+            'notes'          => 'Deposit',
+        ] : null;
+        unset($data['line_items'], $data['deposit_amount'], $data['deposit_method'], $data['deposit_reference']);
+
+        if (isset($data['pay_term_number'])) {
+            $issue = \Illuminate\Support\Carbon::parse($data['issue_date']);
+            $data['due_date'] = ($data['pay_term_type'] === 'months'
+                ? $issue->copy()->addMonthsNoOverflow($data['pay_term_number'])
+                : $issue->copy()->addDays($data['pay_term_number']))->toDateString();
+        }
+        $shipping = (int) ($data['shipping_charges'] ?? 0);
+        $data['shipping_charges'] = $shipping;
 
         $subtotal  = collect($lineItems)->sum(fn ($i) => (int) ($i['quantity'] * $i['unit_price']));
         $taxRate   = $data['tax_rate'] ?? 0;
         $taxAmount = (int) round($subtotal * $taxRate / 100);
 
+        $total = $subtotal + $taxAmount + $shipping;
+        if ($deposit && $deposit['amount'] > $total) {
+            return response()->json(['message' => 'The deposit is more than the invoice total.', 'errors' => ['deposit_amount' => ['The deposit is more than the invoice total.']]], 422);
+        }
+
+        // Only the part left on credit counts against the client's limit.
         $creditCheck->assertWithinLimit(
             isset($data['hospital_id']) ? Hospital::find($data['hospital_id']) : null,
-            $subtotal + $taxAmount,
+            $total - ($deposit['amount'] ?? 0),
         );
 
         $data['subtotal']        = $subtotal;
         $data['tax_rate']        = $taxRate;
         $data['tax_amount']      = $taxAmount;
-        $data['total']           = $subtotal + $taxAmount;
+        $data['total']           = $total;
         $data['amount_paid']     = 0;
         $data['status']          = 'pending';
         $data['invoice_number']  = $documentNumbers->next('invoice');
 
-        $invoice = DB::transaction(function () use ($data, $lineItems, $financePosting) {
+        $invoice = DB::transaction(function () use ($data, $lineItems, $financePosting, $deposit, $payments, $request) {
             $invoice = Invoice::create($data);
 
             foreach ($lineItems as $item) {
@@ -147,7 +179,11 @@ class InvoiceController extends Controller
             $financePosting->postInvoiceIssued($invoice);
             Tin::rememberOn($invoice->hospital, $invoice->client_tin);
 
-            return $invoice;
+            if ($deposit) {
+                $payments->apply($invoice, $deposit, $request->user());
+            }
+
+            return $invoice->fresh();
         });
 
         return response()->json([
@@ -228,12 +264,9 @@ class InvoiceController extends Controller
     // already in hand, not a commitment. Still restricted to Accountant/
     // admin so an arbitrary authenticated user can't fabricate a payment
     // record (which would misstate revenue and receivables).
-    public function recordPayment(Request $request, Invoice $invoice, FinancePostingService $financePosting, DocumentNumberService $documentNumbers)
+    public function recordPayment(Request $request, Invoice $invoice, InvoicePaymentService $payments)
     {
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to record invoice payments.');
-        if (in_array($invoice->status, ['paid', 'cancelled', 'waived'])) {
-            return response()->json(['message' => 'Cannot record payment on a ' . $invoice->status . ' invoice.'], 422);
-        }
 
         $data = $request->validate([
             'amount'         => ['required', 'integer', 'min:1'],
@@ -243,35 +276,11 @@ class InvoiceController extends Controller
             'notes'          => ['nullable', 'string'],
         ]);
 
-        $data['invoice_id']     = $invoice->id;
-        $data['recorded_by']    = $request->user()->id;
-        $data['payment_number'] = $documentNumbers->next('payment');
-
-        $payment = DB::transaction(function () use ($data, $invoice, $financePosting) {
-            $payment = Payment::create($data);
-
-            $totalPaid = $invoice->payments()->sum('amount');
-
-            $newStatus = match (true) {
-                $totalPaid >= $invoice->total => 'paid',
-                $totalPaid > 0               => 'partial',
-                default                      => $invoice->status,
-            };
-
-            $invoice->update([
-                'amount_paid' => $totalPaid,
-                'status'      => $newStatus,
-                'paid_at'     => $newStatus === 'paid' ? now() : null,
-            ]);
-
-            $financePosting->postPaymentReceived($invoice, $payment);
-
-            return $payment;
-        });
+        $payment = DB::transaction(fn () => $payments->apply($invoice, $data, $request->user()));
 
         return response()->json([
             'data'    => new PaymentResource($payment->load('recordedBy')),
-            'invoice' => new InvoiceResource($invoice->load(['hospital', 'machine', 'salesOrder', 'lineItems', 'payments'])),
+            'invoice' => new InvoiceResource($invoice->fresh()->load(['hospital', 'machine', 'salesOrder', 'lineItems', 'payments'])),
         ], 201);
     }
 

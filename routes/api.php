@@ -321,6 +321,10 @@ Route::prefix('v1')->group(function () {
         Route::post('credit-notes/{creditNote}/approve', [CreditNoteController::class, 'approve']);
         Route::post('credit-notes/{creditNote}/apply',   [CreditNoteController::class, 'apply']);
         Route::apiResource('invoices', InvoiceController::class);
+        // Credit sales / hire purchase tracking (Clickhuduma-style).
+        Route::get('receivables',            [\App\Http\Controllers\Api\ReceivablesController::class, 'index']);
+        Route::get('receivables/statement',  [\App\Http\Controllers\Api\ReceivablesController::class, 'statement']);
+        Route::post('receivables/pay',       [\App\Http\Controllers\Api\ReceivablesController::class, 'pay']);
 
         // Sales Leads
         Route::patch('leads/{lead}/stage', [SalesLeadController::class, 'updateStage']);

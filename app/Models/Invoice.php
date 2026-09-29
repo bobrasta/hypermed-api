@@ -25,6 +25,7 @@ class Invoice extends Model
         'sales_order_id', 'client_name', 'client_contact', 'client_email', 'client_tin',
         'issue_date', 'due_date', 'subtotal', 'tax_rate',
         'tax_amount', 'total', 'amount_paid', 'status', 'currency', 'notes',
+        'pay_term_number', 'pay_term_type', 'shipping_charges',
     ];
 
     protected $casts = [

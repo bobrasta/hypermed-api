@@ -72,13 +72,18 @@ class DocumentPdfService
             'docLabel'     => 'Invoice No:',
             'docNumber'    => $invoice->invoice_number,
             'date'         => ($invoice->issue_date ?? now())->format('d M Y'),
-            'tag'          => 'INVOICE · DUE ' . ($invoice->due_date?->format('d M Y') ?? 'N/A'),
+            'tag'          => 'INVOICE · DUE ' . ($invoice->due_date?->format('d M Y') ?? 'N/A')
+                . ($invoice->pay_term_number !== null ? " · TERMS {$invoice->pay_term_number} " . strtoupper($invoice->pay_term_type ?? 'days') : ''),
             'client'       => $client,
             'items'        => $items,
             'subtotal'     => number_format($invoice->subtotal, 2),
             'discount'     => '0.00',
             'tax'          => number_format($invoice->tax_amount, 2),
+            'shipping'     => number_format((int) $invoice->shipping_charges, 2),
             'total'        => number_format($invoice->total, 2),
+            // Credit sales: show what's been paid so far and what's left.
+            'paid'         => $invoice->amount_paid > 0 ? number_format($invoice->amount_paid, 2) : null,
+            'balance'      => $invoice->amount_paid > 0 ? number_format($invoice->balance_due, 2) : null,
             'currencyCode' => $this->currencyPrefix($invoice->currency),
             'currency'     => $this->currencyLabel($invoice->currency),
             'terms'        => $company['default_terms'],
@@ -322,7 +327,14 @@ class DocumentPdfService
         if ($d['tax'] !== '0.00') {
             $html .= "<tr><td class='lbl' style='width:90%; text-align:left'>Tax</td><td class='val'>" . e($d['currencyCode']) . ' ' . e($d['tax']) . '</td></tr>';
         }
+        if (($d['shipping'] ?? '0.00') !== '0.00') {
+            $html .= "<tr><td class='lbl' style='width:90%; text-align:left'>Delivery / transport</td><td class='val'>" . e($d['currencyCode']) . ' ' . e($d['shipping']) . '</td></tr>';
+        }
         $html .= "<tr class='grand'><td class='lbl' style='width:90%; text-align:left'>Total Due</td><td class='val'><strong>" . e($d['currencyCode']) . ' ' . e($d['total']) . '</strong></td></tr>';
+        if (! empty($d['paid'])) {
+            $html .= "<tr><td class='lbl' style='width:90%; text-align:left'>Paid to date</td><td class='val'>" . e($d['currencyCode']) . ' ' . e($d['paid']) . '</td></tr>';
+            $html .= "<tr class='grand'><td class='lbl' style='width:90%; text-align:left'>Balance</td><td class='val'><strong>" . e($d['currencyCode']) . ' ' . e($d['balance']) . '</strong></td></tr>';
+        }
         $html .= '</table>';
 
         // terms

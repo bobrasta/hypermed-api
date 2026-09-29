@@ -28,10 +28,13 @@ class InvoiceResource extends JsonResource
             // Dates
             'issue_date'       => $this->issue_date?->toDateString(),
             'due_date'         => $this->due_date?->toDateString(),
+            'pay_term_number'  => $this->pay_term_number,
+            'pay_term_type'    => $this->pay_term_type,
             // Financials
             'subtotal'         => $this->subtotal,
             'tax_rate'         => $this->tax_rate,
             'tax_amount'       => $this->tax_amount,
+            'shipping_charges' => (int) $this->shipping_charges,
             'total'            => $this->total,
             'amount_paid'      => $this->amount_paid,
             'balance_due'      => $this->balance_due,
