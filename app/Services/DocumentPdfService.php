@@ -39,6 +39,7 @@ class DocumentPdfService
             'date'         => ($quotation->created_at ?? now())->format('d M Y, H:i'),
             'tag'          => 'QUOTATION · VALID UNTIL ' . ($quotation->valid_until?->format('d M Y') ?? 'N/A'),
             'client'       => $client,
+            'clientAddress'=> array_values(array_filter([$quotation->lead?->hospital?->address])),
             'items'        => $items,
             'subtotal'     => number_format($quotation->subtotal, 2),
             'discount'     => number_format($quotation->discount_amount, 2),
@@ -75,6 +76,7 @@ class DocumentPdfService
             'tag'          => 'INVOICE · DUE ' . ($invoice->due_date?->format('d M Y') ?? 'N/A')
                 . ($invoice->pay_term_number !== null ? " · TERMS {$invoice->pay_term_number} " . strtoupper($invoice->pay_term_type ?? 'days') : ''),
             'client'       => $client,
+            'clientAddress'=> array_values(array_filter([$invoice->hospital?->address])),
             'items'        => $items,
             'subtotal'     => number_format($invoice->subtotal, 2),
             'discount'     => '0.00',
@@ -153,165 +155,210 @@ class DocumentPdfService
     }
 
     /**
+     * Hairline rule with small accent '+' ticks at each end (the reference
+     * design's corner marks, rebuilt as a table — mPDF ignores
+     * position:absolute in flowed content). The '+' cells span two short
+     * rows and the rule is the border between them, so it runs through the
+     * middle of each '+'.
+     */
+    private function plusRule(string $sidePad = '0', string $marginBottom = '0'): string
+    {
+        $plus = "style='width:3mm; padding:0; font-family:dejavusans,sans-serif; font-size:8pt;"
+            . " line-height:1; color:#597ea3; text-align:center; vertical-align:middle;'";
+        $top = 'padding:0; height:1.7mm; font-size:1px; line-height:1px;';
+        $bot = 'padding:0; height:0.9mm; font-size:1px; line-height:1px;';
+
+        return "<div style='padding:0 {$sidePad}; margin-bottom:{$marginBottom};'>"
+            . "<table style='width:100%; border-collapse:collapse;'>"
+            . "<tr><td rowspan='2' {$plus}>+</td>"
+            . "<td style='width:100%; {$top} border-bottom:1px solid #1d1f20;'>&nbsp;</td>"
+            . "<td rowspan='2' {$plus}>+</td></tr>"
+            . "<tr><td style='{$bot}'>&nbsp;</td></tr></table></div>";
+    }
+
+    /**
+     * Quotation / invoice PDF — the "Proforma Invoice v3" design from the
+     * me/system/invoice.php mPDF testbed: slim navy header band, a large
+     * lockup letterhead with the company's full details, '+'-ticked rules,
+     * big condensed title, bordered number box, clean-line items, lockup
+     * watermark and a company-recap footer.
+     *
+     * mPDF gotcha carried over from the testbed: a <div> inside a <td> is
+     * NOT reachable through an ID-scoped descendant selector ('#id .class'
+     * silently no-ops), so table structure is styled via '#id td/th' and
+     * every div's text styling uses a flat, page-unique class.
+     *
      * @param array{title:string,docLabel:string,docNumber:string,date:string,tag:string,client:array,
-     *              items:array,subtotal:string,discount:string,tax:string,total:string,
+     *              clientAddress?:array,items:array,subtotal:string,discount:string,tax:string,total:string,
+     *              shipping?:string,paid?:?string,balance?:?string,
      *              currencyCode:string,currency:string,terms:array,filename:string} $d
      */
     private function render(array $d): Response
     {
-        $letterhead = config('company')['letterhead'];
-        $banks = config('company')['banks'];
+        $company = config('company');
+        $lh = $company['letterhead'];
+        $banks = $company['banks'];
         $logosDir = resource_path('pdf-assets/logos');
         $fontsDir = resource_path('pdf-assets/fonts');
+        $condensed = 'barlowcondensed,tildasans,dejavusans,sans-serif';
 
-        // The real letterhead phone lives inside address_lines (prefixed
-        // "Mobile phone: "); the top-level company.phone config resolves to
-        // an unset-env placeholder ("+255 XXX XXX XXX"), so it isn't used here.
-        $phone = preg_replace('/^Mobile phone:\s*/', '', $letterhead['address_lines'][6] ?? '');
-        $phone = preg_replace('/^\+\s+/', '+', $phone);
-        $email = config('company')['email'];
+        // Letterhead facts, all from config('company.letterhead') — the
+        // company's own printed documents. address_lines order:
+        // 0 area, 1 road/plot, 2 building, 3 P.O. Box, 4 city, 5 email,
+        // 6 mobile, 7 tel, 8 website.
+        $a = $lh['address_lines'];
+        $strip = fn ($s) => trim(preg_replace('/^[A-Za-z ]+:\s*/', '', (string) $s));
+        $title = fn ($s) => ucwords(strtolower((string) $s));
+        $mobile = preg_replace('/^\+\s+/', '+', $strip($a[6] ?? ''));
+        $tel = preg_replace('/^\+\s+/', '+', $strip($a[7] ?? ''));
+        $email = $strip($a[5] ?? $company['email']);
+        $web = $strip($a[8] ?? 'www.hypermed.co.tz');
+        $tin = 'TIN ' . preg_replace('/\s*-\s*/', '-', $strip($lh['tin']));
+        $shortName = 'HYPERMED HEALTHCARE LTD';
+        $docRef = e($d['title']) . ' ' . e($d['docNumber']);
+        $addr = $lh['display_lines'];
 
-        $addrLine1 = $letterhead['address_lines'][2] . ' &middot; ' . $letterhead['address_lines'][1];
-        $addrLine2 = $letterhead['address_lines'][0] . ', ' . $letterhead['address_lines'][3] . ' &middot; ' . $letterhead['address_lines'][4];
-
-        // (A) STYLES — ported from the invoice.php mPDF prototype. Its
-        // ID-descendant-selector gotcha carries over unchanged: a <div>
-        // nested inside a <td> is NOT reachable through '#id .class', only
-        // through a bare page-unique class — so table-structural rules
-        // (background/border/padding/alignment) stay ID-scoped on td/th/tr,
-        // and every div's text styling uses a flat classname instead.
+        // (A) STYLES
         $style = "
         <style>
           html, body { font-family: tildasans, dejavusans, helvetica, arial, sans-serif; color:#1d1f20; font-size:9.5pt; }
           #sheet { width:100%; }
           table { width:100%; border-collapse:collapse; }
-          #body { padding:6mm 12mm 6mm; }
+          #body { padding:7mm 12mm 6mm; }
 
+          /* letterhead: big lockup + TIN (left), full company details (right) */
+          #letterhead td { padding:0 0 6mm; }
+          .lh-tin { font-family:{$condensed}; font-weight:700; font-size:18pt; letter-spacing:0.5px; white-space:nowrap; margin-top:2mm; color:#1d1f20; }
+          .lh-name { font-family:{$condensed}; font-weight:700; font-size:21pt; letter-spacing:0.3px; line-height:1.05; color:#1d1f20; }
+          .lh-tag { font-family:{$condensed}; font-weight:700; font-size:9pt; letter-spacing:1.2px; color:#416180; margin-top:2px; }
+          .lh-addr { font-size:9.5pt; line-height:1.6; color:#5d5d60; }
+          .lh-contact { font-size:9.5pt; line-height:1.6; color:#1d1f20; }
+
+          /* title row: big condensed title + bordered number box */
           #titlerow td { vertical-align:top; padding:0; }
-          .doctitle { font-family:barlowcondensed,tildasans,dejavusans,sans-serif; font-weight:700; font-size:40px; letter-spacing:-1px; line-height:1; margin-top:2px; color:#1d1f20; }
+          .doctitle { font-family:{$condensed}; font-weight:700; font-size:40px; letter-spacing:-1px; line-height:1; margin-top:2px; color:#1d1f20; }
           #tag { border:1px solid #597ea3; width:auto; margin-top:10px; }
           #tag td { padding:8px; color:#416180; font-weight:700; font-size:7.5pt; letter-spacing:0.8px; white-space:nowrap; }
           #invbox { border:1px solid #1d1f20; width:165px; }
-          #invbox td { padding:14px 16px; }
-          .invbox-lbl { font-weight:700; font-size:7pt; letter-spacing:1px; color:#416180; float:left; }
-          .invbox-num { font-weight:700; font-size:15pt; margin-top:3px; white-space:nowrap; color:#1d1f20; }
+          #invbox td { padding:12px 14px; }
+          .invbox-lbl { font-weight:700; font-size:7pt; letter-spacing:1px; color:#416180; }
+          .invbox-num { font-family:{$condensed}; font-weight:700; font-size:16pt; margin-top:3px; white-space:nowrap; color:#1d1f20; }
 
+          /* meta strip: Billed To / Date / Currency */
           #meta { margin-top:22px; border-top:1px solid #1d1f20; border-bottom:1px solid #ccc; }
           #meta td { vertical-align:top; padding:12px 10px 12px 0; font-size:9pt; }
           .meta-lbl { font-weight:700; font-size:7pt; letter-spacing:1px; color:#416180; margin-bottom:4px; }
-          .meta-bigval { font-weight:700; font-size:11pt; }
-          .meta-val { font-size:9.5pt; white-space:nowrap; }
+          .meta-bigval { font-family:{$condensed}; font-weight:700; font-size:15pt; }
+          .meta-val { font-size:10.5pt; white-space:nowrap; }
 
-          #items { margin-top:18px; }
+          /* items: clean-line rows */
+          #items { margin-top:20px; }
           #items th { text-align:left; font-size:7pt; font-weight:700; letter-spacing:0.5px; padding:8px; background:#e7e7ea; border-bottom:1px solid #1d1f20; white-space:nowrap; }
           #items td { padding:9px 8px; font-size:9pt; border-bottom:1px solid #ddd; vertical-align:top; }
           #items th.num, #items td.num { text-align:right; }
           #items td.dim { color:#7a7a7d; white-space:nowrap; }
 
-          #totals { width:45%; margin-left:55%; margin-top:14px; }
-          #totals td { padding:4px 0; font-size:9.5pt; white-space:nowrap; }
-          #totals td.lbl { width:50%; text-align:right; padding-right:8px; border-bottom:1px solid #ddd; }
-          #totals td.val { width:50%; text-align:right; font-weight:700; border-bottom:1px solid #ddd; }
-          #totals tr.grand td { border-top:2px solid #1d1f20; padding-top:9px; font-size:11pt; font-weight:700; }
+          #totals { width:48%; margin-top:14px; }
+          #totals td { padding:6px 0; font-size:9.5pt; white-space:nowrap; border-bottom:1px solid #ddd; }
+          #totals td.lbl { text-align:left; }
+          #totals td.val { text-align:right; }
+          #totals tr.muted td { color:#5d5d60; }
+          #totals tr.grand td { border-bottom:none; border-top:2px solid #1d1f20; padding-top:9px; vertical-align:bottom; }
+          .grand-lbl { font-weight:700; font-size:7pt; letter-spacing:1px; color:#1d1f20; }
+          .grand-val { font-family:{$condensed}; font-weight:700; font-size:19pt; white-space:nowrap; }
+          .bal-val { font-family:{$condensed}; font-weight:700; font-size:15pt; white-space:nowrap; color:#b45309; }
 
-          #terms { margin-top:28px; }
+          #terms { margin-top:30px; }
           .terms-h { font-weight:700; font-size:7pt; letter-spacing:1px; color:#416180; padding-bottom:6px; border-bottom:1px solid #1d1f20; }
-          #termsrow td { vertical-align:top; padding:12px 12px 0 0; font-size:8.5pt; line-height:1.55; }
-          .terms-t { font-weight:700; margin-bottom:3px; font-family:barlowcondensed,tildasans,dejavusans,sans-serif; }
+          #termsrow td { vertical-align:top; padding:10px 14px 0 0; font-size:8.5pt; line-height:1.5; color:#5d5d60; }
+          .terms-t { font-family:{$condensed}; font-weight:700; font-size:9.5pt; margin-bottom:2px; color:#1d1f20; }
 
-          #footrow { margin-top:26px; }
+          /* payment note + bank columns (left), signature (right), both bottom-aligned */
+          #footrow { margin-top:24px; }
           #footrow td { padding:0; font-size:8.5pt; }
-          .bankcell { width:64%; vertical-align:top; padding-right:16px; }
+          .bankcell { width:64%; vertical-align:bottom; padding-right:22px; }
+          .banknote { font-size:8pt; color:#7a7a7d; }
+          .banktable { margin-top:10px; border-top:1px solid #ccc; width:100%; }
+          .banktable td { vertical-align:top; padding:9px 16px 0 0; font-size:8.5pt; line-height:1.5; white-space:nowrap; }
           .bankcol-lbl { font-weight:700; font-size:7pt; letter-spacing:1px; color:#416180; }
-          .banktable { margin-top:8px; border-top:1px solid #ccc; width:100%; }
-          .banktable td { vertical-align:top; padding:7px 10px 7px 0; border-bottom:1px solid #ccc; font-size:8.5pt; }
-          .sigcell { width:36%; vertical-align:bottom; text-align:right; }
-          .sigline-table { width:220px; border-collapse:collapse; }
-          .sigline-cell { border-bottom:1px solid #1d1f20; height:40px; padding:0; font-size:1px; line-height:1px; }
-          .sigcol-lbl { font-weight:700; font-size:7pt; letter-spacing:1px; color:#416180; margin-top:70px; }
+          .sigcell { width:36%; vertical-align:bottom; }
+          .sigline-table { width:100%; border-collapse:collapse; }
+          .sigline-table td.sigline-cell { border-bottom:1px solid #1d1f20; padding:40px 0 0; font-size:1px; line-height:1px; }
+          .sigline-table td.sigcol-lbl { padding:5px 0 0; font-weight:700; font-size:7pt; letter-spacing:1px; color:#416180; white-space:nowrap; }
         </style>";
 
-        // (B) HEADER — dark navy band, repeats on every page via SetHTMLHeader().
-        // Self-contained inline styles (no dependency on the main <style> block).
-        $headerHtml = "<table style='width:100%; border-collapse:collapse; background:#1d2d3d;'><tr>";
-        $headerHtml .= "<td style='width:9%; padding:13px 12mm; vertical-align:middle;'>"
-            . "<img src='{$logosDir}/hypermed_icon.png' height='30' width='auto'/></td>";
-        $headerHtml .= "<td style='width:51%; padding:13px 0; vertical-align:middle;'>";
-        $headerHtml .= "<div style='font-family:barlowcondensed,tildasans,dejavusans,sans-serif; font-weight:700;"
-            . " font-size:16pt; letter-spacing:0.3px; color:#f2f2f3;'><strong>" . e($letterhead['name_header']) . '</strong></div>';
-        $headerHtml .= "<div style='font-family:barlowcondensed,tildasans,dejavusans,sans-serif; font-size:8pt;"
-            . " letter-spacing:1px; color:#9fb3c8; margin-top:4px;'><strong>" . e($letterhead['tin']) . ' &middot; ' . e($d['title']) . ' ' . e($d['docNumber']) . '</strong></div>';
-        $headerHtml .= '</td>';
-        $headerHtml .= "<td style='width:40%; padding:13px 12mm; text-align:right; vertical-align:middle;"
-            . " font-family:tildasans,dejavusans,sans-serif; font-size:8.5pt; color:#d7dee6; line-height:1.7;'>"
-            . e($phone) . '<br>' . e($email) . '</td>';
-        $headerHtml .= '</tr></table>';
+        // (B) HEADER — slim navy band, repeats on every page.
+        $headerHtml = "<table style='width:100%; border-collapse:collapse; background:#1d2d3d;'><tr>"
+            . "<td style='width:12mm; padding:7px 0 7px 12mm; vertical-align:middle;'><img src='{$logosDir}/hypermed_icon.png' height='22' width='auto'/></td>"
+            . "<td style='padding:7px 0 7px 8px; vertical-align:middle; font-family:{$condensed}; font-weight:700; font-size:11.5pt; letter-spacing:0.5px; color:#f2f2f3;'><strong>{$shortName}</strong></td>"
+            . "<td style='padding:7px 12mm 7px 0; text-align:right; vertical-align:middle; white-space:nowrap; font-family:tildasans,dejavusans,sans-serif; font-weight:700; font-size:7.5pt; letter-spacing:1.2px; color:#b5d9fd;'><strong>{$docRef}</strong></td>"
+            . '</tr></table>';
 
-        // (C) FOOTER — company recap band, repeats on every page via SetHTMLFooter().
-        $footerHtml = "<table style='width:100%; border-collapse:collapse; font-family:tildasans,dejavusans,sans-serif;"
-            . " font-size:8pt; color:#5d5d60;'>";
-        $footerHtml .= "<tr><td colspan='3' style='border-top:1px solid #1d1f20; padding:0; font-size:1px; line-height:1px;'>&nbsp;</td></tr>";
-        $footerHtml .= '<tr>';
-        $footerHtml .= "<td style='width:34%; border-right:1px solid #ccc; padding:9px 14px 0 12mm; vertical-align:top;'>";
-        $footerHtml .= "<table style='width:100%; border-collapse:collapse;'><tr>";
-        $footerHtml .= "<td style='width:20px; vertical-align:top; padding:0;'>"
-            . "<img src='{$logosDir}/hypermed_icon.png' height='15' width='auto'/></td>";
-        $footerHtml .= "<td style='vertical-align:top; padding:0 0 0 6px;'>"
-            . "<div style='font-weight:700; font-size:8.5pt; color:#1d1f20; white-space:nowrap;'>" . e($letterhead['name_header']) . '</div>'
-            . '<div>' . e($letterhead['tin']) . '</div></td>';
-        $footerHtml .= '</tr></table>';
-        $footerHtml .= '</td>';
-        $footerHtml .= "<td style='width:38%; border-right:1px solid #ccc; padding:9px 14px 0; vertical-align:top;'>"
-            . $addrLine1 . '<br>' . $addrLine2 . '</td>';
-        $footerHtml .= "<td style='width:28%; text-align:right; vertical-align:top; padding:9px 12mm 0 14px;'>"
-            . "<div style='font-weight:700; color:#416180;'>" . e($d['title']) . ' ' . e($d['docNumber']) . '</div>'
-            . '<div>' . e($d['date']) . ' &middot; www.hypermed.co.tz</div></td>';
+        // (C) FOOTER — company recap, repeats on every page.
+        $footerHtml = $this->plusRule('12mm');
+        $footerHtml .= "<table style='width:100%; border-collapse:collapse; font-family:tildasans,dejavusans,sans-serif; font-size:8pt; color:#5d5d60;'><tr>";
+        $footerHtml .= "<td style='width:29%; border-right:1px solid #ccc; padding:5px 14px 0 12mm; vertical-align:top;'>"
+            . "<table style='width:100%; border-collapse:collapse;'><tr>"
+            . "<td style='width:26px; vertical-align:top; padding:0;'><img src='{$logosDir}/hypermed_icon.png' height='18' width='auto'/></td>"
+            . "<td style='vertical-align:top; padding:0 0 0 6px;'><div style='font-family:{$condensed}; font-weight:700; font-size:9pt; letter-spacing:0.4px; color:#1d1f20; white-space:nowrap;'><strong>{$shortName}</strong></div>"
+            . '<div>' . e($tin) . '</div></td></tr></table></td>';
+        $footerHtml .= "<td style='width:40%; border-right:1px solid #ccc; padding:5px 14px 0; white-space:nowrap; vertical-align:top; line-height:1.5;'>"
+            . e($addr[0]) . ' &middot; ' . e(explode(' · ', $addr[1])[0]) . '<br>'
+            . 'Kinondoni, ' . e($addr[2]) . '</td>';
+        $footerHtml .= "<td style='width:31%; text-align:right; vertical-align:top; padding:5px 12mm 0 14px; line-height:1.5; white-space:nowrap;'>"
+            . "<div style='font-weight:700; font-size:7pt; letter-spacing:1.2px; color:#416180;'><strong>{$docRef}</strong></div>"
+            . '<div>' . e($d['date']) . ' &middot; ' . e($web) . '</div></td>';
         $footerHtml .= '</tr></table>';
 
         // (D) BODY
-        $html = "<!DOCTYPE html><html><head>{$style}</head><body><div id='sheet'>";
-        $html .= "<div id='body'>";
+        $html = "<!DOCTYPE html><html><head>{$style}</head><body><div id='sheet'><div id='body'>";
+
+        // Letterhead — bigger than the testbed's, with the full legal name,
+        // tagline, complete address and every contact channel.
+        $html .= "<table id='letterhead'><tr>";
+        $html .= "<td style='width:38%; vertical-align:middle;'>"
+            . "<img src='{$logosDir}/hypermed_lockup.png' height='128' width='auto'/>"
+            . "<div class='lh-tin'><strong>" . e($tin) . '</strong></div></td>';
+        $html .= "<td style='width:62%; vertical-align:middle; text-align:right;'>"
+            . "<div class='lh-name'><strong>" . e($lh['name_header']) . '</strong></div>'
+            . "<div class='lh-tag'><strong>" . e(strtoupper($company['tagline'] ?? '')) . '</strong></div>'
+            . "<div class='lh-addr' style='margin-top:6px'>" . implode('<br>', array_map(fn ($l) => str_replace(' · ', ' &middot; ', e($l)), $addr)) . '</div>'
+            . "<div class='lh-contact' style='margin-top:6px'>Mob " . e($mobile) . ' &middot; Tel ' . e($tel) . '<br>'
+            . e($email) . ' &middot; ' . e($web) . '</div></td>';
+        $html .= '</tr></table>';
+        $html .= $this->plusRule('0', '7mm');
 
         // title row
-        $html .= "<table id='titlerow'><tr>";
-        $html .= "<td style='width:60%'>";
-        $html .= "<div class='doctitle'><strong>" . e($d['title']) . '</strong></div>';
-        $html .= "<table id='tag'><tr><td><strong>" . e($d['tag']) . '</strong></td></tr></table>';
-        $html .= '</td>';
-        $html .= "<td style='width:40%; text-align:right'>";
-        $html .= "<table id='invbox' style='margin-left:auto; text-align:left'><tr><td>";
-        $html .= "<div class='invbox-lbl'><strong>" . e(strtoupper(rtrim($d['docLabel'], ':')) . '.') . '</strong></div>';
-        $html .= "<div class='invbox-num'><strong>" . e($d['docNumber']) . '</strong></div>';
-        $html .= '</td></tr></table>';
-        $html .= '</td>';
-        $html .= '</tr></table>';
+        $html .= "<table id='titlerow'><tr><td style='width:60%'>"
+            . "<div class='doctitle'><strong>" . e($d['title']) . '</strong></div>'
+            . "<table id='tag'><tr><td><strong>" . e($d['tag']) . '</strong></td></tr></table></td>'
+            . "<td style='width:40%; text-align:right'><table id='invbox' style='margin-left:auto; text-align:left'><tr><td>"
+            . "<div class='invbox-lbl'><strong>" . e(strtoupper(rtrim($d['docLabel'], ':')) . '.') . '</strong></div>'
+            . "<div class='invbox-num'><strong>" . e($d['docNumber']) . '</strong></div>'
+            . '</td></tr></table></td></tr></table>';
 
-        // meta strip
-        $html .= "<table id='meta'><tr>";
-        $html .= "<td style='width:45%'>";
-        $html .= "<div class='meta-lbl'><strong>BILLED TO</strong></div><br>";
-        $html .= "<div class='meta-bigval'><strong>" . e($d['client'][0] ?? '—') . '</strong></div>';
-        if (count($d['client']) > 1) {
-            $html .= "<div style='margin-top:2px'>" . e(implode(' · ', array_slice($d['client'], 1))) . '</div>';
-        }
-        $html .= '</td>';
-        $html .= "<td style='width:27%'>";
-        $html .= "<div class='meta-lbl'><strong>DATE ISSUED</strong></div><br>";
-        $html .= "<div class='meta-val'>" . e($d['date']) . '</div>';
-        $html .= '</td>';
-        $html .= "<td style='width:28%'>";
-        $html .= "<div class='meta-lbl'><strong>CURRENCY</strong></div><br>";
-        $html .= "<div class='meta-val'>" . e($d['currency']) . '</div>';
-        $html .= '</td>';
-        $html .= '</tr></table>';
+        // meta strip — client name, contact line, then address/TIN lines
+        $client = $d['client'];
+        $clientName = array_shift($client) ?? '—';
+        $tinLines = array_values(array_filter($client, fn ($l) => str_starts_with((string) $l, 'TIN')));
+        $contact = array_values(array_diff($client, $tinLines));
+        $addressLines = array_merge($d['clientAddress'] ?? [], $tinLines);
+        $html .= "<table id='meta'><tr><td style='width:42%'>"
+            . "<div class='meta-lbl'><strong>BILLED TO</strong></div><br>"
+            . "<div class='meta-bigval'><strong>" . e($clientName) . '</strong></div>'
+            . ($contact ? "<div style='margin-top:2px'>" . e(implode(' · ', $contact)) . '</div>' : '')
+            . ($addressLines ? "<div style='margin-top:4px; font-size:8.5pt; line-height:1.5; color:#5d5d60;'>" . implode('<br>', array_map('e', $addressLines)) . '</div>' : '')
+            . '</td>'
+            . "<td style='width:29%'><div class='meta-lbl'><strong>DATE ISSUED</strong></div><br><div class='meta-val'>" . e($d['date']) . '</div></td>'
+            . "<td style='width:29%'><div class='meta-lbl'><strong>CURRENCY</strong></div><br><div class='meta-val'>" . e($d['currency']) . '</div></td>'
+            . '</tr></table>';
 
         // items — clean-line rows
         $html .= "<table id='items'><tr>
             <th style='width:6%'>#</th><th style='white-space:normal'>DESCRIPTION</th>
             <th style='width:11%'>LOT</th><th style='width:12%'>EXP.</th><th style='width:7%'>UOM</th>
             <th class='num' style='width:6%'>QTY</th><th class='num' style='width:13%'>UNIT PRICE</th>
-            <th class='num' style='width:13%'>AMOUNT</th>
-          </tr>";
+            <th class='num' style='width:13%'>AMOUNT</th></tr>";
         foreach ($d['items'] as $i) {
             $html .= '<tr><td class="dim">' . e($i[0]) . '</td><td style="font-weight:500">' . e($i[1]) . '</td>'
                 . '<td class="dim">' . e($i[2]) . '</td><td class="dim">' . e($i[3]) . '</td><td>' . e($i[4]) . '</td>'
@@ -321,86 +368,66 @@ class DocumentPdfService
         $html .= '</table>';
 
         // totals
+        $cc = e($d['currencyCode']);
+        $row = fn ($label, $value, $class = '') => "<tr class='{$class}'><td class='lbl'>{$label}</td><td class='val'>{$cc} " . e($value) . '</td></tr>';
         $html .= "<table id='totals' align='right'>";
-        $html .= "<tr><td class='lbl' style='width:90%; text-align:left'>Subtotal</td><td class='val'>" . e($d['currencyCode']) . ' ' . e($d['subtotal']) . '</td></tr>';
-        $html .= "<tr><td class='lbl' style='width:90%; text-align:left'>Discount</td><td class='val'>" . e($d['currencyCode']) . ' ' . e($d['discount']) . '</td></tr>';
+        $html .= $row('Subtotal', $d['subtotal']);
+        $html .= $row('Discount', $d['discount'], 'muted');
         if ($d['tax'] !== '0.00') {
-            $html .= "<tr><td class='lbl' style='width:90%; text-align:left'>Tax</td><td class='val'>" . e($d['currencyCode']) . ' ' . e($d['tax']) . '</td></tr>';
+            $html .= $row('VAT', $d['tax']);
         }
         if (($d['shipping'] ?? '0.00') !== '0.00') {
-            $html .= "<tr><td class='lbl' style='width:90%; text-align:left'>Delivery / transport</td><td class='val'>" . e($d['currencyCode']) . ' ' . e($d['shipping']) . '</td></tr>';
+            $html .= $row('Delivery / transport', $d['shipping']);
         }
-        $html .= "<tr class='grand'><td class='lbl' style='width:90%; text-align:left'>Total Due</td><td class='val'><strong>" . e($d['currencyCode']) . ' ' . e($d['total']) . '</strong></td></tr>';
+        $html .= "<tr class='grand'><td class='lbl'><div class='grand-lbl'><strong>TOTAL DUE</strong></div></td>"
+            . "<td class='val'><div class='grand-val'><strong>{$cc} " . e($d['total']) . '</strong></div></td></tr>';
         if (! empty($d['paid'])) {
-            $html .= "<tr><td class='lbl' style='width:90%; text-align:left'>Paid to date</td><td class='val'>" . e($d['currencyCode']) . ' ' . e($d['paid']) . '</td></tr>';
-            $html .= "<tr class='grand'><td class='lbl' style='width:90%; text-align:left'>Balance</td><td class='val'><strong>" . e($d['currencyCode']) . ' ' . e($d['balance']) . '</strong></td></tr>';
+            $html .= $row('Paid to date', $d['paid'], 'muted');
+            $html .= "<tr class='grand'><td class='lbl'><div class='grand-lbl'><strong>BALANCE</strong></div></td>"
+                . "<td class='val'><div class='bal-val'><strong>{$cc} " . e($d['balance']) . '</strong></div></td></tr>';
         }
         $html .= '</table>';
 
         // terms
-        $html .= "<div id='terms'><div class='terms-h'><strong>TERMS &amp; CONDITIONS</strong></div>";
-        $html .= "<table id='termsrow'><tr>";
+        $html .= "<div id='terms'><div class='terms-h'><strong>TERMS &amp; CONDITIONS</strong></div><table id='termsrow'><tr>";
         foreach ($d['terms'] as $t) {
-            $html .= "<td style='width:" . round(100 / count($d['terms'])) . "%'>";
-            $html .= "<div class='terms-t'><strong>" . e($t['label']) . '</strong></div><div>' . e($t['text']) . '</div>';
-            $html .= '</td>';
+            $html .= "<td style='width:" . round(100 / max(1, count($d['terms']))) . "%'>"
+                . "<div class='terms-t'><strong>" . e($t['label']) . '</strong></div><div>' . e($t['text']) . '</div></td>';
         }
         $html .= '</tr></table></div>';
 
-        // footer: bank info (left) + signature (right), signature bottom-aligned
-        // so it lines up horizontally with the last bank row
-        $html .= "<table id='footrow'><tr>";
-        $html .= "<td class='bankcell'>";
-        $html .= "<div class='bankcol-lbl'>PAYMENTS SHOULD BE MADE DIRECTLY TO</div>";
-        $html .= "<table class='banktable'>";
-        $html .= "<tr><td style='width:50%'><strong>Account name</strong><br>" . e($letterhead['name_payee']) . '</td>'
-            . "<td style='width:50%'><strong>" . e($banks[0]['name']) . '</strong><br>' . e($banks[0]['currency']) . ' &middot; ' . e($banks[0]['account']) . '</td></tr>';
-        if (isset($banks[1])) {
-            $html .= "<tr><td></td><td><strong>" . e($banks[1]['name']) . '</strong><br>' . e($banks[1]['currency']) . ' &middot; ' . e($banks[1]['account']) . '</td></tr>';
+        // payment note + bank columns + signature
+        $html .= "<table id='footrow'><tr><td class='bankcell'>"
+            . "<div class='banknote'>Prices exclude any charge not stated on this document. Payments should be made directly to the accounts below.</div>"
+            . "<table class='banktable'><tr><td><div class='bankcol-lbl'><strong>ACCOUNT NAME</strong></div><strong>" . e($title($lh['name_payee'])) . '</strong></td>';
+        foreach ($banks as $b) {
+            $html .= "<td><div class='bankcol-lbl'><strong>" . e(strtoupper($b['name'])) . '</strong></div>' . e($b['currency']) . ' &middot; ' . e($b['account']) . '</td>';
         }
-        $html .= '</table>';
-        $html .= '</td>';
-        $html .= "<td class='sigcell'>";
-        // A <div> with margin-left:auto silently fails to right-align in mPDF, so
-        // the signature line uses the same align='right' table trick #totals
-        // already relies on above, instead of a div.
-        $html .= "<table align='right' class='sigline-table'><tr><td class='sigline-cell'>&nbsp;</td></tr></table>";
-        $html .= "<div class='sigcol-lbl'>AUTHORISED SIGNATURE &amp; STAMP</div>";
-        $html .= '</td>';
-        $html .= '</tr></table>';
+        $html .= '</tr></table></td>'
+            . "<td class='sigcell'><table class='sigline-table'><tr><td class='sigline-cell'>&nbsp;</td></tr>"
+            . "<tr><td class='sigcol-lbl'><strong>AUTHORISED SIGNATURE &amp; STAMP</strong></td></tr></table></td>"
+            . '</tr></table>';
 
-        $html .= '</div>'; // #body
-        $html .= '</div></body></html>';
+        $html .= '</div></div></body></html>';
 
-        // (E) RENDER
-        // Embed TildaSans (single static Regular weight) and Barlow Condensed
-        // as custom mPDF fonts — merging into the default fontDir/fontdata
-        // arrays, since mPDF requires that rather than a bare font-family
-        // name in CSS. mPDF lowercases the CSS font-family before looking it
-        // up here, so the key MUST be lowercase or the lookup silently falls
-        // back to the next font in the stack.
+        // (E) RENDER — TildaSans + Barlow Condensed as custom mPDF fonts
+        // (keys must be lowercase: mPDF lowercases the CSS family name).
         $defaultFontDirs = (new \Mpdf\Config\ConfigVariables())->getDefaults()['fontDir'];
         $defaultFontData = (new \Mpdf\Config\FontVariables())->getDefaults()['fontdata'];
 
         $mpdf = new Mpdf([
             'mode' => 'utf-8',
             'format' => 'A4',
-            // margin_top/margin_bottom reserve the page space the repeating
-            // header/footer render into; margin_header/margin_footer position
-            // the header/footer content within that reserved space (0 = flush
-            // to the page edge, matching the header band's full-bleed look).
-            'margin_top' => 24,
-            'margin_bottom' => 26,
+            'margin_top' => 11,
+            'margin_bottom' => 24,
             'margin_header' => 0,
-            'margin_footer' => 10,
+            'margin_footer' => 7,
             'margin_left' => 0,
             'margin_right' => 0,
             'tempDir' => storage_path('app/mpdf-tmp'),
             'fontDir' => array_merge($defaultFontDirs, [$fontsDir]),
             'fontdata' => $defaultFontData + [
-                'tildasans' => [
-                    'R' => 'TildaSans.ttf',
-                ],
+                'tildasans' => ['R' => 'TildaSans.ttf'],
                 'barlowcondensed' => [
                     'R' => 'BarlowCondensed-Regular.ttf',
                     'B' => 'BarlowCondensed-Bold.ttf',
@@ -410,11 +437,8 @@ class DocumentPdfService
             ],
         ]);
 
-        // Faint background watermark within the body area between the navy
-        // header band (top 24mm) and the footer recap (bottom 26mm) — the
-        // header/footer bands have solid backgrounds anyway so a watermark
-        // placed under them wouldn't be visible there.
-        $mpdf->SetWatermarkImage("{$logosDir}/hypermed_icon.png", 0.06, [140, 86], [35, 104]);
+        // Faint full-lockup watermark behind the items, as in the v3 design.
+        $mpdf->SetWatermarkImage("{$logosDir}/hypermed_lockup.png", 0.09, [153, 102], [28.5, 98]);
         $mpdf->showWatermarkImage = true;
 
         $mpdf->SetHTMLHeader($headerHtml);

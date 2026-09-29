@@ -28,6 +28,13 @@ return [
             'Website: www.hypermed.co.tz',
         ],
         'tin' => 'TIN : 138 -960 -609',
+        // The same address, formatted for the quotation/invoice letterhead
+        // and footer (wording from the me/system/invoice.php template).
+        'display_lines' => [
+            'Trust House Building, 2nd Floor',
+            'Mwijuma Road, Plot 58/29B · Kinondoni, Mwananyamala Koma Koma',
+            'P.O. Box 14118, Dar es Salaam, Tanzania',
+        ],
     ],
 
     'banks' => [
