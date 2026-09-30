@@ -20,6 +20,7 @@ class CreditNoteController extends Controller
 
     public function store(Request $request, Invoice $invoice)
     {
+        abort_unless($invoice->isFinal(), 422, 'A credit note needs a finalised sale.');
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to issue credit notes.');
 
         $data = $request->validate([

@@ -42,6 +42,7 @@ class InvoiceResource extends JsonResource
             'currency'         => $this->currency,
             'notes'            => $this->notes,
             // Clickhuduma sale-record fields ("All sales")
+            'sale_status'      => in_array($this->status, \App\Models\Invoice::UNFINAL, true) ? $this->status : 'final',
             'payment_status'   => $this->paymentStatus(),
             'contact_phone'    => $this->client_contact ?: $this->hospital?->contact_phone,
             'created_by'       => $this->created_by,

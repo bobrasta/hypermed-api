@@ -54,6 +54,11 @@ class InvoiceController extends Controller
             ->withSum('lineItems as total_items', 'quantity')
             ->withSum(['creditNotes as credited' => fn ($c) => $c->where('status', 'applied')], 'amount');
 
+        // Final sales by default; sale_status=draft|proforma lists those instead.
+        if (in_array($request->input('sale_status'), Invoice::UNFINAL, true)) {
+            $query->withUnfinal()->where('invoices.status', $request->input('sale_status'));
+        }
+
         // A sales rep sees the sales they added, plus invoices made from
         // their own sales orders.
         if ($request->user()->role === 'sales') {
@@ -116,7 +121,7 @@ class InvoiceController extends Controller
         // All sales footer: totals over the whole filtered set, not one page.
         if ($request->boolean('with_totals')) {
             $ids = $query->clone()->select('invoices.id');
-            $base = Invoice::whereIn('id', $ids);
+            $base = Invoice::withUnfinal()->whereIn('id', $ids);
             $today = now()->toDateString();
             $t = $base->clone()->selectRaw(<<<SQL
                 count(*) as count,
@@ -157,7 +162,11 @@ class InvoiceController extends Controller
             'client_name'  => ['nullable', 'string', 'max:255'],
             'client_contact' => ['nullable', 'string', 'max:255'],
             'client_email' => ['nullable', 'email'],
-            'client_tin'   => ['required', ...Tin::RULE],
+            // Clickhuduma sale Status: final (a real invoice), or saved as a
+            // draft / proforma to finish later. Quotations use /quotations.
+            'sale_status'  => ['nullable', 'in:final,draft,proforma'],
+            // A draft may be saved before the TIN is known.
+            'client_tin'   => ['required_unless:sale_status,draft', 'nullable', ...Tin::RULE],
             'issue_date'   => ['required', 'date'],
             // Either a payment term (Clickhuduma style: "30 days", "4 months")
             // that sets the due date, or an explicit due date.
@@ -177,7 +186,13 @@ class InvoiceController extends Controller
             'line_items.*.quantity'    => ['required', 'numeric', 'min:0.01'],
             'line_items.*.unit_price'  => ['required', 'integer', 'min:0'],
         ], ['client_tin.regex' => Tin::MESSAGE, 'client_tin.required' => 'Client TIN is required.']);
-        $data['client_tin'] = Tin::normalize($data['client_tin']);
+        $data['client_tin'] = ! empty($data['client_tin']) ? Tin::normalize($data['client_tin']) : null;
+        $saleStatus = $data['sale_status'] ?? 'final';
+        unset($data['sale_status']);
+        $final = $saleStatus === 'final';
+        if (! $final && isset($data['deposit_amount'])) {
+            return response()->json(['message' => 'Take the deposit when the sale is finalised.', 'errors' => ['deposit_amount' => ['Take the deposit when the sale is finalised.']]], 422);
+        }
 
         $lineItems = $data['line_items'];
         $deposit = isset($data['deposit_amount']) ? [
@@ -208,20 +223,22 @@ class InvoiceController extends Controller
         }
 
         // Only the part left on credit counts against the client's limit.
-        $creditCheck->assertWithinLimit(
-            isset($data['hospital_id']) ? Hospital::find($data['hospital_id']) : null,
-            $total - ($deposit['amount'] ?? 0),
-        );
+        if ($final) {
+            $creditCheck->assertWithinLimit(
+                isset($data['hospital_id']) ? Hospital::find($data['hospital_id']) : null,
+                $total - ($deposit['amount'] ?? 0),
+            );
+        }
 
         $data['subtotal']        = $subtotal;
         $data['tax_rate']        = $taxRate;
         $data['tax_amount']      = $taxAmount;
         $data['total']           = $total;
         $data['amount_paid']     = 0;
-        $data['status']          = 'pending';
-        $data['invoice_number']  = $documentNumbers->next('invoice');
+        $data['status']          = $final ? 'pending' : $saleStatus;
+        $data['invoice_number']  = $documentNumbers->next(match ($saleStatus) { 'draft' => 'sale_draft', 'proforma' => 'proforma', default => 'invoice' });
 
-        $invoice = DB::transaction(function () use ($data, $lineItems, $financePosting, $deposit, $payments, $request) {
+        $invoice = DB::transaction(function () use ($data, $lineItems, $financePosting, $deposit, $payments, $request, $final) {
             $invoice = Invoice::create($data);
 
             foreach ($lineItems as $item) {
@@ -233,8 +250,12 @@ class InvoiceController extends Controller
                 ]);
             }
 
-            $financePosting->postInvoiceIssued($invoice);
-            Tin::rememberOn($invoice->hospital, $invoice->client_tin);
+            if ($final) {
+                $financePosting->postInvoiceIssued($invoice);
+            }
+            if ($invoice->client_tin) {
+                Tin::rememberOn($invoice->hospital, $invoice->client_tin);
+            }
 
             if ($deposit) {
                 $payments->apply($invoice, $deposit, $request->user());
@@ -265,6 +286,8 @@ class InvoiceController extends Controller
         abort_if($invoice->status === 'cancelled', 422, 'A cancelled invoice cannot be edited.');
 
         $data = $request->validate([
+            // Switch a draft/proforma between the two, or finalise it.
+            'sale_status'     => ['sometimes', 'in:final,draft,proforma'],
             'hospital_id'     => ['sometimes', 'nullable', 'exists:hospitals,id'],
             'machine_id'      => ['nullable', 'exists:machines,id'],
             'client_name'     => ['sometimes', 'nullable', 'string', 'max:255'],
@@ -289,7 +312,12 @@ class InvoiceController extends Controller
         }
 
         $lineItems = $data['line_items'] ?? null;
-        unset($data['line_items']);
+        $toStatus = $data['sale_status'] ?? null;
+        unset($data['line_items'], $data['sale_status']);
+        if ($invoice->isFinal() && $toStatus !== null && $toStatus !== 'final') {
+            throw \Illuminate\Validation\ValidationException::withMessages(['sale_status' => 'A final sale cannot go back to draft or proforma.']);
+        }
+        $finalising = ! $invoice->isFinal() && $toStatus === 'final';
 
         if (isset($data['pay_term_number'])) {
             $issue = \Illuminate\Support\Carbon::parse($data['issue_date'] ?? $invoice->issue_date);
@@ -298,8 +326,15 @@ class InvoiceController extends Controller
                 : $issue->copy()->addDays($data['pay_term_number']))->toDateString();
         }
 
-        DB::transaction(function () use ($invoice, $data, $lineItems, $financePosting) {
+        DB::transaction(function () use ($invoice, $data, $lineItems, $financePosting, $toStatus, $finalising, $request) {
             $invoice->fill($data);
+            if ($toStatus && ! $invoice->isFinal() && ! $finalising) {
+                // Draft <-> proforma: each has its own number series.
+                if ($invoice->status !== $toStatus) {
+                    $invoice->status = $toStatus;
+                    $invoice->invoice_number = app(DocumentNumberService::class)->next($toStatus === 'draft' ? 'sale_draft' : 'proforma');
+                }
+            }
             if ($lineItems !== null) {
                 $invoice->lineItems()->delete();
                 foreach ($lineItems as $item) {
@@ -312,9 +347,30 @@ class InvoiceController extends Controller
                 }
             }
             $this->recomputeTotals($invoice, $financePosting, $lineItems !== null);
+
+            if ($finalising) {
+                $this->finalise($invoice, $financePosting, $request);
+            }
         });
 
         return response()->json(['data' => new InvoiceResource($invoice->fresh()->load(['hospital', 'machine', 'salesOrder', 'lineItems', 'payments', 'creator:id,name']))]);
+    }
+
+    /** Draft/proforma → a real sale: invoice number, credit check, ledger. */
+    private function finalise(Invoice $invoice, FinancePostingService $financePosting, Request $request): void
+    {
+        if (! $invoice->client_tin && ! $invoice->hospital?->tin) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['client_tin' => 'Client TIN is required before the sale is finalised.']);
+        }
+        app(CreditCheckService::class)->assertWithinLimit($invoice->hospital, (int) $invoice->total);
+
+        $invoice->status = 'pending';
+        $invoice->invoice_number = app(DocumentNumberService::class)->next('invoice');
+        $invoice->save();
+        $financePosting->postInvoiceIssued($invoice);
+        if ($invoice->client_tin) {
+            Tin::rememberOn($invoice->hospital, $invoice->client_tin);
+        }
     }
 
     // Edit Shipping (Clickhuduma): delivery details, status and charge.
@@ -371,7 +427,7 @@ class InvoiceController extends Controller
         $invoice->subtotal = $subtotal;
         $invoice->tax_amount = $taxAmount;
         $invoice->total = $total;
-        if (! in_array($invoice->status, ['cancelled', 'waived'], true)) {
+        if (! in_array($invoice->status, ['cancelled', 'waived', 'draft', 'proforma'], true)) {
             $invoice->status = $invoice->amount_paid + $credited >= $total && $total > 0 ? 'paid'
                 : ($invoice->amount_paid > 0 ? 'partial' : (in_array($invoice->getOriginal('status'), ['sent'], true) ? 'sent' : 'pending'));
         }
@@ -434,6 +490,7 @@ class InvoiceController extends Controller
 
     public function send(Request $request, Invoice $invoice)
     {
+        abort_unless($invoice->isFinal(), 422, 'Finalise the sale before sending it.');
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to send invoices.');
         if ($invoice->status !== 'pending') {
             return response()->json(['message' => 'Only pending invoices can be sent.'], 422);
@@ -446,6 +503,7 @@ class InvoiceController extends Controller
 
     public function cancel(Request $request, Invoice $invoice, FinancePostingService $financePosting)
     {
+        abort_unless($invoice->isFinal(), 422, 'Delete the draft instead of cancelling it.');
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to cancel invoices.');
         if ($invoice->status === 'paid') {
             return response()->json(['message' => 'Paid invoices cannot be cancelled.'], 422);
@@ -468,6 +526,7 @@ class InvoiceController extends Controller
     // record (which would misstate revenue and receivables).
     public function recordPayment(Request $request, Invoice $invoice, InvoicePaymentService $payments)
     {
+        abort_unless($invoice->isFinal(), 422, 'Finalise the sale before recording a payment.');
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to record invoice payments.');
 
         $data = $request->validate([

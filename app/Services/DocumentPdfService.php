@@ -68,12 +68,14 @@ class DocumentPdfService
             ($invoice->client_tin ?? $invoice->hospital?->tin) ? 'TIN: ' . ($invoice->client_tin ?? $invoice->hospital?->tin) : null,
         ]));
 
+        $kind = match ($invoice->status) { 'proforma' => 'PROFORMA INVOICE', 'draft' => 'DRAFT INVOICE', default => 'INVOICE' };
+
         return $this->render([
-            'title'        => 'INVOICE',
-            'docLabel'     => 'Invoice No:',
+            'title'        => $kind,
+            'docLabel'     => $kind === 'PROFORMA INVOICE' ? 'Proforma No:' : 'Invoice No:',
             'docNumber'    => $invoice->invoice_number,
             'date'         => ($invoice->issue_date ?? now())->format('d M Y'),
-            'tag'          => 'INVOICE · DUE ' . ($invoice->due_date?->format('d M Y') ?? 'N/A')
+            'tag'          => $kind . ' · DUE ' . ($invoice->due_date?->format('d M Y') ?? 'N/A')
                 . ($invoice->pay_term_number !== null ? " · TERMS {$invoice->pay_term_number} " . strtoupper($invoice->pay_term_type ?? 'days') : ''),
             'client'       => $client,
             'clientAddress'=> array_values(array_filter([$invoice->hospital?->address])),

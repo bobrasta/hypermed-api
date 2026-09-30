@@ -32,12 +32,36 @@ class Invoice extends Model
 
     public const SHIPPING_STATUSES = ['ordered', 'packed', 'shipped', 'delivered', 'cancelled'];
 
+    /** Saved but not yet a real sale: no ledger posting, no receivable. */
+    public const UNFINAL = ['draft', 'proforma'];
+
     protected static function booted(): void
     {
+        // Drafts and proformas are hidden from every invoice query —
+        // revenue, receivables, dashboards, customer totals — unless a
+        // caller opts in with withUnfinal(). Only the sales screens do.
+        static::addGlobalScope('final', fn ($q) => $q->whereNotIn('invoices.status', self::UNFINAL));
+
         // Who added the sale ("Added by" on All sales).
         static::creating(function (Invoice $invoice) {
             $invoice->created_by ??= auth()->id();
         });
+    }
+
+    public function scopeWithUnfinal($query)
+    {
+        return $query->withoutGlobalScope('final');
+    }
+
+    public function isFinal(): bool
+    {
+        return ! in_array($this->status, self::UNFINAL, true);
+    }
+
+    // /invoices/{invoice} must still find drafts and proformas.
+    public function resolveRouteBinding($value, $field = null)
+    {
+        return static::withUnfinal()->where($field ?? $this->getRouteKeyName(), $value)->firstOrFail();
     }
 
     public function creator()
@@ -48,7 +72,7 @@ class Invoice extends Model
     /** Clickhuduma payment status: paid, partial, due or overdue (or cancelled/waived). */
     public function paymentStatus(): string
     {
-        if (in_array($this->status, ['cancelled', 'waived', 'paid'], true)) {
+        if (in_array($this->status, ['cancelled', 'waived', 'paid', 'draft', 'proforma'], true)) {
             return $this->status;
         }
         if ($this->due_date && $this->due_date->lt(now()->startOfDay())) {
