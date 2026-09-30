@@ -93,6 +93,70 @@ class DocumentPdfService
         ]);
     }
 
+    public function deliveryNotePdf(Invoice $invoice): Response
+    {
+        $invoice->loadMissing(['lineItems', 'hospital']);
+
+        $client = array_values(array_filter([
+            $invoice->hospital?->name ?? $invoice->client_name, $invoice->client_contact, $invoice->client_email,
+            ($invoice->client_tin ?? $invoice->hospital?->tin) ? 'TIN: ' . ($invoice->client_tin ?? $invoice->hospital?->tin) : null,
+        ]));
+
+        return $this->render([
+            'delivery'      => true,
+            'title'         => 'DELIVERY NOTE',
+            'docLabel'      => 'Delivery Note No:',
+            'docNumber'     => 'DN-' . $invoice->invoice_number,
+            'invoiceNumber' => $invoice->invoice_number,
+            'date'          => now()->format('d M Y'),
+            'tag'           => 'DELIVERY NOTE · INVOICE ' . $invoice->invoice_number
+                . ($invoice->shipping_status ? ' · ' . strtoupper($invoice->shipping_status) : ''),
+            'client'        => $client,
+            'clientAddress' => array_values(array_filter([$invoice->shipping_address ?: $invoice->hospital?->address])),
+            'items'         => $invoice->lineItems->values()->map(fn ($i, $idx) => [
+                $idx + 1, $i->description, $this->trimmedQuantity($i->quantity),
+            ])->all(),
+            'shippingDetails' => $invoice->shipping_details,
+            'deliveredTo'     => $invoice->delivered_to,
+            'currency'      => '',
+            'filename'      => "DN-{$invoice->invoice_number}.pdf",
+        ]);
+    }
+
+    /** Items (quantities only), delivery details and receipt signatures. */
+    private function deliveryNoteBody(array $d): string
+    {
+        $html = "<table id='items'><tr>
+            <th style='width:6%'>#</th><th style='white-space:normal'>DESCRIPTION</th>
+            <th class='num' style='width:14%'>QTY ORDERED</th><th class='num' style='width:16%'>QTY RECEIVED</th></tr>";
+        foreach ($d['items'] as $i) {
+            $html .= '<tr><td class="dim">' . e($i[0]) . '</td><td style="font-weight:500">' . e($i[1]) . '</td>'
+                . '<td class="num" style="font-weight:700">' . e($i[2]) . '</td><td class="num">&nbsp;</td></tr>';
+        }
+        $html .= '</table>';
+
+        $facts = array_filter([
+            'Delivered to' => $d['deliveredTo'] ?? null,
+            'Shipping details' => $d['shippingDetails'] ?? null,
+        ]);
+        if ($facts) {
+            $html .= "<div id='terms'><div class='terms-h'><strong>DELIVERY DETAILS</strong></div><table id='termsrow'><tr>";
+            foreach ($facts as $label => $text) {
+                $html .= "<td style='width:50%'><div class='terms-t'><strong>" . e($label) . '</strong></div><div>' . nl2br(e($text)) . '</div></td>';
+            }
+            $html .= '</tr></table></div>';
+        }
+
+        $html .= "<div style='margin-top:10mm; font-size:8.5pt; color:#5d5d60;'>Goods received in good order and condition.</div>"
+            . "<table style='margin-top:14mm'><tr>";
+        foreach (['DELIVERED BY (NAME & SIGNATURE)', 'RECEIVED BY (NAME & SIGNATURE)', 'DATE & STAMP'] as $label) {
+            $html .= "<td style='width:33%; padding-right:6mm;'><table class='sigline-table'><tr><td class='sigline-cell'>&nbsp;</td></tr>"
+                . "<tr><td class='sigcol-lbl'><strong>{$label}</strong></td></tr></table></td>";
+        }
+
+        return $html . '</tr></table>';
+    }
+
     public function hrReportPdf(array $data): PdfInstance
     {
         return Pdf::loadView('pdf.hr_report', array_merge($data, [
@@ -217,6 +281,7 @@ class DocumentPdfService
         $shortName = 'HYPERMED HEALTHCARE LTD';
         $docRef = e($d['title']) . ' ' . e($d['docNumber']);
         $addr = $lh['display_lines'];
+        $delivery = ! empty($d['delivery']);
 
         // (A) STYLES
         $style = "
@@ -344,69 +409,75 @@ class DocumentPdfService
         $contact = array_values(array_diff($client, $tinLines));
         $addressLines = array_merge($d['clientAddress'] ?? [], $tinLines);
         $html .= "<table id='meta'><tr><td style='width:42%'>"
-            . "<div class='meta-lbl'><strong>BILLED TO</strong></div><br>"
+            . "<div class='meta-lbl'><strong>" . ($delivery ? 'DELIVER TO' : 'BILLED TO') . "</strong></div><br>"
             . "<div class='meta-bigval'><strong>" . e($clientName) . '</strong></div>'
             . ($contact ? "<div style='margin-top:2px'>" . e(implode(' · ', $contact)) . '</div>' : '')
             . ($addressLines ? "<div style='margin-top:4px; font-size:8.5pt; line-height:1.5; color:#5d5d60;'>" . implode('<br>', array_map('e', $addressLines)) . '</div>' : '')
             . '</td>'
             . "<td style='width:29%'><div class='meta-lbl'><strong>DATE ISSUED</strong></div><br><div class='meta-val'>" . e($d['date']) . '</div></td>'
-            . "<td style='width:29%'><div class='meta-lbl'><strong>CURRENCY</strong></div><br><div class='meta-val'>" . e($d['currency']) . '</div></td>'
+            . ($delivery
+                ? "<td style='width:29%'><div class='meta-lbl'><strong>INVOICE NO.</strong></div><br><div class='meta-val'>" . e($d['invoiceNumber']) . '</div></td>'
+                : "<td style='width:29%'><div class='meta-lbl'><strong>CURRENCY</strong></div><br><div class='meta-val'>" . e($d['currency']) . '</div></td>')
             . '</tr></table>';
 
-        // items — clean-line rows
-        $html .= "<table id='items'><tr>
-            <th style='width:6%'>#</th><th style='white-space:normal'>DESCRIPTION</th>
-            <th style='width:11%'>LOT</th><th style='width:12%'>EXP.</th><th style='width:7%'>UOM</th>
-            <th class='num' style='width:6%'>QTY</th><th class='num' style='width:13%'>UNIT PRICE</th>
-            <th class='num' style='width:13%'>AMOUNT</th></tr>";
-        foreach ($d['items'] as $i) {
-            $html .= '<tr><td class="dim">' . e($i[0]) . '</td><td style="font-weight:500">' . e($i[1]) . '</td>'
-                . '<td class="dim">' . e($i[2]) . '</td><td class="dim">' . e($i[3]) . '</td><td>' . e($i[4]) . '</td>'
-                . '<td class="num">' . e($i[5]) . '</td><td class="num">' . e($i[6]) . '</td>'
-                . '<td class="num" style="font-weight:700">' . e($i[7]) . '</td></tr>';
-        }
-        $html .= '</table>';
+        if ($delivery) {
+            $html .= $this->deliveryNoteBody($d);
+        } else {
+            // items — clean-line rows
+            $html .= "<table id='items'><tr>
+                <th style='width:6%'>#</th><th style='white-space:normal'>DESCRIPTION</th>
+                <th style='width:11%'>LOT</th><th style='width:12%'>EXP.</th><th style='width:7%'>UOM</th>
+                <th class='num' style='width:6%'>QTY</th><th class='num' style='width:13%'>UNIT PRICE</th>
+                <th class='num' style='width:13%'>AMOUNT</th></tr>";
+            foreach ($d['items'] as $i) {
+                $html .= '<tr><td class="dim">' . e($i[0]) . '</td><td style="font-weight:500">' . e($i[1]) . '</td>'
+                    . '<td class="dim">' . e($i[2]) . '</td><td class="dim">' . e($i[3]) . '</td><td>' . e($i[4]) . '</td>'
+                    . '<td class="num">' . e($i[5]) . '</td><td class="num">' . e($i[6]) . '</td>'
+                    . '<td class="num" style="font-weight:700">' . e($i[7]) . '</td></tr>';
+            }
+            $html .= '</table>';
 
-        // totals
-        $cc = e($d['currencyCode']);
-        $row = fn ($label, $value, $class = '') => "<tr class='{$class}'><td class='lbl'>{$label}</td><td class='val'>{$cc} " . e($value) . '</td></tr>';
-        $html .= "<table id='totals' align='right'>";
-        $html .= $row('Subtotal', $d['subtotal']);
-        $html .= $row('Discount', $d['discount'], 'muted');
-        if ($d['tax'] !== '0.00') {
-            $html .= $row('VAT', $d['tax']);
-        }
-        if (($d['shipping'] ?? '0.00') !== '0.00') {
-            $html .= $row('Delivery / transport', $d['shipping']);
-        }
-        $html .= "<tr class='grand'><td class='lbl'><div class='grand-lbl'><strong>TOTAL DUE</strong></div></td>"
-            . "<td class='val'><div class='grand-val'><strong>{$cc} " . e($d['total']) . '</strong></div></td></tr>';
-        if (! empty($d['paid'])) {
-            $html .= $row('Paid to date', $d['paid'], 'muted');
-            $html .= "<tr class='grand'><td class='lbl'><div class='grand-lbl'><strong>BALANCE</strong></div></td>"
-                . "<td class='val'><div class='bal-val'><strong>{$cc} " . e($d['balance']) . '</strong></div></td></tr>';
-        }
-        $html .= '</table>';
+            // totals
+            $cc = e($d['currencyCode']);
+            $row = fn ($label, $value, $class = '') => "<tr class='{$class}'><td class='lbl'>{$label}</td><td class='val'>{$cc} " . e($value) . '</td></tr>';
+            $html .= "<table id='totals' align='right'>";
+            $html .= $row('Subtotal', $d['subtotal']);
+            $html .= $row('Discount', $d['discount'], 'muted');
+            if ($d['tax'] !== '0.00') {
+                $html .= $row('VAT', $d['tax']);
+            }
+            if (($d['shipping'] ?? '0.00') !== '0.00') {
+                $html .= $row('Delivery / transport', $d['shipping']);
+            }
+            $html .= "<tr class='grand'><td class='lbl'><div class='grand-lbl'><strong>TOTAL DUE</strong></div></td>"
+                . "<td class='val'><div class='grand-val'><strong>{$cc} " . e($d['total']) . '</strong></div></td></tr>';
+            if (! empty($d['paid'])) {
+                $html .= $row('Paid to date', $d['paid'], 'muted');
+                $html .= "<tr class='grand'><td class='lbl'><div class='grand-lbl'><strong>BALANCE</strong></div></td>"
+                    . "<td class='val'><div class='bal-val'><strong>{$cc} " . e($d['balance']) . '</strong></div></td></tr>';
+            }
+            $html .= '</table>';
 
-        // terms
-        $html .= "<div id='terms'><div class='terms-h'><strong>TERMS &amp; CONDITIONS</strong></div><table id='termsrow'><tr>";
-        foreach ($d['terms'] as $t) {
-            $html .= "<td style='width:" . round(100 / max(1, count($d['terms']))) . "%'>"
-                . "<div class='terms-t'><strong>" . e($t['label']) . '</strong></div><div>' . e($t['text']) . '</div></td>';
-        }
-        $html .= '</tr></table></div>';
+            // terms
+            $html .= "<div id='terms'><div class='terms-h'><strong>TERMS &amp; CONDITIONS</strong></div><table id='termsrow'><tr>";
+            foreach ($d['terms'] as $t) {
+                $html .= "<td style='width:" . round(100 / max(1, count($d['terms']))) . "%'>"
+                    . "<div class='terms-t'><strong>" . e($t['label']) . '</strong></div><div>' . e($t['text']) . '</div></td>';
+            }
+            $html .= '</tr></table></div>';
 
-        // payment note + bank columns + signature
-        $html .= "<table id='footrow'><tr><td class='bankcell'>"
-            . "<div class='banknote'>Prices exclude any charge not stated on this document. Payments should be made directly to the accounts below.</div>"
-            . "<table class='banktable'><tr><td><div class='bankcol-lbl'><strong>ACCOUNT NAME</strong></div><strong>" . e($title($lh['name_payee'])) . '</strong></td>';
-        foreach ($banks as $b) {
-            $html .= "<td><div class='bankcol-lbl'><strong>" . e(strtoupper($b['name'])) . '</strong></div>' . e($b['currency']) . ' &middot; ' . e($b['account']) . '</td>';
+            // payment note + bank columns + signature
+            $html .= "<table id='footrow'><tr><td class='bankcell'>"
+                . "<div class='banknote'>Prices exclude any charge not stated on this document. Payments should be made directly to the accounts below.</div>"
+                . "<table class='banktable'><tr><td><div class='bankcol-lbl'><strong>ACCOUNT NAME</strong></div><strong>" . e($title($lh['name_payee'])) . '</strong></td>';
+            foreach ($banks as $b) {
+                $html .= "<td><div class='bankcol-lbl'><strong>" . e(strtoupper($b['name'])) . '</strong></div>' . e($b['currency']) . ' &middot; ' . e($b['account']) . '</td>';
+            }
+            $html .= '</tr></table></td>'
+                . "<td class='sigcell'><table class='sigline-table'><tr><td class='sigline-cell'>&nbsp;</td></tr>"
+                . "<tr><td class='sigcol-lbl'><strong>AUTHORISED SIGNATURE &amp; STAMP</strong></td></tr></table></td>"
+                . '</tr></table>';
         }
-        $html .= '</tr></table></td>'
-            . "<td class='sigcell'><table class='sigline-table'><tr><td class='sigline-cell'>&nbsp;</td></tr>"
-            . "<tr><td class='sigcol-lbl'><strong>AUTHORISED SIGNATURE &amp; STAMP</strong></td></tr></table></td>"
-            . '</tr></table>';
 
         $html .= '</div></div></body></html>';
 

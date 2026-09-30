@@ -315,6 +315,9 @@ Route::prefix('v1')->group(function () {
         Route::post('invoices/{invoice}/cancel',  [InvoiceController::class, 'cancel']);
         Route::post('invoices/{invoice}/payments',[InvoiceController::class, 'recordPayment']);
         Route::get('invoices/{invoice}/pdf',        [InvoiceController::class, 'pdf']);
+        Route::get('invoices/{invoice}/delivery-note', [InvoiceController::class, 'deliveryNote']);
+        Route::put('invoices/{invoice}/shipping',   [InvoiceController::class, 'shipping']);
+        Route::post('invoices/{invoice}/notify',    [InvoiceController::class, 'notify']);
         Route::post('invoices/{invoice}/share-link',[InvoiceController::class, 'shareLink']);
         Route::get('invoices/{invoice}/credit-notes',  [CreditNoteController::class, 'index']);
         Route::post('invoices/{invoice}/credit-notes', [CreditNoteController::class, 'store']);

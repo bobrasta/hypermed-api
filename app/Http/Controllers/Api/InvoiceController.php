@@ -50,10 +50,16 @@ class InvoiceController extends Controller
     // to zero invoices (they never created a sales order to match against).
     public function index(Request $request)
     {
-        $query = Invoice::with(['hospital', 'machine', 'salesOrder', 'payments']);
+        $query = Invoice::with(['hospital', 'machine', 'salesOrder', 'payments', 'creator:id,name'])
+            ->withSum('lineItems as total_items', 'quantity')
+            ->withSum(['creditNotes as credited' => fn ($c) => $c->where('status', 'applied')], 'amount');
 
+        // A sales rep sees the sales they added, plus invoices made from
+        // their own sales orders.
         if ($request->user()->role === 'sales') {
-            $query->whereHas('salesOrder', fn ($q) => $q->where('created_by', $request->user()->id));
+            $me = $request->user()->id;
+            $query->where(fn ($w) => $w->where('created_by', $me)
+                ->orWhereHas('salesOrder', fn ($q) => $q->where('created_by', $me)));
         }
 
         if ($request->filled('status')) {
@@ -69,6 +75,23 @@ class InvoiceController extends Controller
                 $query->where('status', $request->status);
             }
         }
+        // Clickhuduma's payment-status filter: paid / due (nothing paid) /
+        // partial / overdue (due or partial, past the due date).
+        if ($request->filled('payment_status')) {
+            match ($request->payment_status) {
+                'paid'    => $query->where('status', 'paid'),
+                'due'     => $query->whereIn('status', ['pending', 'sent'])->where('amount_paid', 0),
+                'partial' => $query->whereIn('status', ['pending', 'sent', 'partial'])->where('amount_paid', '>', 0),
+                'overdue' => $query->whereIn('status', ['pending', 'sent', 'partial'])->where('due_date', '<', now()->toDateString()),
+                default   => $query->where('status', $request->payment_status),
+            };
+        }
+        if ($request->filled('created_by')) {
+            $query->where('created_by', $request->created_by);
+        }
+        if ($request->filled('shipping_status')) {
+            $query->where('shipping_status', $request->shipping_status);
+        }
         if ($request->filled('hospital_id')) {
             $query->where('hospital_id', $request->hospital_id);
         }
@@ -81,13 +104,47 @@ class InvoiceController extends Controller
         if ($request->filled('search')) {
             $q = $request->search;
             $query->where(function ($qb) use ($q) {
-                $qb->where('invoice_number', 'like', "%$q%")
-                   ->orWhere('client_name', 'like', "%$q%");
+                $qb->where('invoice_number', 'ilike', "%$q%")
+                   ->orWhere('client_name', 'ilike', "%$q%")
+                   ->orWhere('client_contact', 'ilike', "%$q%");
             });
         }
         $this->applyPeriod($query, $request, 'issue_date');
 
-        return InvoiceResource::collection($query->latest('issue_date')->paginate($this->perPage($request, 50)));
+        $page = InvoiceResource::collection($query->clone()->latest('issue_date')->latest('id')->paginate($this->perPage($request, 50)));
+
+        // All sales footer: totals over the whole filtered set, not one page.
+        if ($request->boolean('with_totals')) {
+            $ids = $query->clone()->select('invoices.id');
+            $base = Invoice::whereIn('id', $ids);
+            $today = now()->toDateString();
+            $t = $base->clone()->selectRaw(<<<SQL
+                count(*) as count,
+                coalesce(sum(total), 0) as total,
+                coalesce(sum(amount_paid), 0) as paid,
+                count(*) filter (where status = 'paid') as paid_count,
+                count(*) filter (where status in ('pending','sent','partial') and due_date < '{$today}') as overdue_count,
+                count(*) filter (where status in ('pending','sent','partial') and due_date >= '{$today}' and amount_paid > 0) as partial_count,
+                count(*) filter (where status in ('pending','sent') and due_date >= '{$today}' and amount_paid = 0) as due_count
+                SQL)->first();
+            $open = $base->clone()->whereIn('status', ['pending', 'sent', 'partial'])
+                ->selectRaw('coalesce(sum(total - amount_paid), 0) as due')->value('due');
+            $methods = \App\Models\Payment::whereIn('invoice_id', $ids)
+                ->selectRaw('payment_method, count(distinct invoice_id) as n')->groupBy('payment_method')
+                ->pluck('n', 'payment_method');
+
+            $page->additional(['totals' => [
+                'count'           => (int) $t->count,
+                'total'           => (int) $t->total,
+                'paid'            => (int) $t->paid,
+                'due'             => (int) $open,
+                'payment_status'  => ['paid' => (int) $t->paid_count, 'due' => (int) $t->due_count,
+                    'partial' => (int) $t->partial_count, 'overdue' => (int) $t->overdue_count],
+                'payment_methods' => $methods,
+            ]]);
+        }
+
+        return $page;
     }
 
     public function store(Request $request, CreditCheckService $creditCheck, FinancePostingService $financePosting, DocumentNumberService $documentNumbers, InvoicePaymentService $payments)
@@ -193,27 +250,172 @@ class InvoiceController extends Controller
 
     public function show(Invoice $invoice)
     {
-        $invoice->load(['hospital', 'machine', 'salesOrder', 'lineItems', 'payments.recordedBy']);
+        $invoice->load(['hospital', 'machine', 'salesOrder', 'lineItems', 'payments.recordedBy', 'creator:id,name'])
+            ->loadSum(['creditNotes as credited' => fn ($c) => $c->where('status', 'applied')], 'amount');
 
         return response()->json(['data' => new InvoiceResource($invoice)]);
     }
 
-    public function update(Request $request, Invoice $invoice)
+    // Edit a sale (Clickhuduma "Edit"): client, dates/terms, notes and —
+    // when sent — the line items, tax and delivery charge. Totals are
+    // recomputed and, if the invoice was posted to the ledger, re-posted.
+    public function update(Request $request, Invoice $invoice, FinancePostingService $financePosting)
     {
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to edit invoices.');
+        abort_if($invoice->status === 'cancelled', 422, 'A cancelled invoice cannot be edited.');
 
         $data = $request->validate([
-            'hospital_id'  => ['sometimes', 'nullable', 'exists:hospitals,id'],
-            'machine_id'   => ['nullable', 'exists:machines,id'],
-            'client_name'  => ['sometimes', 'nullable', 'string'],
-            'issue_date'   => ['sometimes', 'date'],
-            'due_date'     => ['sometimes', 'date'],
-            'notes'        => ['nullable', 'string'],
+            'hospital_id'     => ['sometimes', 'nullable', 'exists:hospitals,id'],
+            'machine_id'      => ['nullable', 'exists:machines,id'],
+            'client_name'     => ['sometimes', 'nullable', 'string', 'max:255'],
+            'client_contact'  => ['sometimes', 'nullable', 'string', 'max:255'],
+            'client_email'    => ['sometimes', 'nullable', 'email'],
+            'client_tin'      => ['sometimes', 'nullable', ...Tin::RULE],
+            'issue_date'      => ['sometimes', 'date'],
+            'due_date'        => ['sometimes', 'date'],
+            'pay_term_number' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:3650'],
+            'pay_term_type'   => ['sometimes', 'nullable', 'in:days,months', 'required_with:pay_term_number'],
+            'tax_rate'        => ['sometimes', 'numeric', 'min:0', 'max:100'],
+            'shipping_charges'=> ['sometimes', 'integer', 'min:0'],
+            'notes'           => ['nullable', 'string'],
+            'staff_note'      => ['nullable', 'string'],
+            'line_items'      => ['sometimes', 'array', 'min:1'],
+            'line_items.*.description' => ['required_with:line_items', 'string'],
+            'line_items.*.quantity'    => ['required_with:line_items', 'numeric', 'min:0.01'],
+            'line_items.*.unit_price'  => ['required_with:line_items', 'integer', 'min:0'],
+        ], ['client_tin.regex' => Tin::MESSAGE]);
+        if (! empty($data['client_tin'])) {
+            $data['client_tin'] = Tin::normalize($data['client_tin']);
+        }
+
+        $lineItems = $data['line_items'] ?? null;
+        unset($data['line_items']);
+
+        if (isset($data['pay_term_number'])) {
+            $issue = \Illuminate\Support\Carbon::parse($data['issue_date'] ?? $invoice->issue_date);
+            $data['due_date'] = ($data['pay_term_type'] === 'months'
+                ? $issue->copy()->addMonthsNoOverflow($data['pay_term_number'])
+                : $issue->copy()->addDays($data['pay_term_number']))->toDateString();
+        }
+
+        DB::transaction(function () use ($invoice, $data, $lineItems, $financePosting) {
+            $invoice->fill($data);
+            if ($lineItems !== null) {
+                $invoice->lineItems()->delete();
+                foreach ($lineItems as $item) {
+                    $invoice->lineItems()->create([
+                        'description' => $item['description'],
+                        'quantity'    => $item['quantity'],
+                        'unit_price'  => $item['unit_price'],
+                        'total'       => (int) ($item['quantity'] * $item['unit_price']),
+                    ]);
+                }
+            }
+            $this->recomputeTotals($invoice, $financePosting, $lineItems !== null);
+        });
+
+        return response()->json(['data' => new InvoiceResource($invoice->fresh()->load(['hospital', 'machine', 'salesOrder', 'lineItems', 'payments', 'creator:id,name']))]);
+    }
+
+    // Edit Shipping (Clickhuduma): delivery details, status and charge.
+    public function shipping(Request $request, Invoice $invoice, FinancePostingService $financePosting)
+    {
+        abort_if(! $request->user()->hasAccountantAuthority() && ! $request->user()->hasSalesEditAuthority(), 403,
+            'You are not authorised to edit shipping.');
+
+        $data = $request->validate([
+            'shipping_details' => ['nullable', 'string'],
+            'shipping_address' => ['nullable', 'string'],
+            'shipping_charges' => ['sometimes', 'integer', 'min:0'],
+            'shipping_status'  => ['nullable', 'in:' . implode(',', Invoice::SHIPPING_STATUSES)],
+            'delivered_to'     => ['nullable', 'string', 'max:255'],
+        ]);
+        // The charge changes the invoice total, which is accountant work.
+        if (array_key_exists('shipping_charges', $data) && (int) $data['shipping_charges'] !== (int) $invoice->shipping_charges) {
+            abort_if(! $request->user()->hasAccountantAuthority(), 403, 'Only an accountant can change the shipping charge.');
+            abort_if($invoice->status === 'cancelled', 422, 'A cancelled invoice cannot be changed.');
+        }
+
+        DB::transaction(function () use ($invoice, $data, $financePosting) {
+            $invoice->fill($data);
+            $this->recomputeTotals($invoice, $financePosting, false);
+        });
+
+        return response()->json(['data' => new InvoiceResource($invoice->fresh()->load(['hospital', 'machine', 'salesOrder', 'lineItems', 'payments', 'creator:id,name']))]);
+    }
+
+    /**
+     * Recalculates subtotal/tax/total after an edit and saves. If the
+     * total changed and the invoice had been posted to the ledger, its
+     * issue posting is replaced (imported Clickhuduma invoices were never
+     * posted, so they stay out of the ledger). The new total can't drop
+     * below what has already been paid or credited.
+     */
+    private function recomputeTotals(Invoice $invoice, FinancePostingService $financePosting, bool $linesChanged): void
+    {
+        $subtotal = $linesChanged || $invoice->isDirty('tax_rate')
+            ? (int) $invoice->lineItems()->sum('total')
+            : (int) $invoice->subtotal;
+        $taxAmount = $linesChanged || $invoice->isDirty('tax_rate')
+            ? (int) round($subtotal * ((float) $invoice->tax_rate) / 100)
+            : (int) $invoice->tax_amount;
+        $total = $subtotal + $taxAmount + (int) $invoice->shipping_charges;
+        $oldTotal = (int) $invoice->getOriginal('total');
+
+        $credited = (int) $invoice->creditNotes()->where('status', 'applied')->sum('amount');
+        if ($total < $invoice->amount_paid + $credited) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['total' =>
+                'The new total (' . number_format($total) . ') is less than what has already been paid or credited (' . number_format($invoice->amount_paid + $credited) . ').']);
+        }
+
+        $invoice->subtotal = $subtotal;
+        $invoice->tax_amount = $taxAmount;
+        $invoice->total = $total;
+        if (! in_array($invoice->status, ['cancelled', 'waived'], true)) {
+            $invoice->status = $invoice->amount_paid + $credited >= $total && $total > 0 ? 'paid'
+                : ($invoice->amount_paid > 0 ? 'partial' : (in_array($invoice->getOriginal('status'), ['sent'], true) ? 'sent' : 'pending'));
+        }
+        $invoice->save();
+
+        $posted = \App\Models\Transaction::where('reference', "INV-{$invoice->id}")->exists();
+        if ($posted && ($total !== $oldTotal || $invoice->wasChanged('tax_amount'))) {
+            app(\App\Services\AccountingService::class)->reverseByReference("INV-{$invoice->id}");
+            $financePosting->postInvoiceIssued($invoice);
+        }
+    }
+
+    // Delivery note PDF: what was delivered, no prices, signature blocks.
+    public function deliveryNote(Invoice $invoice, DocumentPdfService $pdfService)
+    {
+        return $pdfService->deliveryNotePdf($invoice);
+    }
+
+    // New Sale Notification (Clickhuduma): email the customer the invoice PDF.
+    public function notify(Request $request, Invoice $invoice, DocumentPdfService $pdfService)
+    {
+        abort_if(! $request->user()->hasAccountantAuthority() && ! $request->user()->hasSalesEditAuthority(), 403,
+            'You are not authorised to email invoices.');
+        $data = $request->validate([
+            'to'      => ['required', 'email'],
+            'subject' => ['required', 'string', 'max:255'],
+            'message' => ['required', 'string', 'max:10000'],
         ]);
 
-        $invoice->update($data);
+        $pdf = $pdfService->invoicePdf($invoice)->getContent();
+        $from = $request->user();
+        \Illuminate\Support\Facades\Mail::raw($data['message'], function ($m) use ($data, $invoice, $pdf, $from) {
+            $m->to($data['to'])->subject($data['subject'])
+                ->attachData($pdf, "{$invoice->invoice_number}.pdf", ['mime' => 'application/pdf']);
+            if ($from?->email) {
+                $m->replyTo($from->email, $from->name);
+            }
+        });
 
-        return response()->json(['data' => new InvoiceResource($invoice->load(['hospital', 'machine', 'salesOrder', 'lineItems', 'payments']))]);
+        activity()->performedOn($invoice)->causedBy($from)
+            ->withProperties(['to' => $data['to'], 'subject' => $data['subject']])
+            ->log("Emailed invoice {$invoice->invoice_number} to {$data['to']}");
+
+        return response()->json(['message' => "Invoice emailed to {$data['to']}."]);
     }
 
     public function destroy(Request $request, Invoice $invoice, FinancePostingService $financePosting)

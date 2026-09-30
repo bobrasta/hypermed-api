@@ -26,7 +26,37 @@ class Invoice extends Model
         'issue_date', 'due_date', 'subtotal', 'tax_rate',
         'tax_amount', 'total', 'amount_paid', 'status', 'currency', 'notes',
         'pay_term_number', 'pay_term_type', 'shipping_charges',
+        'created_by', 'added_by_name', 'staff_note',
+        'shipping_status', 'shipping_address', 'shipping_details', 'delivered_to',
     ];
+
+    public const SHIPPING_STATUSES = ['ordered', 'packed', 'shipped', 'delivered', 'cancelled'];
+
+    protected static function booted(): void
+    {
+        // Who added the sale ("Added by" on All sales).
+        static::creating(function (Invoice $invoice) {
+            $invoice->created_by ??= auth()->id();
+        });
+    }
+
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /** Clickhuduma payment status: paid, partial, due or overdue (or cancelled/waived). */
+    public function paymentStatus(): string
+    {
+        if (in_array($this->status, ['cancelled', 'waived', 'paid'], true)) {
+            return $this->status;
+        }
+        if ($this->due_date && $this->due_date->lt(now()->startOfDay())) {
+            return 'overdue';
+        }
+
+        return $this->amount_paid > 0 ? 'partial' : 'due';
+    }
 
     protected $casts = [
         'issue_date' => 'date',
