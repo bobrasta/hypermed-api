@@ -181,6 +181,7 @@ class InvoiceController extends Controller
             'deposit_reference'=> ['nullable', 'string', 'max:255'],
             'currency'     => ['nullable', 'string', 'max:10'],
             'notes'        => ['nullable', 'string'],
+            'staff_note'   => ['nullable', 'string'],
             'line_items'   => ['required', 'array', 'min:1'],
             'line_items.*.description' => ['required', 'string'],
             'line_items.*.quantity'    => ['required', 'numeric', 'min:0.01'],
@@ -476,6 +477,15 @@ class InvoiceController extends Controller
 
     public function destroy(Request $request, Invoice $invoice, FinancePostingService $financePosting)
     {
+        // Drafts and proformas never touched the accounts — an accountant
+        // can remove them. A final sale still needs the Director.
+        if (! $invoice->isFinal()) {
+            abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to delete this.');
+            $invoice->lineItems()->delete();
+            $invoice->delete();
+
+            return response()->json(null, 204);
+        }
         abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can delete an invoice.');
 
         DB::transaction(function () use ($invoice, $financePosting) {
