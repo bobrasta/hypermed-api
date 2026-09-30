@@ -438,6 +438,10 @@ Route::prefix('v1')->group(function () {
         Route::post('purchase-orders/{purchaseOrder}/cancel',  [PurchaseOrderController::class, 'cancel']);
         Route::apiResource('purchase-orders', PurchaseOrderController::class);
 
+        // Customers = client facilities we do business with; contacts are the people there
+        Route::get('customers',            [\App\Http\Controllers\Api\CustomerController::class, 'index']);
+        Route::get('customers/{hospital}', [\App\Http\Controllers\Api\CustomerController::class, 'show']);
+
         // Contacts (CRM)
         Route::post('contacts/{contact}/interactions', [ContactController::class, 'addInteraction']);
         Route::apiResource('contacts', ContactController::class);
