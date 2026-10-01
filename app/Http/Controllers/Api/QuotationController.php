@@ -14,6 +14,7 @@ use App\Services\DocumentPdfService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
+use App\Support\DocumentTerms;
 use App\Support\Tin;
 
 class QuotationController extends Controller
@@ -89,6 +90,7 @@ class QuotationController extends Controller
             'tax_amount'                => 'nullable|integer|min:0',
             'notes'                     => 'nullable|string',
             'terms'                     => 'nullable|string',
+            ...DocumentTerms::RULES,
             'items'                     => 'required|array|min:1',
             'items.*.inventory_item_id' => 'nullable|exists:inventory_items,id',
             'items.*.description'       => 'required|string|max:300',
@@ -128,6 +130,7 @@ class QuotationController extends Controller
                 'currency'         => $data['currency'] ?? 'TZS',
                 'notes'            => $data['notes'] ?? null,
                 'terms'            => $data['terms'] ?? null,
+                'term_items'       => DocumentTerms::normalize($data['term_items'] ?? null),
                 'created_by'       => $request->user()->id,
                 ...$totals,
                 ...$approvalFields,
@@ -176,10 +179,14 @@ class QuotationController extends Controller
             'tax_amount'     => 'nullable|integer|min:0',
             'notes'          => 'nullable|string',
             'terms'          => 'nullable|string',
+            ...DocumentTerms::RULES,
         ], ['client_tin.regex' => Tin::MESSAGE, 'client_tin.required' => 'Client TIN is required.']);
 
         if (isset($data['client_tin'])) {
             $data['client_tin'] = Tin::normalize($data['client_tin']);
+        }
+        if (array_key_exists('term_items', $data)) {
+            $data['term_items'] = DocumentTerms::normalize($data['term_items']);
         }
         $quotation->update($data);
 

@@ -28,6 +28,7 @@ class Invoice extends Model
         'pay_term_number', 'pay_term_type', 'shipping_charges',
         'created_by', 'added_by_name', 'staff_note',
         'shipping_status', 'shipping_address', 'shipping_details', 'delivered_to',
+        'term_items',
     ];
 
     public const SHIPPING_STATUSES = ['ordered', 'packed', 'shipped', 'delivered', 'cancelled'];
@@ -90,6 +91,7 @@ class Invoice extends Model
         'tax_amount' => 'integer',
         'total' => 'integer',
         'amount_paid' => 'integer',
+        'term_items' => 'array',
     ];
 
     public function hospital()

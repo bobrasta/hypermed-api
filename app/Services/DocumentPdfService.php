@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\DocumentTerms;
 use App\Models\Invoice;
 use App\Models\Quotation;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -47,7 +48,7 @@ class DocumentPdfService
             'total'        => number_format($quotation->total_amount, 2),
             'currencyCode' => $this->currencyPrefix($quotation->currency),
             'currency'     => $this->currencyLabel($quotation->currency),
-            'terms'        => $quotation->terms ? [['label' => 'Terms', 'text' => $quotation->terms]] : $company['default_terms'],
+            'terms'        => DocumentTerms::resolve($quotation->term_items, $quotation->terms),
             'filename'     => "{$quotation->quotation_number}.pdf",
         ]);
     }
@@ -90,7 +91,7 @@ class DocumentPdfService
             'balance'      => $invoice->amount_paid > 0 ? number_format($invoice->balance_due, 2) : null,
             'currencyCode' => $this->currencyPrefix($invoice->currency),
             'currency'     => $this->currencyLabel($invoice->currency),
-            'terms'        => $company['default_terms'],
+            'terms'        => DocumentTerms::resolve($invoice->term_items),
             'filename'     => "{$invoice->invoice_number}.pdf",
         ]);
     }

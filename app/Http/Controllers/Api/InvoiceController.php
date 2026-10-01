@@ -17,6 +17,7 @@ use App\Services\InvoicePaymentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
+use App\Support\DocumentTerms;
 use App\Support\Tin;
 
 class InvoiceController extends Controller
@@ -197,6 +198,7 @@ class InvoiceController extends Controller
             'currency'     => ['nullable', 'string', 'max:10'],
             'notes'        => ['nullable', 'string'],
             'staff_note'   => ['nullable', 'string'],
+            ...DocumentTerms::RULES,
             'line_items'   => ['required', 'array', 'min:1'],
             'line_items.*.description' => ['required', 'string'],
             'line_items.*.quantity'    => ['required', 'numeric', 'min:0.01'],
@@ -211,6 +213,9 @@ class InvoiceController extends Controller
         }
 
         $lineItems = $data['line_items'];
+        if (array_key_exists('term_items', $data)) {
+            $data['term_items'] = DocumentTerms::normalize($data['term_items']);
+        }
         $deposit = isset($data['deposit_amount']) ? [
             'amount'         => (int) $data['deposit_amount'],
             'payment_method' => $data['deposit_method'],
@@ -285,6 +290,13 @@ class InvoiceController extends Controller
         ], 201);
     }
 
+    // Company default TERMS & CONDITIONS — the placeholders on the sale and
+    // quotation forms, and what prints wherever a document leaves one blank.
+    public function termDefaults()
+    {
+        return response()->json(['data' => DocumentTerms::defaults()]);
+    }
+
     public function show(Invoice $invoice)
     {
         $invoice->load(['hospital', 'machine', 'salesOrder', 'lineItems', 'payments.recordedBy', 'creator:id,name'])
@@ -318,6 +330,7 @@ class InvoiceController extends Controller
             'shipping_charges'=> ['sometimes', 'integer', 'min:0'],
             'notes'           => ['nullable', 'string'],
             'staff_note'      => ['nullable', 'string'],
+            ...DocumentTerms::RULES,
             'line_items'      => ['sometimes', 'array', 'min:1'],
             'line_items.*.description' => ['required_with:line_items', 'string'],
             'line_items.*.quantity'    => ['required_with:line_items', 'numeric', 'min:0.01'],
@@ -328,6 +341,9 @@ class InvoiceController extends Controller
         }
 
         $lineItems = $data['line_items'] ?? null;
+        if (array_key_exists('term_items', $data)) {
+            $data['term_items'] = DocumentTerms::normalize($data['term_items']);
+        }
         $toStatus = $data['sale_status'] ?? null;
         unset($data['line_items'], $data['sale_status']);
         if ($invoice->isFinal() && $toStatus !== null && $toStatus !== 'final') {

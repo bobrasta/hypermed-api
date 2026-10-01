@@ -31,6 +31,7 @@ class QuotationResource extends JsonResource
             'total_amount'     => $this->total_amount,
             'notes'            => $this->notes,
             'terms'            => $this->terms,
+            'term_items'       => $this->term_items,
             'created_by_name'  => $this->createdBy?->name,
             'sent_at'          => $this->sent_at?->toIso8601String(),
             'accepted_at'      => $this->accepted_at?->toIso8601String(),

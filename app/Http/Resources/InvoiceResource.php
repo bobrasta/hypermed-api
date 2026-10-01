@@ -55,6 +55,8 @@ class InvoiceResource extends JsonResource
             'shipping_address' => $this->shipping_address,
             'shipping_details' => $this->shipping_details,
             'delivered_to'     => $this->delivered_to,
+            // Only what this sale changed; null = company default terms.
+            'term_items'       => $this->term_items,
             // Relations
             'line_items'       => InvoiceLineItemResource::collection($this->whenLoaded('lineItems')),
             'payments'         => PaymentResource::collection($this->whenLoaded('payments')),

@@ -22,12 +22,13 @@ class Quotation extends Model
         'quotation_number', 'lead_id', 'client_name', 'client_contact', 'client_email', 'client_tin',
         'status', 'valid_until', 'currency',
         'subtotal', 'discount_amount', 'tax_amount', 'total_amount',
-        'notes', 'terms', 'created_by', 'sent_at', 'accepted_at',
+        'notes', 'terms', 'term_items', 'created_by', 'sent_at', 'accepted_at',
         'approval_status', 'approval_reason', 'approved_by', 'approved_at', 'rejection_reason',
     ];
 
     protected $casts = [
         'valid_until'  => 'date',
+        'term_items'   => 'array',
         'sent_at'      => 'datetime',
         'accepted_at'  => 'datetime',
         'approved_at'  => 'datetime',

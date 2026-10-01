@@ -311,6 +311,7 @@ class SalesOrderController extends Controller
                 'client_name'     => $salesOrder->client_name,
                 'client_contact'  => $salesOrder->client_contact,
                 'client_tin'      => $salesOrder->quotation?->client_tin ?? $salesOrder->hospital?->tin,
+                'term_items'      => $salesOrder->quotation?->term_items,
                 'issue_date'      => now()->toDateString(),
                 'due_date'        => now()->addDays(30)->toDateString(),
                 'subtotal'        => $lineSubtotal,
