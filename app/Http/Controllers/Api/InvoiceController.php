@@ -171,7 +171,8 @@ class InvoiceController extends Controller
             $query->where(function ($qb) use ($q) {
                 $qb->where('invoice_number', 'ilike', "%$q%")
                    ->orWhere('client_name', 'ilike', "%$q%")
-                   ->orWhere('client_contact', 'ilike', "%$q%");
+                   ->orWhere('client_contact', 'ilike', "%$q%")
+                   ->orWhereHas('hospital', fn ($h) => $h->where('name', 'ilike', "%$q%"));
             });
         }
         $this->applyPeriod($query, $request, 'issue_date');
