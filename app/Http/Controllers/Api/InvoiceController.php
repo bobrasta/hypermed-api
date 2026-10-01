@@ -80,14 +80,16 @@ class InvoiceController extends Controller
                 $query->where('status', $request->status);
             }
         }
-        // Clickhuduma's payment-status filter: paid / due (nothing paid) /
-        // partial / overdue (due or partial, past the due date).
+        // Payment-status filter (All sales chips): each sale has exactly one
+        // of paid / due (nothing paid, not yet late) / partial (part paid,
+        // not yet late) / overdue (unpaid past its due date) / cancelled.
         if ($request->filled('payment_status')) {
+            $today = now()->toDateString();
             match ($request->payment_status) {
                 'paid'    => $query->where('status', 'paid'),
-                'due'     => $query->whereIn('status', ['pending', 'sent'])->where('amount_paid', 0),
-                'partial' => $query->whereIn('status', ['pending', 'sent', 'partial'])->where('amount_paid', '>', 0),
-                'overdue' => $query->whereIn('status', ['pending', 'sent', 'partial'])->where('due_date', '<', now()->toDateString()),
+                'due'     => $query->whereIn('status', ['pending', 'sent'])->where('amount_paid', 0)->where('due_date', '>=', $today),
+                'partial' => $query->whereIn('status', ['pending', 'sent', 'partial'])->where('amount_paid', '>', 0)->where('due_date', '>=', $today),
+                'overdue' => $query->whereIn('status', ['pending', 'sent', 'partial'])->where('due_date', '<', $today),
                 default   => $query->where('status', $request->payment_status),
             };
         }
@@ -116,7 +118,20 @@ class InvoiceController extends Controller
         }
         $this->applyPeriod($query, $request, 'issue_date');
 
-        $page = InvoiceResource::collection($query->clone()->latest('issue_date')->latest('id')->paginate($this->perPage($request, 50)));
+        // Sort by column (All sales); newest first by default.
+        $dir = $request->input('dir') === 'asc' ? 'asc' : 'desc';
+        $sorted = $query->clone();
+        match ($request->input('sort')) {
+            'number'   => $sorted->orderBy('invoice_number', $dir),
+            'customer' => $sorted->orderByRaw("lower(coalesce(client_name, '')) {$dir}"),
+            'status'   => $sorted->orderBy('status', $dir),
+            'total'    => $sorted->orderBy('total', $dir),
+            'paid'     => $sorted->orderBy('amount_paid', $dir),
+            'due'      => $sorted->orderByRaw("(case when status in ('pending','sent','partial') then total - amount_paid else 0 end) {$dir}"),
+            'added_by' => $sorted->orderByRaw("lower(coalesce((select name from users u where u.id = invoices.created_by), added_by_name, '')) {$dir}"),
+            default    => $sorted->orderBy('issue_date', $dir),
+        };
+        $page = InvoiceResource::collection($sorted->orderBy('id', $dir)->paginate($this->perPage($request, 50)));
 
         // All sales footer: totals over the whole filtered set, not one page.
         if ($request->boolean('with_totals')) {
