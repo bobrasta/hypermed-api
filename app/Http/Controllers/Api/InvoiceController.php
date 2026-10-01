@@ -14,6 +14,7 @@ use App\Services\DocumentNumberService;
 use App\Services\DocumentPdfService;
 use App\Services\FinancePostingService;
 use App\Services\InvoicePaymentService;
+use App\Services\SalesExportService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
@@ -51,7 +52,63 @@ class InvoiceController extends Controller
     // to zero invoices (they never created a sales order to match against).
     public function index(Request $request)
     {
-        $query = Invoice::with(['hospital', 'machine', 'salesOrder', 'payments', 'creator:id,name'])
+        $query = $this->salesQuery($request)->with(['machine', 'salesOrder']);
+        $page = InvoiceResource::collection($this->sorted($query, $request)->paginate($this->perPage($request, 50)));
+
+        // All sales footer: totals over the whole filtered set, not one page.
+        if ($request->boolean('with_totals')) {
+            $page->additional(['totals' => $this->totals($query)]);
+        }
+
+        return $page;
+    }
+
+    // All sales "Export as" Excel / PDF. Takes the same filters and sort as
+    // the list; `ids` (the app's on-screen rows, in order) narrows it to
+    // exactly what the user is looking at.
+    public function export(Request $request, SalesExportService $exporter)
+    {
+        $data = $request->validate([
+            'format' => ['required', 'in:xlsx,pdf'],
+            'ids'    => ['sometimes', 'array', 'max:50000'],
+            'ids.*'  => ['integer'],
+        ]);
+        $query = $this->salesQuery($request);
+        if (isset($data['ids'])) {
+            $ids = array_map('intval', $data['ids']);
+            $query->whereIn('invoices.id', $ids ?: [0])
+                ->orderByRaw('array_position(?::int[], invoices.id)', ['{' . implode(',', $ids) . '}']);
+        } else {
+            $query = $this->sorted($query, $request);
+        }
+        if ($data['format'] === 'pdf' && $query->count() > SalesExportService::PDF_MAX_ROWS) {
+            abort(422, 'Too many sales for a PDF (over ' . number_format(SalesExportService::PDF_MAX_ROWS) . '). Narrow the filters or export to Excel.');
+        }
+
+        $rows = $exporter->rows($query->get());
+        $subtitle = number_format(count($rows)) . ' sales · exported ' . now()->format('d M Y, H:i') . ' by ' . $request->user()->name;
+        $stamp = now()->format('Y-m-d');
+        activity()->causedBy($request->user())->log('exported All sales as ' . strtoupper($data['format']) . ' (' . count($rows) . ' sales)');
+
+        if ($data['format'] === 'xlsx') {
+            return response($exporter->xlsx($rows, $subtitle), 200, [
+                'Content-Type'        => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'Content-Disposition' => "attachment; filename=\"all-sales-{$stamp}.xlsx\"",
+            ]);
+        }
+        $totals = ['total' => array_sum(array_column($rows, 'total')), 'paid' => array_sum(array_column($rows, 'paid')),
+            'due' => array_sum(array_column($rows, 'due'))];
+
+        return response($exporter->pdf($rows, $subtitle, $totals), 200, [
+            'Content-Type'        => 'application/pdf',
+            'Content-Disposition' => "attachment; filename=\"all-sales-{$stamp}.pdf\"",
+        ]);
+    }
+
+    /** Invoices matching the All sales / list filters, unsorted. */
+    private function salesQuery(Request $request)
+    {
+        $query = Invoice::with(['hospital', 'payments', 'creator:id,name'])
             ->withSum('lineItems as total_items', 'quantity')
             ->withSum(['creditNotes as credited' => fn ($c) => $c->where('status', 'applied')], 'amount');
 
@@ -119,7 +176,12 @@ class InvoiceController extends Controller
         }
         $this->applyPeriod($query, $request, 'issue_date');
 
-        // Sort by column (All sales); newest first by default.
+        return $query;
+    }
+
+    /** Sort by column (All sales); newest first by default. */
+    private function sorted($query, Request $request)
+    {
         $dir = $request->input('dir') === 'asc' ? 'asc' : 'desc';
         $sorted = $query->clone();
         match ($request->input('sort')) {
@@ -132,42 +194,41 @@ class InvoiceController extends Controller
             'added_by' => $sorted->orderByRaw("lower(coalesce((select name from users u where u.id = invoices.created_by), added_by_name, '')) {$dir}"),
             default    => $sorted->orderBy('issue_date', $dir),
         };
-        $page = InvoiceResource::collection($sorted->orderBy('id', $dir)->paginate($this->perPage($request, 50)));
+        return $sorted->orderBy('invoices.id', $dir);
+    }
 
-        // All sales footer: totals over the whole filtered set, not one page.
-        if ($request->boolean('with_totals')) {
-            $ids = $query->clone()->select('invoices.id');
-            $base = Invoice::withUnfinal()->whereIn('id', $ids);
-            $today = now()->toDateString();
-            $t = $base->clone()->selectRaw(<<<SQL
-                count(*) as count,
-                coalesce(sum(total), 0) as total,
-                coalesce(sum(amount_paid), 0) as paid,
-                count(*) filter (where status = 'paid') as paid_count,
-                count(*) filter (where status in ('pending','sent','partial') and due_date < '{$today}') as overdue_count,
-                count(*) filter (where status in ('pending','sent','partial') and due_date >= '{$today}' and amount_paid > 0) as partial_count,
-                count(*) filter (where status in ('pending','sent') and due_date >= '{$today}' and amount_paid = 0) as due_count,
-                count(*) filter (where status = 'cancelled') as cancelled_count
-                SQL)->first();
-            $open = $base->clone()->whereIn('status', ['pending', 'sent', 'partial'])
-                ->selectRaw('coalesce(sum(total - amount_paid), 0) as due')->value('due');
-            $methods = \App\Models\Payment::whereIn('invoice_id', $ids)
-                ->selectRaw('payment_method, count(distinct invoice_id) as n')->groupBy('payment_method')
-                ->pluck('n', 'payment_method');
+    /** Count, money and status counts over the whole filtered set. */
+    private function totals($query): array
+    {
+        $ids = $query->clone()->select('invoices.id');
+        $base = Invoice::withUnfinal()->whereIn('id', $ids);
+        $today = now()->toDateString();
+        $t = $base->clone()->selectRaw(<<<SQL
+            count(*) as count,
+            coalesce(sum(total), 0) as total,
+            coalesce(sum(amount_paid), 0) as paid,
+            count(*) filter (where status = 'paid') as paid_count,
+            count(*) filter (where status in ('pending','sent','partial') and due_date < '{$today}') as overdue_count,
+            count(*) filter (where status in ('pending','sent','partial') and due_date >= '{$today}' and amount_paid > 0) as partial_count,
+            count(*) filter (where status in ('pending','sent') and due_date >= '{$today}' and amount_paid = 0) as due_count,
+            count(*) filter (where status = 'cancelled') as cancelled_count
+            SQL)->first();
+        $open = $base->clone()->whereIn('status', ['pending', 'sent', 'partial'])
+            ->selectRaw('coalesce(sum(total - amount_paid), 0) as due')->value('due');
+        $methods = \App\Models\Payment::whereIn('invoice_id', $ids)
+            ->selectRaw('payment_method, count(distinct invoice_id) as n')->groupBy('payment_method')
+            ->pluck('n', 'payment_method');
 
-            $page->additional(['totals' => [
-                'count'           => (int) $t->count,
-                'total'           => (int) $t->total,
-                'paid'            => (int) $t->paid,
-                'due'             => (int) $open,
-                'payment_status'  => ['paid' => (int) $t->paid_count, 'due' => (int) $t->due_count,
-                    'partial' => (int) $t->partial_count, 'overdue' => (int) $t->overdue_count,
-                    'cancelled' => (int) $t->cancelled_count],
-                'payment_methods' => $methods,
-            ]]);
-        }
-
-        return $page;
+        return [
+            'count'           => (int) $t->count,
+            'total'           => (int) $t->total,
+            'paid'            => (int) $t->paid,
+            'due'             => (int) $open,
+            'payment_status'  => ['paid' => (int) $t->paid_count, 'due' => (int) $t->due_count,
+                'partial' => (int) $t->partial_count, 'overdue' => (int) $t->overdue_count,
+                'cancelled' => (int) $t->cancelled_count],
+            'payment_methods' => $methods,
+        ];
     }
 
     public function store(Request $request, CreditCheckService $creditCheck, FinancePostingService $financePosting, DocumentNumberService $documentNumbers, InvoicePaymentService $payments)

@@ -312,6 +312,7 @@ Route::prefix('v1')->group(function () {
 
         // Invoices & Revenue
         Route::get('document-terms',              [InvoiceController::class, 'termDefaults']);
+        Route::post('invoices/export',            [InvoiceController::class, 'export']);
         Route::post('invoices/{invoice}/send',    [InvoiceController::class, 'send']);
         Route::post('invoices/{invoice}/cancel',  [InvoiceController::class, 'cancel']);
         Route::post('invoices/{invoice}/payments',[InvoiceController::class, 'recordPayment']);
