@@ -146,7 +146,8 @@ class InvoiceController extends Controller
                 count(*) filter (where status = 'paid') as paid_count,
                 count(*) filter (where status in ('pending','sent','partial') and due_date < '{$today}') as overdue_count,
                 count(*) filter (where status in ('pending','sent','partial') and due_date >= '{$today}' and amount_paid > 0) as partial_count,
-                count(*) filter (where status in ('pending','sent') and due_date >= '{$today}' and amount_paid = 0) as due_count
+                count(*) filter (where status in ('pending','sent') and due_date >= '{$today}' and amount_paid = 0) as due_count,
+                count(*) filter (where status = 'cancelled') as cancelled_count
                 SQL)->first();
             $open = $base->clone()->whereIn('status', ['pending', 'sent', 'partial'])
                 ->selectRaw('coalesce(sum(total - amount_paid), 0) as due')->value('due');
@@ -160,7 +161,8 @@ class InvoiceController extends Controller
                 'paid'            => (int) $t->paid,
                 'due'             => (int) $open,
                 'payment_status'  => ['paid' => (int) $t->paid_count, 'due' => (int) $t->due_count,
-                    'partial' => (int) $t->partial_count, 'overdue' => (int) $t->overdue_count],
+                    'partial' => (int) $t->partial_count, 'overdue' => (int) $t->overdue_count,
+                    'cancelled' => (int) $t->cancelled_count],
                 'payment_methods' => $methods,
             ]]);
         }
