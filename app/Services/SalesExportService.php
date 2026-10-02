@@ -16,6 +16,10 @@ class SalesExportService
     // A PDF of thousands of rows takes dompdf minutes; past this, use Excel.
     public const PDF_MAX_ROWS = 2000;
 
+    // Rows per <table> in the PDF — about one landscape A4 page (the first
+    // page also carries the title and totals, so it's a little short).
+    private const PDF_ROWS_PER_TABLE = 36;
+
     private const METHODS = ['cash' => 'Cash', 'bank_transfer' => 'Bank transfer', 'mobile_money' => 'Mobile money', 'cheque' => 'Cheque'];
     private const STATUS = ['paid' => 'Paid', 'due' => 'Due', 'partial' => 'Partial', 'overdue' => 'Overdue',
         'cancelled' => 'Cancelled', 'waived' => 'Waived', 'draft' => 'Draft', 'proforma' => 'Proforma'];
@@ -89,6 +93,7 @@ class SalesExportService
             .t th { background: #e8eef2; text-align: left; padding: 4px 5px; font-size: 8px; text-transform: uppercase; }
             .t td { padding: 3px 5px; border-bottom: 0.5px solid #d9dee3; }
             .t .n { text-align: right; white-space: nowrap; }
+            .pb { page-break-after: always; }
             </style></head><body>';
         $html .= '<h1>All sales</h1><div class="sub">' . e($subtitle) . '</div>';
         $html .= '<table class="sum"><tr>'
@@ -96,15 +101,23 @@ class SalesExportService
             . '<td>Total amount<br><b>TSh ' . $money($totals['total']) . '</b></td>'
             . '<td>Total paid<br><b>TSh ' . $money($totals['paid']) . '</b></td>'
             . '<td>Sell due<br><b>TSh ' . $money($totals['due']) . '</b></td></tr></table>';
-        $html .= '<table class="t"><thead><tr><th>Date</th><th>Invoice No.</th><th>Customer</th><th>Contact</th><th>Status</th>'
-            . '<th>Method</th><th class="n">Total</th><th class="n">Paid</th><th class="n">Due</th><th>Added by</th></tr></thead><tbody>';
-        foreach ($rows as $x) {
-            $html .= '<tr><td>' . e($x['date']) . '</td><td>' . e($x['number']) . '</td><td>' . e($x['customer']) . '</td>'
-                . '<td>' . e($x['contact']) . '</td><td>' . e($x['status']) . '</td><td>' . e($x['method']) . '</td>'
-                . '<td class="n">' . $money($x['total']) . '</td><td class="n">' . $money($x['paid']) . '</td>'
-                . '<td class="n">' . $money($x['due']) . '</td><td>' . e($x['added_by']) . '</td></tr>';
+        // One table per page-sized chunk: dompdf lays out a single huge
+        // table in worse-than-linear time, so ~800 rows (a year of sales)
+        // never finished. Chunks keep it linear (~7 s for 800 rows).
+        $head = '<thead><tr><th>Date</th><th>Invoice No.</th><th>Customer</th><th>Contact</th><th>Status</th>'
+            . '<th>Method</th><th class="n">Total</th><th class="n">Paid</th><th class="n">Due</th><th>Added by</th></tr></thead>';
+        $chunks = array_chunk($rows, self::PDF_ROWS_PER_TABLE) ?: [[]];
+        foreach ($chunks as $i => $chunk) {
+            $html .= '<table class="t' . ($i < count($chunks) - 1 ? ' pb' : '') . '">' . $head . '<tbody>';
+            foreach ($chunk as $x) {
+                $html .= '<tr><td>' . e($x['date']) . '</td><td>' . e($x['number']) . '</td><td>' . e($x['customer']) . '</td>'
+                    . '<td>' . e($x['contact']) . '</td><td>' . e($x['status']) . '</td><td>' . e($x['method']) . '</td>'
+                    . '<td class="n">' . $money($x['total']) . '</td><td class="n">' . $money($x['paid']) . '</td>'
+                    . '<td class="n">' . $money($x['due']) . '</td><td>' . e($x['added_by']) . '</td></tr>';
+            }
+            $html .= '</tbody></table>';
         }
-        $html .= '</tbody></table></body></html>';
+        $html .= '</body></html>';
 
         return Pdf::loadHTML($html)->setPaper('a4', 'landscape')->output();
     }

@@ -96,6 +96,9 @@ class InvoiceController extends Controller
                 'Content-Disposition' => "attachment; filename=\"all-sales-{$stamp}.xlsx\"",
             ]);
         }
+        // dompdf needs ~0.18 MB and ~10 ms per row: 2,000 rows ≈ 370 MB, 21 s.
+        ini_set('memory_limit', '512M');
+        set_time_limit(120);
         $totals = ['total' => array_sum(array_column($rows, 'total')), 'paid' => array_sum(array_column($rows, 'paid')),
             'due' => array_sum(array_column($rows, 'due'))];
 

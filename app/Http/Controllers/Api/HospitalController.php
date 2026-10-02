@@ -40,7 +40,8 @@ class HospitalController extends Controller
                 $query->where('type', $request->type);
             }
             if ($request->filled('region')) {
-                $query->where('region', $request->region);
+                // Case-insensitive: registry rows say "Dar Es Salaam", the app's form "Dar es Salaam".
+                $query->whereRaw('lower(region) = lower(?)', [$request->region]);
             }
             if ($request->filled('zone')) {
                 $query->where('zone', $request->zone);
@@ -80,7 +81,8 @@ class HospitalController extends Controller
                 $query->where('type', $request->type);
             }
             if ($request->filled('region')) {
-                $query->where('region', $request->region);
+                // Case-insensitive: registry rows say "Dar Es Salaam", the app's form "Dar es Salaam".
+                $query->whereRaw('lower(region) = lower(?)', [$request->region]);
             }
             if ($request->filled('zone')) {
                 $query->where('zone', $request->zone);
