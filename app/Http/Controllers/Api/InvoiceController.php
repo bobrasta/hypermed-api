@@ -19,6 +19,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
 use App\Support\DocumentTerms;
+use App\Support\LineDiscount;
 use App\Support\Tin;
 
 class InvoiceController extends Controller
@@ -270,6 +271,7 @@ class InvoiceController extends Controller
             'line_items.*.description' => ['required', 'string'],
             'line_items.*.quantity'    => ['required', 'numeric', 'min:0.01'],
             'line_items.*.unit_price'  => ['required', 'integer', 'min:0'],
+            'line_items.*.discount'    => ['nullable', 'integer', 'min:0'],
         ], ['client_tin.regex' => Tin::MESSAGE, 'client_tin.required' => 'Client TIN is required.']);
         $data['client_tin'] = ! empty($data['client_tin']) ? Tin::normalize($data['client_tin']) : null;
         $saleStatus = $data['sale_status'] ?? 'final';
@@ -280,6 +282,8 @@ class InvoiceController extends Controller
         }
 
         $lineItems = $data['line_items'];
+        LineDiscount::assertValid($lineItems, 'line_items');
+        LineDiscount::assertWithinCap($request->user(), $lineItems);
         if (array_key_exists('term_items', $data)) {
             $data['term_items'] = DocumentTerms::normalize($data['term_items']);
         }
@@ -301,7 +305,7 @@ class InvoiceController extends Controller
         $shipping = (int) ($data['shipping_charges'] ?? 0);
         $data['shipping_charges'] = $shipping;
 
-        $subtotal  = collect($lineItems)->sum(fn ($i) => (int) ($i['quantity'] * $i['unit_price']));
+        $subtotal  = collect($lineItems)->sum(fn ($i) => LineDiscount::net($i));
         $taxRate   = $data['tax_rate'] ?? 0;
         $taxAmount = (int) round($subtotal * $taxRate / 100);
 
@@ -334,7 +338,8 @@ class InvoiceController extends Controller
                     'description' => $item['description'],
                     'quantity'    => $item['quantity'],
                     'unit_price'  => $item['unit_price'],
-                    'total'       => (int) ($item['quantity'] * $item['unit_price']),
+                    'discount'    => (int) ($item['discount'] ?? 0),
+                    'total'       => LineDiscount::net($item),
                 ]);
             }
 
@@ -402,12 +407,17 @@ class InvoiceController extends Controller
             'line_items.*.description' => ['required_with:line_items', 'string'],
             'line_items.*.quantity'    => ['required_with:line_items', 'numeric', 'min:0.01'],
             'line_items.*.unit_price'  => ['required_with:line_items', 'integer', 'min:0'],
+            'line_items.*.discount'    => ['nullable', 'integer', 'min:0'],
         ], ['client_tin.regex' => Tin::MESSAGE]);
         if (! empty($data['client_tin'])) {
             $data['client_tin'] = Tin::normalize($data['client_tin']);
         }
 
         $lineItems = $data['line_items'] ?? null;
+        if ($lineItems !== null) {
+            LineDiscount::assertValid($lineItems, 'line_items');
+            LineDiscount::assertWithinCap($request->user(), $lineItems);
+        }
         if (array_key_exists('term_items', $data)) {
             $data['term_items'] = DocumentTerms::normalize($data['term_items']);
         }
@@ -441,7 +451,8 @@ class InvoiceController extends Controller
                         'description' => $item['description'],
                         'quantity'    => $item['quantity'],
                         'unit_price'  => $item['unit_price'],
-                        'total'       => (int) ($item['quantity'] * $item['unit_price']),
+                        'discount'    => (int) ($item['discount'] ?? 0),
+                        'total'       => LineDiscount::net($item),
                     ]);
                 }
             }

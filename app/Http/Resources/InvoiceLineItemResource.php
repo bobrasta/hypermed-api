@@ -14,6 +14,7 @@ class InvoiceLineItemResource extends JsonResource
             'description' => $this->description,
             'quantity'    => $this->quantity,
             'unit_price'  => $this->unit_price,
+            'discount'    => (int) $this->discount,
             'total'       => $this->total,
         ];
     }

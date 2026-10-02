@@ -24,11 +24,15 @@ class DocumentPdfService
         $quotation->loadMissing('items');
         $company = config('company');
 
+        // Line discount = list amount less the line total (covers both the
+        // older percentage and the TSh discount).
+        $lineDiscount = fn ($i) => max(0, (int) round($i->quantity * $i->unit_price) - (int) $i->total_price);
         $items = $quotation->items->values()->map(fn ($i, $idx) => [
             $idx + 1, $i->description, '-', '-', $i->unit_of_measure ?: '-',
             $this->trimmedQuantity($i->quantity), number_format($i->unit_price, 2),
-            number_format($i->total_price, 2),
+            number_format($i->total_price, 2), $lineDiscount($i),
         ])->all();
+        $lineDiscounts = $quotation->items->sum($lineDiscount);
 
         $client = array_values(array_filter([$quotation->client_name, $quotation->client_contact, $quotation->client_email,
             $quotation->client_tin ? 'TIN: ' . $quotation->client_tin : null]));
@@ -42,8 +46,8 @@ class DocumentPdfService
             'client'       => $client,
             'clientAddress'=> array_values(array_filter([$quotation->lead?->hospital?->address])),
             'items'        => $items,
-            'subtotal'     => number_format($quotation->subtotal, 2),
-            'discount'     => number_format($quotation->discount_amount, 2),
+            'subtotal'     => number_format($quotation->subtotal + $lineDiscounts, 2),
+            'discount'     => number_format($quotation->discount_amount + $lineDiscounts, 2),
             'tax'          => number_format($quotation->tax_amount, 2),
             'total'        => number_format($quotation->total_amount, 2),
             'currencyCode' => $this->currencyPrefix($quotation->currency),
@@ -61,8 +65,9 @@ class DocumentPdfService
         $items = $invoice->lineItems->values()->map(fn ($i, $idx) => [
             $idx + 1, $i->description, '-', '-', '-',
             $this->trimmedQuantity($i->quantity), number_format($i->unit_price, 2),
-            number_format($i->total, 2),
+            number_format($i->total, 2), (int) $i->discount,
         ])->all();
+        $lineDiscounts = (int) $invoice->lineItems->sum('discount');
 
         $client = array_values(array_filter([
             $invoice->hospital?->name ?? $invoice->client_name, $invoice->client_contact, $invoice->client_email,
@@ -81,8 +86,9 @@ class DocumentPdfService
             'client'       => $client,
             'clientAddress'=> array_values(array_filter([$invoice->hospital?->address])),
             'items'        => $items,
-            'subtotal'     => number_format($invoice->subtotal, 2),
-            'discount'     => '0.00',
+            // Subtotal before line discounts, then the discounts.
+            'subtotal'     => number_format($invoice->subtotal + $lineDiscounts, 2),
+            'discount'     => number_format($lineDiscounts, 2),
             'tax'          => number_format($invoice->tax_amount, 2),
             'shipping'     => number_format((int) $invoice->shipping_charges, 2),
             'total'        => number_format($invoice->total, 2),
@@ -427,15 +433,19 @@ class DocumentPdfService
             $html .= $this->deliveryNoteBody($d);
         } else {
             // items — clean-line rows
+            // A DISC. column only when some line is discounted; LOT/EXP give it room.
+            $hasDisc = collect($d['items'])->contains(fn ($i) => ($i[8] ?? 0) > 0);
             $html .= "<table id='items'><tr>
                 <th style='width:6%'>#</th><th style='white-space:normal'>DESCRIPTION</th>
-                <th style='width:11%'>LOT</th><th style='width:12%'>EXP.</th><th style='width:7%'>UOM</th>
-                <th class='num' style='width:6%'>QTY</th><th class='num' style='width:13%'>UNIT PRICE</th>
-                <th class='num' style='width:13%'>AMOUNT</th></tr>";
+                <th style='width:" . ($hasDisc ? 8 : 11) . "%'>LOT</th><th style='width:" . ($hasDisc ? 9 : 12) . "%'>EXP.</th><th style='width:7%'>UOM</th>
+                <th class='num' style='width:6%'>QTY</th><th class='num' style='width:13%'>UNIT PRICE</th>"
+                . ($hasDisc ? "<th class='num' style='width:11%'>DISC.</th>" : '')
+                . "<th class='num' style='width:13%'>AMOUNT</th></tr>";
             foreach ($d['items'] as $i) {
                 $html .= '<tr><td class="dim">' . e($i[0]) . '</td><td style="font-weight:500">' . e($i[1]) . '</td>'
                     . '<td class="dim">' . e($i[2]) . '</td><td class="dim">' . e($i[3]) . '</td><td>' . e($i[4]) . '</td>'
                     . '<td class="num">' . e($i[5]) . '</td><td class="num">' . e($i[6]) . '</td>'
+                    . ($hasDisc ? '<td class="num">' . (($i[8] ?? 0) > 0 ? e(number_format($i[8], 2)) : '-') . '</td>' : '')
                     . '<td class="num" style="font-weight:700">' . e($i[7]) . '</td></tr>';
             }
             $html .= '</table>';

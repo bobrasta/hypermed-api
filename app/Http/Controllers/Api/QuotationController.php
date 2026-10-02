@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
 use App\Support\DocumentTerms;
+use App\Support\LineDiscount;
 use App\Support\Tin;
 
 class QuotationController extends Controller
@@ -41,11 +42,7 @@ class QuotationController extends Controller
 
     private function calcTotals(array $items, int $discountAmount = 0, int $taxAmount = 0): array
     {
-        $subtotal = collect($items)->sum(function ($i) {
-            $lineTotal = $i['quantity'] * $i['unit_price'];
-            $disc      = isset($i['discount_percent']) ? $lineTotal * ($i['discount_percent'] / 100) : 0;
-            return (int) round($lineTotal - $disc);
-        });
+        $subtotal = collect($items)->sum(fn ($i) => LineDiscount::net($i, 'discount_amount'));
 
         return [
             'subtotal'        => $subtotal,
@@ -98,8 +95,10 @@ class QuotationController extends Controller
             'items.*.quantity'          => 'required|integer|min:1',
             'items.*.unit_price'        => 'required|integer|min:0',
             'items.*.discount_percent'  => 'nullable|numeric|min:0|max:100',
+            'items.*.discount_amount'   => 'nullable|integer|min:0',
         ], ['client_tin.regex' => Tin::MESSAGE, 'client_tin.required' => 'Client TIN is required.']);
         $data['client_tin'] = Tin::normalize($data['client_tin']);
+        LineDiscount::assertValid($data['items'], 'items', 'discount_amount');
 
         return DB::transaction(function () use ($data, $request, $approval, $documentNumbers) {
             $totals = $this->calcTotals(
@@ -137,10 +136,7 @@ class QuotationController extends Controller
             ]);
 
             foreach ($data['items'] as $item) {
-                $lineTotal = (int) round(
-                    $item['quantity'] * $item['unit_price'] *
-                    (1 - (($item['discount_percent'] ?? 0) / 100))
-                );
+                $lineTotal = LineDiscount::net($item, 'discount_amount');
                 $quotation->items()->create([
                     'inventory_item_id' => $item['inventory_item_id'] ?? null,
                     'description'       => $item['description'],
@@ -148,6 +144,7 @@ class QuotationController extends Controller
                     'quantity'          => $item['quantity'],
                     'unit_price'        => $item['unit_price'],
                     'discount_percent'  => $item['discount_percent'] ?? 0,
+                    'discount_amount'   => (int) ($item['discount_amount'] ?? 0),
                     'total_price'       => $lineTotal,
                 ]);
             }

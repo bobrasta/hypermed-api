@@ -48,6 +48,7 @@ class QuotationResource extends JsonResource
                     'quantity'          => $item->quantity,
                     'unit_price'        => $item->unit_price,
                     'discount_percent'  => $item->discount_percent,
+                    'discount_amount'   => (int) $item->discount_amount,
                     'total_price'       => $item->total_price,
                     'item_sku'          => $item->inventoryItem?->sku,
                 ])
