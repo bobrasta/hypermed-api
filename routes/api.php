@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\BatchLotController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\AdminOverviewController;
+use App\Http\Controllers\Api\CtoOverviewController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DeliveryJobController;
 use App\Http\Controllers\Api\DocumentSequenceController;
@@ -132,6 +133,7 @@ Route::prefix('v1')->group(function () {
         Route::get('dashboard/sales/overview', [SalesOverviewController::class, 'index']);
         Route::get('dashboard/unified', [UnifiedDashboardController::class, 'index']);
         Route::get('dashboard/admin-overview', [AdminOverviewController::class, 'index']);
+        Route::get('dashboard/cto-overview', [CtoOverviewController::class, 'index']);
 
         // Accounting — Chart of Accounts + ledger journal
         Route::get('accounting/accounts', [AccountingController::class, 'accounts']);
