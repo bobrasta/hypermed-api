@@ -291,6 +291,7 @@ Route::prefix('v1')->group(function () {
         Route::get('machines/{machine}/costs', [MachineController::class, 'costs']);
 
         // Hospitals
+        Route::get('hospitals/groups', [HospitalController::class, 'groups']);
         Route::apiResource('hospitals', HospitalController::class);
 
         // Service Tickets

@@ -12,6 +12,49 @@ use App\Support\Tin;
 
 class HospitalController extends Controller
 {
+    // GET /hospitals/groups?by=zone|region (+ type, q, zone, region,
+    // has_machines) — the Hospitals screen's Zone / Region views: hospital
+    // and machine counts per group, worked out in the database because the
+    // directory is 13,000+ rows.
+    public function groups(Request $request)
+    {
+        $by = $request->input('by') === 'region' ? 'region' : 'zone';
+
+        $query = Hospital::query()
+            ->when($request->filled('type'), fn ($q) => $q->where('type', $request->type))
+            ->when($request->filled('zone'), fn ($q) => $q->where('zone', $request->zone))
+            ->when($request->filled('region'), fn ($q) => $q->whereRaw('lower(region) = lower(?)', [$request->region]))
+            ->when($request->boolean('has_machines'), fn ($q) => $q->where('machine_count', '>', 0))
+            ->when($request->filled('q'), function ($q) use ($request) {
+                $term = trim((string) $request->q);
+                $q->where(fn ($w) => $w->where('name', 'ilike', "%{$term}%")->orWhere('short_code', 'ilike', "%{$term}%"));
+            });
+
+        // Regions are grouped case-insensitively ("Dar Es Salaam" vs "Dar es Salaam").
+        $key = $by === 'zone' ? 'zone' : 'lower(region)';
+        $rows = (clone $query)->selectRaw("{$key} as gkey, min(region) as label, min(zone) as zone, count(*) as hospitals,
+                sum(machine_count) as machines, sum(machines_operational) as operational,
+                count(distinct lower(region)) as regions, count(distinct lower(district)) as districts")
+            ->groupByRaw($key)
+            ->get();
+
+        // Zone rows also list their regions (for the subtitle).
+        $regionsByZone = $by === 'zone'
+            ? (clone $query)->selectRaw('zone, min(region) as region')->groupByRaw('zone, lower(region)')->get()
+                ->groupBy('zone')->map(fn ($g) => $g->pluck('region')->sort()->values())
+            : collect();
+
+        return response()->json(['data' => $rows->map(fn ($r) => [
+            'key' => $by === 'zone' ? $r->gkey : $r->label,
+            'zone' => $r->zone,
+            'hospitals' => (int) $r->hospitals,
+            'machines' => (int) $r->machines,
+            'operational' => (int) $r->operational,
+            'regions' => $by === 'zone' ? ($regionsByZone[$r->gkey] ?? collect())->all() : [],
+            'districts' => (int) $r->districts,
+        ])->sortByDesc('hospitals')->values()]);
+    }
+
     public function index(Request $request)
     {
         // q present => combobox search mode: small, capped result set, never
