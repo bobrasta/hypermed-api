@@ -27,7 +27,7 @@ class NotificationTemplateSeeder extends Seeder
             ['expense.submitted_escalated', 'expense_escalated', 'Expense Submitted',
                 "{name} submitted an expense: {expense_name} (TZS {gross_amount}).",
                 'Director — a new expense needs review (category/amount requires director sign-off)'],
-            ['expense.paid', 'expense_paid', 'Expense Paid',
+            ['expense.paid', 'expense_paid', 'Money is out — expense',
                 "Your expense '{expense_name}' has been paid.",
                 'Requester — their expense payment was released'],
             ['expense.ready_to_pay', 'expense_approved', 'Expense Ready to Pay',
@@ -47,7 +47,7 @@ class NotificationTemplateSeeder extends Seeder
             ['vendor_fee.ready_for_payment', 'vendor_fee_ready_for_payment', 'Vendor Fee Ready for Payment',
                 "A vendor fee for {vendor_name} (TZS {billed_amount}) is ready for payment approval.",
                 'Director — a vendor fee has been submitted for payment'],
-            ['vendor_fee.paid', 'vendor_fee_paid', 'Vendor Fee Paid',
+            ['vendor_fee.paid', 'vendor_fee_paid', 'Money is out — vendor fee',
                 "The {vendor_name} fee (TZS {billed_amount}) you recorded has been paid.",
                 'Creator — a vendor fee they recorded has been paid'],
             ['vendor_fee.rejected', 'vendor_fee_rejected', 'Vendor Fee Rejected',
@@ -86,7 +86,7 @@ class NotificationTemplateSeeder extends Seeder
                 'Requester — their stock-out request was rejected'],
 
             // ── Per-diem ──────────────────────────────────────────────────
-            ['per_diem.paid', 'per_diem_paid', 'Per-Diem Paid',
+            ['per_diem.paid', 'per_diem_paid', 'Money is out — per diem',
                 "Your per-diem request for {destination} has been paid.",
                 'Requester — their per-diem payment was released'],
             ['per_diem.notify_team_lead', 'per_diem_requested', 'Per-Diem Request Submitted',
@@ -194,6 +194,11 @@ class NotificationTemplateSeeder extends Seeder
             ['purchase_order.payment_initiated', 'po_payment_initiated', 'Purchase Order — Final Approval',
                 'Payment was initiated for {po_number} — needs final director approval.',
                 'Director — final approval needed after payment was initiated'],
+            // ── Payroll ──────────────────────────────────────────────────
+            ['payroll.paid', 'payroll_paid', 'Money is out — payroll {period}',
+                'Payroll for {period} has been paid: TZS {net_total} to {staff_count} staff.',
+                'Payroll preparer — the run they prepared was paid'],
+
             ['purchase_order.approved', 'po_approved', 'Purchase Order Approved',
                 '{po_number} is fully approved and ready to send to the supplier.',
                 'Order creator — their PO cleared every approval stage'],

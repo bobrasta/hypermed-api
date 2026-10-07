@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PayrollItemResource;
 use App\Http\Resources\PayrollRunResource;
+use App\Models\AppNotification;
 use App\Models\ApprovalLog;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
@@ -13,6 +14,7 @@ use App\Models\PayrollRun;
 use App\Models\User;
 use App\Services\DocumentPdfService;
 use App\Services\FinancePostingService;
+use App\Services\NotificationTemplateService;
 use App\Services\PayrollCalculator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -285,6 +287,22 @@ class PayrollController extends Controller
 
             return $payrollRun;
         });
+
+        // Money is out: tell whoever prepared the run (unless they released it).
+        if ($payrollRun->created_by && $payrollRun->created_by !== $request->user()->id) {
+            static $monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+            AppNotification::create([
+                'user_id'     => $payrollRun->created_by,
+                ...app(NotificationTemplateService::class)->render('payroll.paid', [
+                    'period'      => "{$monthNames[$payrollRun->period_month]} {$payrollRun->period_year}",
+                    'net_total'   => number_format((int) $payrollRun->net_total),
+                    'staff_count' => $payrollRun->items()->count(),
+                ]),
+                'entity_type' => 'payroll_run',
+                'entity_id'   => $payrollRun->id,
+                'is_read'     => false,
+            ]);
+        }
 
         return new PayrollRunResource($payrollRun->fresh()->load('expense'));
     }
