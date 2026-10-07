@@ -1,17 +1,26 @@
 <?php
 
-// Email copies of in-app notifications (Section 11's notification engine,
-// asked for by Sections 18.3 and 19.2). Off by default: Railway blocks
+// Email copies of in-app notifications (Section 11's notification engine).
+// First only Sections 18.3/19.2's shipment/tender/device types; since
+// 2026-10-07 every workflow notification. Off by default: Railway blocks
 // outbound SMTP, so only the VPS — whose own Postfix relays for localhost
 // and DKIM-signs @hypermed.co.tz — turns it on.
 return [
     'enabled' => (bool) env('NOTIFICATION_MAIL_ENABLED', false),
 
-    // notifications.type values that also go out by email. The specs only
-    // ask for these; add more here (or via the env) to widen it.
+    // notifications.type values that also go out by email. '*' (the
+    // default) means every workflow notification — each approval step,
+    // assignment, payment and rejection — except the types excluded below.
     'types' => array_values(array_filter(array_map('trim', explode(',', (string) env(
         'NOTIFICATION_MAIL_TYPES',
-        'shipment_created,shipment_status,tender_deadline,tender_overdue,device_renewal',
+        '*',
+    ))))),
+
+    // Never emailed even when 'types' is '*': automatic alerts that can fire
+    // many times a day and stay visible in the app.
+    'exclude_types' => array_values(array_filter(array_map('trim', explode(',', (string) env(
+        'NOTIFICATION_MAIL_EXCLUDE_TYPES',
+        'low_stock_alert',
     ))))),
 
     // Never mail these domains — the seeded test logins use @hypermed.tz,

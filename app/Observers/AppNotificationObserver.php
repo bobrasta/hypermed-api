@@ -10,7 +10,7 @@ class AppNotificationObserver
 {
     public function created(AppNotification $n): void
     {
-        if (config('notification_mail.enabled') && in_array($n->type, config('notification_mail.types'), true)) {
+        if (config('notification_mail.enabled') && SendNotificationEmail::wanted((string) $n->type)) {
             SendNotificationEmail::dispatch($n->id)->afterCommit();
         }
     }

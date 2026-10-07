@@ -22,13 +22,6 @@ class SendNotificationEmail implements ShouldQueue
 
     public function __construct(public readonly int $notificationId) {}
 
-    /** Web-app paths for the entity types that have a page (hypermed-web's NotificationRoute). */
-    private const PATHS = [
-        'shipment' => '/shipments/%d',
-        'tender' => '/tenders/%d',
-        'device_registration' => '/device-registrations/%d',
-    ];
-
     public function handle(): void
     {
         $n = AppNotification::with('user:id,name,email,is_active')->find($this->notificationId);
@@ -37,18 +30,25 @@ class SendNotificationEmail implements ShouldQueue
             return;
         }
 
-        $path = isset(self::PATHS[$n->entity_type]) && $n->entity_id
-            ? sprintf(self::PATHS[$n->entity_type], $n->entity_id)
-            : '/notifications';
-
         Mail::send('mail.notification', [
             'name' => $user->name,
             'title' => $n->title,
             'body' => $n->body,
-            'url' => config('notification_mail.web_url') . $path,
+            // hypermed-web marks it read and sends the user to the right
+            // page for its type and their role (NotificationRoute).
+            'url' => config('notification_mail.web_url') . "/notifications/{$n->id}/open",
         ], function ($m) use ($user, $n) {
             $m->to($user->email, $user->name)->subject($n->title);
         });
+    }
+
+    /** Whether notifications of this type also go out by email. */
+    public static function wanted(string $type): bool
+    {
+        $types = config('notification_mail.types');
+
+        return (in_array('*', $types, true) || in_array($type, $types, true))
+            && ! in_array($type, config('notification_mail.exclude_types', []), true);
     }
 
     public static function deliverable(?string $email): bool
