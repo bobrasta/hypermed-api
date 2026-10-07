@@ -53,6 +53,7 @@ class SalesOrderResource extends JsonResource
                     'quantity_delivered' => $item->quantity_delivered,
                     'quantity_invoiced'  => $item->quantity_invoiced,
                     'unit_price'         => $item->unit_price,
+                    'discount'           => (int) $item->discount,
                     'total_price'        => $item->total_price,
                     'item_sku'           => $item->inventoryItem?->sku,
                 ])

@@ -303,6 +303,8 @@ class QuotationController extends Controller
                     'quantity_ordered'  => $qi->quantity,
                     'quantity_delivered'=> 0,
                     'unit_price'        => $qi->unit_price,
+                    // The line's percentage + TSh discount, as an amount.
+                    'discount'          => max(0, (int) round($qi->quantity * $qi->unit_price) - (int) $qi->total_price),
                     'total_price'       => $qi->total_price,
                 ]);
             }

@@ -17,6 +17,7 @@ use App\Services\FinancePostingService;
 use App\Services\MachineRegistrationService;
 use App\Services\NotificationTemplateService;
 use App\Services\StockService;
+use App\Support\LineDiscount;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -63,15 +64,22 @@ class SalesOrderController extends Controller
             'items.*.unit_of_measure'   => 'nullable|string|max:30',
             'items.*.quantity_ordered'  => 'required|integer|min:1',
             'items.*.unit_price'        => 'required|integer|min:0',
+            'items.*.discount'          => 'nullable|integer|min:0',
         ]);
+        $asLines = fn ($items) => array_map(fn ($i) => ['quantity' => $i['quantity_ordered']] + $i, $items);
+        LineDiscount::assertValid($asLines($data['items']), 'items');
 
         return DB::transaction(function () use ($data, $request, $approval, $documentNumbers) {
-            $subtotal = collect($data['items'])->sum(fn ($i) => $i['quantity_ordered'] * $i['unit_price']);
+            // Subtotal is after line discounts (as on quotations); approval
+            // weighs every discount against the list-price subtotal.
+            $lines = $asLines($data['items']);
+            $gross = array_sum(array_map(fn ($l) => LineDiscount::gross($l), $lines));
+            $subtotal = array_sum(array_map(fn ($l) => LineDiscount::net($l), $lines));
             $discountAmount = $data['discount_amount'] ?? 0;
             $taxAmount      = $data['tax_amount'] ?? 0;
             $totalAmount    = $subtotal - $discountAmount + $taxAmount;
 
-            $approvalFields = $approval->evaluate($request->user(), $subtotal, $discountAmount, $totalAmount);
+            $approvalFields = $approval->evaluate($request->user(), $gross, $gross - $subtotal + $discountAmount, $totalAmount);
 
             $order = SalesOrder::create([
                 'order_number'           => $documentNumbers->next('sales_order'),
@@ -100,7 +108,8 @@ class SalesOrderController extends Controller
                     'quantity_ordered'   => $item['quantity_ordered'],
                     'quantity_delivered' => 0,
                     'unit_price'         => $item['unit_price'],
-                    'total_price'        => $item['quantity_ordered'] * $item['unit_price'],
+                    'discount'           => $item['discount'] ?? 0,
+                    'total_price'        => $item['quantity_ordered'] * $item['unit_price'] - ($item['discount'] ?? 0),
                 ]);
             }
 
@@ -288,9 +297,11 @@ class SalesOrderController extends Controller
 
         abort_if($billableItems->isEmpty(), 422, 'Nothing new to invoice — all delivered quantity has already been invoiced.');
 
-        $lineSubtotal = $billableItems->sum(fn ($item) =>
-            ($item->quantity_delivered - $item->quantity_invoiced) * $item->unit_price
-        );
+        // Each line at its sold price: list price less its share of the
+        // line discount for the units billed now.
+        $lineNet = fn ($item) => ($item->quantity_delivered - $item->quantity_invoiced) * $item->unit_price
+            - $item->discountFor($item->quantity_delivered - $item->quantity_invoiced, $item->quantity_invoiced);
+        $lineSubtotal = $billableItems->sum($lineNet);
 
         // Prorate the order-level discount/tax by how much of the order's value
         // this particular invoice covers, so partial invoices split them fairly.
@@ -327,11 +338,13 @@ class SalesOrderController extends Controller
             foreach ($billableItems as $soItem) {
                 $qty = $soItem->quantity_delivered - $soItem->quantity_invoiced;
 
+                $discount = $soItem->discountFor($qty, $soItem->quantity_invoiced);
                 $inv->lineItems()->create([
                     'description' => $soItem->description,
                     'quantity'    => $qty,
                     'unit_price'  => $soItem->unit_price,
-                    'total'       => $qty * $soItem->unit_price,
+                    'discount'    => $discount,
+                    'total'       => $qty * $soItem->unit_price - $discount,
                 ]);
 
                 $soItem->update(['quantity_invoiced' => $soItem->quantity_invoiced + $qty]);
