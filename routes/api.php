@@ -331,6 +331,7 @@ Route::prefix('v1')->group(function () {
         // Credit sales / hire purchase tracking (Clickhuduma-style).
         Route::get('receivables',            [\App\Http\Controllers\Api\ReceivablesController::class, 'index']);
         Route::get('receivables/statement',  [\App\Http\Controllers\Api\ReceivablesController::class, 'statement']);
+        Route::get('receivables/statement/pdf', [\App\Http\Controllers\Api\ReceivablesController::class, 'statementPdf']);
         Route::post('receivables/pay',       [\App\Http\Controllers\Api\ReceivablesController::class, 'pay']);
 
         // Sales Leads

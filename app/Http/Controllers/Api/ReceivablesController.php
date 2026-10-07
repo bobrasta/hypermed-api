@@ -7,6 +7,7 @@ use App\Models\CreditNote;
 use App\Models\Hospital;
 use App\Models\Invoice;
 use App\Models\Payment;
+use App\Services\DocumentPdfService;
 use App\Services\EffectivePermissionResolver;
 use App\Services\InvoicePaymentService;
 use Illuminate\Database\Eloquent\Builder;
@@ -170,12 +171,28 @@ class ReceivablesController extends Controller
     }
 
     // GET /receivables/statement?hospital_id=|client_name=&date_from&date_to
-    // Clickhuduma's contact ledger: opening balance, then every invoice
-    // (debit), payment and applied credit note (credit) by date with a
-    // running balance, plus the customer's open invoices with instalments.
     public function statement(Request $request)
     {
         $this->assertReadAccess($request);
+
+        return response()->json($this->buildStatement($request));
+    }
+
+    // GET /receivables/statement/pdf — the same statement on the company
+    // letterhead, to print or send to the customer.
+    public function statementPdf(Request $request, DocumentPdfService $pdf)
+    {
+        $this->assertReadAccess($request);
+        @set_time_limit(120);
+
+        return $pdf->statementPdf($this->buildStatement($request));
+    }
+
+    // Clickhuduma's contact ledger: opening balance, then every invoice
+    // (debit), payment and applied credit note (credit) by date with a
+    // running balance, plus the customer's open invoices with instalments.
+    private function buildStatement(Request $request): array
+    {
         $today = Carbon::today();
         $from = $request->date('date_from');
         $to = $request->date('date_to');
@@ -219,7 +236,7 @@ class ReceivablesController extends Controller
         $first = $invoices->first();
         $open = $this->openInvoices($this->customerInvoices($request))->sortBy('issue_date')->values();
 
-        return response()->json([
+        return [
             'customer' => [
                 'hospital_id' => $first->hospital_id,
                 'client_name' => $first->hospital?->name ?? $first->client_name,
@@ -234,9 +251,9 @@ class ReceivablesController extends Controller
             'total_paid'      => (int) $inRange->sum('credit'),
             'closing_balance' => $running,
             'balance_due'     => (int) $open->sum('balance'),
-            'entries'         => $inRange,
-            'open_invoices'   => $open->map(fn ($i) => self::invoiceRow($i, $today)),
-        ]);
+            'entries'         => $inRange->all(),
+            'open_invoices'   => $open->map(fn ($i) => self::invoiceRow($i, $today))->all(),
+        ];
     }
 
     // POST /receivables/pay — one payment from a customer applied to their
