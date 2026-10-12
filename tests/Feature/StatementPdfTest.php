@@ -18,18 +18,21 @@ class StatementPdfTest extends TestCase
         $this->assertStringContainsString('Opening balance', $text);
         $this->assertStringContainsString('HH-48300', $text);
         $this->assertStringContainsString('198,000,000', $text);   // invoiced
-        $this->assertStringContainsString('UNPAID INVOICES', $text);
+        $this->assertStringContainsString('INVOICE STATUS ON 07 OCT 2026', $text);
+        $this->assertStringContainsString('Partly paid', $text);
+        $this->assertStringContainsString('% COLLECTED', $text);
+        $this->assertStringContainsString('12.2%', $text);
         $this->assertStringContainsString('31–60 DAYS', $text);
         $this->assertStringNotContainsString('Prices exclude', $text);
     }
 
-    public function test_statement_without_open_invoices_has_no_ageing(): void
+    public function test_statement_without_invoices_in_status_has_no_ageing(): void
     {
         $s = $this->statement();
-        $s['open_invoices'] = [];
+        $s['invoice_status'] = [];
         $s['balance_due'] = $s['closing_balance'];
         $text = $this->text($s);
-        $this->assertStringNotContainsString('UNPAID INVOICES', $text);
+        $this->assertStringNotContainsString('INVOICE STATUS ON', $text);
         $this->assertStringNotContainsString('BALANCE DUE TODAY', $text);
     }
 
@@ -44,11 +47,21 @@ class StatementPdfTest extends TestCase
             'total_paid' => 30_000_000,
             'closing_balance' => 218_000_000,
             'balance_due' => 220_000_000,
+            'collected_pct' => 12.2,
+            'as_at' => '2026-10-07',
             'entries' => [
                 ['date' => '2026-02-01', 'type' => 'invoice', 'ref' => 'HH-48300', 'invoice_id' => 1,
                     'description' => 'Invoice · terms 30 days', 'debit' => 198_000_000, 'credit' => 0, 'balance' => 248_000_000],
                 ['date' => '2026-03-05', 'type' => 'payment', 'ref' => 'PAY-0001', 'invoice_id' => 1,
                     'description' => 'Payment 1 for HH-48300 · bank transfer', 'debit' => 0, 'credit' => 30_000_000, 'balance' => 218_000_000],
+            ],
+            'invoice_status' => [
+                ['id' => 1, 'invoice_number' => 'HH-48300', 'issue_date' => '2026-02-01', 'due_date' => '2026-08-20',
+                    'total' => 198_000_000, 'paid' => 30_000_000, 'credited' => 0, 'remaining' => 168_000_000, 'status' => 'partly_paid',
+                    'days_overdue' => 48, 'payments_count' => 1, 'last_payment_at' => '2026-03-05'],
+                ['id' => 2, 'invoice_number' => 'HH-40001', 'issue_date' => '2025-11-01', 'due_date' => '2025-12-01',
+                    'total' => 52_000_000, 'paid' => 0, 'credited' => 0, 'remaining' => 52_000_000, 'status' => 'unpaid',
+                    'days_overdue' => 310, 'payments_count' => 0, 'last_payment_at' => null],
             ],
             'open_invoices' => [
                 ['id' => 1, 'invoice_number' => 'HH-48300', 'issue_date' => '2026-02-01', 'due_date' => '2026-08-20', 'pay_term' => '30 days',

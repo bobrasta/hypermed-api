@@ -333,6 +333,7 @@ Route::prefix('v1')->group(function () {
         Route::get('receivables',            [\App\Http\Controllers\Api\ReceivablesController::class, 'index']);
         Route::get('receivables/statement',  [\App\Http\Controllers\Api\ReceivablesController::class, 'statement']);
         Route::get('receivables/statement/pdf', [\App\Http\Controllers\Api\ReceivablesController::class, 'statementPdf']);
+        Route::get('receivables/statement/xlsx', [\App\Http\Controllers\Api\ReceivablesController::class, 'statementXlsx']);
         Route::post('receivables/pay',       [\App\Http\Controllers\Api\ReceivablesController::class, 'pay']);
 
         // Sales Leads

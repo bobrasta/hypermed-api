@@ -7,6 +7,7 @@ use App\Models\CreditNote;
 use App\Models\Hospital;
 use App\Models\Invoice;
 use App\Models\Payment;
+use App\Services\CustomerLedgerXlsxService;
 use App\Services\DocumentPdfService;
 use App\Services\EffectivePermissionResolver;
 use App\Services\InvoicePaymentService;
@@ -61,20 +62,47 @@ class ReceivablesController extends Controller
         );
     }
 
-    /** Open invoices with their live balance (total − paid − applied credit notes). */
-    private function openInvoices(?Builder $scope = null): Collection
+    /**
+     * Invoices with a balance (total − paid − applied credit notes). Live by
+     * default; with $asAt, what was owed at the end of that day: invoices
+     * issued by then, counting only payments dated (paid_at, as entered) and
+     * credit notes applied on or before it — so an invoice paid off since
+     * still shows as owed then. `paid_to_date` holds the paid part either way.
+     */
+    private function openInvoices(?Builder $scope = null, ?Carbon $asAt = null): Collection
     {
-        $q = ($scope ?? Invoice::query())
-            ->whereIn('status', self::OPEN)
-            ->with('hospital:id,name,tin,contact_phone')
-            ->withSum(['creditNotes as credited' => fn ($c) => $c->where('status', 'applied')], 'amount')
-            ->withCount('payments')
-            ->withMax('payments as last_payment_at', 'paid_at');
+        $q = ($scope ?? Invoice::query())->with('hospital:id,name,tin,contact_phone');
 
-        return $q->get()->map(function (Invoice $i) {
-            $i->balance = max(0, (int) $i->total - (int) $i->amount_paid - (int) ($i->credited ?? 0));
+        if ($asAt) {
+            $end = $asAt->toDateString();
+            $paidBy = fn ($p) => $p->whereDate('paid_at', '<=', $end);
+            $q->whereNotIn('status', ['cancelled', 'waived'])
+                ->whereDate('issue_date', '<=', $end)
+                ->withSum(['payments as paid_then' => $paidBy], 'amount')
+                ->withSum(['creditNotes as credited' => fn ($c) => $c->where('status', 'applied')
+                    ->whereRaw('date(coalesce(applied_at, updated_at)) <= ?', [$end])], 'amount')
+                ->withCount(['payments' => $paidBy])
+                ->withMax(['payments as last_payment_at' => $paidBy], 'paid_at');
+        } else {
+            $q->whereIn('status', self::OPEN)
+                ->withSum(['creditNotes as credited' => fn ($c) => $c->where('status', 'applied')], 'amount')
+                ->withCount('payments')
+                ->withMax('payments as last_payment_at', 'paid_at');
+        }
+
+        return $q->get()->map(function (Invoice $i) use ($asAt) {
+            $i->paid_to_date = (int) ($asAt ? $i->paid_then : $i->amount_paid);
+            $i->balance = max(0, (int) $i->total - $i->paid_to_date - (int) ($i->credited ?? 0));
             return $i;
         })->filter(fn ($i) => $i->balance > 0)->values();
+    }
+
+    /** The as-at date asked for, or null for "today" (the live figures). */
+    private static function asAt(Request $request): ?Carbon
+    {
+        $d = $request->date('as_at');
+
+        return $d && $d->lt(Carbon::today()) ? $d->startOfDay() : null;
     }
 
     private static function daysOverdue(Invoice $i, Carbon $today): int
@@ -91,7 +119,7 @@ class ReceivablesController extends Controller
             'due_date'        => $i->due_date?->toDateString(),
             'pay_term'        => $i->pay_term_number !== null ? "{$i->pay_term_number} {$i->pay_term_type}" : null,
             'total'           => (int) $i->total,
-            'paid'            => (int) $i->amount_paid,
+            'paid'            => $i->paid_to_date,
             'balance'         => $i->balance,
             'status'          => $i->status,
             'days_overdue'    => self::daysOverdue($i, $today),
@@ -104,11 +132,13 @@ class ReceivablesController extends Controller
     public function index(Request $request)
     {
         $this->assertReadAccess($request);
-        $today = Carbon::today();
+        $asAt = self::asAt($request);
+        // Ageing and "days overdue" are counted to the as-at date.
+        $today = $asAt ?? Carbon::today();
         $from = $request->date('date_from');
         $to = $request->date('date_to');
 
-        $open = $this->openInvoices();
+        $open = $this->openInvoices(null, $asAt);
         $customers = $open->groupBy(fn ($i) => self::keyFor($i->hospital_id, $i->client_name))
             ->map(function (Collection $inv, string $key) use ($today) {
                 $first = $inv->first();
@@ -127,13 +157,13 @@ class ReceivablesController extends Controller
                     'phone'            => $first->hospital?->contact_phone ?? $first->client_contact,
                     'open_invoices'    => $inv->count(),
                     'billed'           => (int) $inv->sum('total'),
-                    'paid'             => (int) $inv->sum('amount_paid'),
+                    'paid'             => (int) $inv->sum('paid_to_date'),
                     'balance'          => (int) $inv->sum('balance'),
                     'overdue_balance'  => $buckets['d1_30'] + $buckets['d31_60'] + $buckets['d61_90'] + $buckets['d90_plus'],
                     'aging'            => $buckets,
                     'oldest_due_date'  => $inv->pluck('due_date')->filter()->min()?->toDateString(),
                     'max_days_overdue' => $inv->map(fn ($i) => self::daysOverdue($i, $today))->max(),
-                    'no_payment_invoices' => $inv->where('amount_paid', 0)->count(),
+                    'no_payment_invoices' => $inv->where('paid_to_date', 0)->count(),
                     'last_payment_at'  => $last ? Carbon::parse($last)->toDateString() : null,
                 ];
             })->values();
@@ -156,12 +186,13 @@ class ReceivablesController extends Controller
             ->sum('total');
 
         return response()->json([
+            'as_at'   => $today->toDateString(),
             'summary' => [
                 'outstanding'         => (int) $open->sum('balance'),
                 'overdue'             => (int) $customers->sum('overdue_balance'),
                 'customers_owing'     => $customers->count(),
                 'open_invoices'       => $open->count(),
-                'no_payment_invoices' => $open->where('amount_paid', 0)->count(),
+                'no_payment_invoices' => $open->where('paid_to_date', 0)->count(),
                 'collected'           => (int) $collected,
                 'billed'              => (int) $billed,
                 'collection_rate'     => $billed > 0 ? round($collected / $billed * 100, 1) : null,
@@ -186,6 +217,20 @@ class ReceivablesController extends Controller
         @set_time_limit(120);
 
         return $pdf->statementPdf($this->buildStatement($request));
+    }
+
+    // GET /receivables/statement/xlsx — the statement as an Excel workbook in
+    // the accounts team's own ledger layout (Ledger + Invoice Status sheets).
+    public function statementXlsx(Request $request, CustomerLedgerXlsxService $xlsx)
+    {
+        $this->assertReadAccess($request);
+        $s = $this->buildStatement($request);
+        $slug = trim(preg_replace('/[^A-Za-z0-9]+/', '-', (string) $s['customer']['client_name']), '-');
+
+        return response($xlsx->build($s), 200, [
+            'Content-Type'        => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => "attachment; filename=\"Ledger-{$slug}-{$s['as_at']}.xlsx\"",
+        ]);
     }
 
     // Clickhuduma's contact ledger: opening balance, then every invoice
@@ -236,6 +281,42 @@ class ReceivablesController extends Controller
         $first = $invoices->first();
         $open = $this->openInvoices($this->customerInvoices($request))->sortBy('issue_date')->values();
 
+        // Every invoice as it stood at the end of the period: the payments
+        // recorded against it (by their paid date) and credit notes applied
+        // by then. Lists invoices issued in the period, older ones still
+        // unpaid at its end and older ones paid during it.
+        $asAt = $to ?? $today;
+        $end = $asAt->toDateString();
+        $status = $invoices->filter(fn ($i) => $i->issue_date && $i->issue_date->toDateString() <= $end)
+            ->map(function (Invoice $i) use ($credits, $end, $asAt) {
+                $pays = $i->payments->filter(fn ($p) => $p->paid_at && $p->paid_at->toDateString() <= $end);
+                $paid = (int) $pays->sum('amount');
+                $credited = (int) $credits->where('invoice_id', $i->id)
+                    ->filter(fn ($c) => ($c->applied_at ?? $c->updated_at)?->toDateString() <= $end)->sum('amount');
+                $remaining = max(0, (int) $i->total - $paid - $credited);
+
+                return [
+                    'id'              => $i->id,
+                    'invoice_number'  => $i->invoice_number,
+                    'issue_date'      => $i->issue_date->toDateString(),
+                    'due_date'        => $i->due_date?->toDateString(),
+                    'total'           => (int) $i->total,
+                    'paid'            => $paid,
+                    'credited'        => $credited,
+                    'remaining'       => $remaining,
+                    'status'          => $remaining === 0 ? 'paid' : ($paid + $credited > 0 ? 'partly_paid' : 'unpaid'),
+                    'days_overdue'    => $remaining && $i->due_date && $i->due_date->lt($asAt) ? (int) $i->due_date->diffInDays($asAt) : 0,
+                    'payments_count'  => $pays->count(),
+                    'last_payment_at' => $pays->max('paid_at')?->toDateString(),
+                ];
+            })
+            ->filter(fn ($r) => $r['remaining'] > 0 || ! $from || $r['issue_date'] >= $from->toDateString()
+                || ($r['last_payment_at'] && $r['last_payment_at'] >= $from->toDateString()))
+            ->values();
+
+        // As on the Excel ledger: paid ÷ (opening balance + invoiced).
+        $owedInPeriod = $opening + (int) $inRange->sum('debit');
+
         return [
             'customer' => [
                 'hospital_id' => $first->hospital_id,
@@ -251,6 +332,9 @@ class ReceivablesController extends Controller
             'total_paid'      => (int) $inRange->sum('credit'),
             'closing_balance' => $running,
             'balance_due'     => (int) $open->sum('balance'),
+            'collected_pct'   => $owedInPeriod > 0 ? round($inRange->sum('credit') / $owedInPeriod * 100, 1) : null,
+            'as_at'           => $end,
+            'invoice_status'  => $status->all(),
             'entries'         => $inRange->all(),
             'open_invoices'   => $open->map(fn ($i) => self::invoiceRow($i, $today))->all(),
         ];

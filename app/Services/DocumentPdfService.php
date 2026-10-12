@@ -196,7 +196,7 @@ class DocumentPdfService
         ]);
     }
 
-    /** Summary strip, the dated ledger, then open invoices with ageing. */
+    /** Summary strip, the dated ledger, then invoice status with ageing. */
     private function statementBody(array $d): string
     {
         $s = $d['statementData'];
@@ -210,8 +210,10 @@ class DocumentPdfService
             'PAID & CREDITED' => $s['total_paid'],
             'CLOSING BALANCE' => $s['closing_balance'],
         ] as $label => $value) {
-            $html .= "<td style='width:25%'><div class='meta-lbl'><strong>{$label}</strong></div><div class='sum-val'><strong>TSh " . e($n($value)) . '</strong></div></td>';
+            $html .= "<td style='width:20%'><div class='meta-lbl'><strong>{$label}</strong></div><div class='sum-val'><strong>TSh " . e($n($value)) . '</strong></div></td>';
         }
+        $html .= "<td style='width:20%'><div class='meta-lbl'><strong>% COLLECTED</strong></div><div class='sum-val'><strong>"
+            . ($s['collected_pct'] === null ? '—' : e($s['collected_pct']) . '%') . '</strong></div></td>';
         $html .= '</tr></table>';
 
         $html .= "<table id='ledger' repeat_header='1'><thead><tr>
@@ -245,22 +247,26 @@ class DocumentPdfService
         }
         $html .= '</table>';
 
-        $open = $s['open_invoices'];
-        if ($open) {
+        // Invoice status at the end of the period (payments as recorded,
+        // by the date paid); ageing of what was still owed then.
+        $rows = $s['invoice_status'];
+        if ($rows) {
             $aging = ['CURRENT' => 0, '1–30 DAYS' => 0, '31–60 DAYS' => 0, '61–90 DAYS' => 0, 'OVER 90 DAYS' => 0];
-            foreach ($open as $i) {
+            foreach ($rows as $i) {
                 $d = $i['days_overdue'];
-                $aging[match (true) { $d === 0 => 'CURRENT', $d <= 30 => '1–30 DAYS', $d <= 60 => '31–60 DAYS', $d <= 90 => '61–90 DAYS', default => 'OVER 90 DAYS' }] += $i['balance'];
+                $aging[match (true) { $d === 0 => 'CURRENT', $d <= 30 => '1–30 DAYS', $d <= 60 => '31–60 DAYS', $d <= 90 => '61–90 DAYS', default => 'OVER 90 DAYS' }] += $i['remaining'];
             }
+            $label = ['paid' => 'Paid', 'partly_paid' => 'Partly paid', 'unpaid' => 'Unpaid'];
 
-            $html .= "<div id='terms' style='clear:both'><div class='terms-h'><strong>UNPAID INVOICES</strong></div></div>"
+            $html .= "<div id='terms' style='clear:both'><div class='terms-h'><strong>INVOICE STATUS ON " . e(strtoupper($date($s['as_at']))) . '</strong></div></div>'
                 . "<table id='ledger' repeat_header='1' style='margin-top:6px'><thead><tr>
-                <th style='width:15%'>INVOICE</th><th style='width:13%'>ISSUED</th><th style='width:13%'>DUE</th>
-                <th class='num'>TOTAL</th><th class='num'>PAID</th><th class='num'>BALANCE</th><th class='num' style='width:10%'>OVERDUE</th></tr></thead>";
-            foreach ($open as $i) {
+                <th style='width:14%'>INVOICE</th><th style='width:11%'>ISSUED</th><th style='width:11%'>DUE</th>
+                <th class='num'>TOTAL</th><th class='num'>PAID</th><th class='num'>REMAINING</th><th style='width:11%'>STATUS</th><th class='num' style='width:9%'>OVERDUE</th></tr></thead>";
+            foreach ($rows as $i) {
                 $html .= "<tr><td style='font-weight:500'>" . e($i['invoice_number']) . "</td><td class='dim'>" . e($date($i['issue_date'])) . '</td>'
                     . "<td class='dim'>" . e($date($i['due_date'])) . "</td><td class='num'>" . e($n($i['total'])) . '</td>'
-                    . "<td class='num'>" . e($n($i['paid'])) . "</td><td class='num' style='font-weight:700'>" . e($n($i['balance'])) . '</td>'
+                    . "<td class='num'>" . e($n($i['paid'] + $i['credited'])) . "</td><td class='num' style='font-weight:700'>" . e($n($i['remaining'])) . '</td>'
+                    . "<td>" . e($label[$i['status']] ?? $i['status']) . '</td>'
                     . "<td class='num'>" . ($i['days_overdue'] ? e($i['days_overdue']) . ' d' : '—') . '</td></tr>';
             }
             $html .= '</table>';
