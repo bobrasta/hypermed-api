@@ -254,27 +254,27 @@ class EmailController extends Controller
 
     private function sendViaSMTP(EmailAccount $account, array $data): void
     {
-        config([
-            'mail.mailers.smtp.host'       => $account->smtp_host,
-            'mail.mailers.smtp.port'       => $account->smtp_port,
-            'mail.mailers.smtp.encryption' => $account->smtp_encryption === 'none' ? null : $account->smtp_encryption,
-            'mail.mailers.smtp.username'   => $account->username,
-            'mail.mailers.smtp.password'   => $account->password,
-            // Left at the config default (null = OS socket default, often
-            // 60s+) this hung well past the Flutter client's own 20s receive
-            // timeout on a slow/unreachable mail server — the client gave up
-            // with no idea whether the send actually went through, and the
-            // request kept running server-side regardless. This app runs on
-            // a single `php artisan serve` process (see railway.toml), so a
-            // hung SMTP connection isn't just slow for this request, it can
-            // hold up everyone else's too.
-            'mail.mailers.smtp.timeout'    => 10,
-            'mail.from.address'            => $account->from_email,
-            'mail.from.name'               => $account->from_name ?? $account->username,
+        // An on-demand mailer per account, not the shared 'smtp' mailer: on
+        // the VPS that one carries MAIL_URL (local Postfix for notification
+        // emails), and Laravel lets the URL override host/port — so every
+        // compose went out through Postfix without the account's own login.
+        $mailer = Mail::build([
+            'transport' => 'smtp',
+            // Laravel 12 reads `scheme`, not `encryption`: smtps = implicit
+            // TLS (465); smtp upgrades with STARTTLS when the server offers it.
+            'scheme'    => $account->smtp_encryption === 'ssl' ? 'smtps' : 'smtp',
+            'host'      => $account->smtp_host,
+            'port'      => $account->smtp_port,
+            'username'  => $account->username,
+            'password'  => $account->password,
+            'auto_tls'  => $account->smtp_encryption !== 'none',
+            // Left at the socket default (often 60s+) a slow/unreachable mail
+            // server outlived the app's own 20s receive timeout.
+            'timeout'   => 10,
         ]);
 
         try {
-            Mail::mailer('smtp')->send([], [], function (Message $msg) use ($data, $account) {
+            $mailer->send([], [], function (Message $msg) use ($data, $account) {
                 $msg->from($account->from_email, $account->from_name ?? '');
                 $msg->subject($data['subject']);
                 $msg->html($data['body']);
