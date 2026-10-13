@@ -128,9 +128,14 @@ class AdministratorMeetingsTest extends TestCase
         $this->assertFalse($seen['can_manage']);
         $this->putJson("/api/v1/meetings/{$id}", ['title' => 'x'])->assertForbidden();
 
-        // Finishing the task marks the action item done.
+        // Finishing the task marks the action item done; the owner can also
+        // tick it on the meeting, but change nothing else there.
         $this->putJson("/api/v1/tasks/{$task->id}", ['status' => 'completed'])->assertOk();
         $this->assertSame('done', $this->getJson("/api/v1/meetings/{$id}")->json('data.action_items.0.status'));
+        $this->putJson("/api/v1/meetings/{$id}/action-items/{$item['id']}", ['done' => false])->assertOk();
+        $this->assertSame('open', $this->getJson("/api/v1/meetings/{$id}")->json('data.action_items.0.status'));
+        $this->putJson("/api/v1/meetings/{$id}/action-items/{$item['id']}", ['done' => true])->assertOk();
+        $this->putJson("/api/v1/meetings/{$id}/action-items/{$item['id']}", ['description' => 'x'])->assertForbidden();
 
         Sanctum::actingAs($this->administrator);
         $this->postJson("/api/v1/meetings/{$id}/circulate")->assertOk();

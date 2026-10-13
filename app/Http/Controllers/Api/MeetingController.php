@@ -221,6 +221,7 @@ class MeetingController extends Controller
             return $meeting->actionItems()->create([...$data, 'task_id' => $task->id]);
         });
 
+        // Opens the meeting, where the owner can also tick it done.
         AppNotification::create([
             'user_id' => $item->owner_id,
             ...app(NotificationTemplateService::class)->render('meeting.action_item', [
@@ -228,8 +229,8 @@ class MeetingController extends Controller
                 'description' => $item->description,
                 'due_suffix'  => $item->due_date ? ' — due ' . $item->due_date->format('d M Y') . '.' : '',
             ]),
-            'entity_type' => 'task',
-            'entity_id'   => $item->task_id,
+            'entity_type' => 'meeting',
+            'entity_id'   => $meeting->id,
             'is_read'     => false,
         ]);
 
@@ -238,8 +239,11 @@ class MeetingController extends Controller
 
     public function updateActionItem(Request $request, Meeting $meeting, MeetingActionItem $item)
     {
-        $this->abortUnlessManager($request);
         abort_if($item->meeting_id !== $meeting->id, 404);
+        // The owner may tick their own item done (or undo it); everything
+        // else is the secretary's.
+        $ownerTicking = $item->owner_id === $request->user()->id && array_keys($request->all()) === ['done'];
+        abort_unless($ownerTicking || $this->canManage($request), 403, 'Only the Administrator, Director or CTO can change meeting records.');
         $data = $request->validate([
             'description' => ['sometimes', 'string', 'max:2000'],
             'owner_id'    => ['sometimes', 'exists:users,id'],

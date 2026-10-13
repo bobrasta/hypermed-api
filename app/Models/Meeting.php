@@ -60,7 +60,7 @@ class Meeting extends Model
     }
 
     // Meetings $user may open: all of them with meetings.manage, otherwise
-    // the ones they attend (or chair).
+    // the ones they attend, chair or own an action item from.
     public function scopeVisibleTo(Builder $query, User $user, bool $canManage): Builder
     {
         if ($canManage) {
@@ -69,12 +69,15 @@ class Meeting extends Model
 
         return $query->where(fn ($q) => $q
             ->where('chaired_by', $user->id)
-            ->orWhereHas('attendees', fn ($a) => $a->where('user_id', $user->id)));
+            ->orWhereHas('attendees', fn ($a) => $a->where('user_id', $user->id))
+            ->orWhereHas('actionItems', fn ($a) => $a->where('owner_id', $user->id)));
     }
 
+    // Attended, chaired, or owns one of its action items.
     public function isAttendee(User $user): bool
     {
         return $this->chaired_by === $user->id
-            || $this->attendees()->where('user_id', $user->id)->exists();
+            || $this->attendees()->where('user_id', $user->id)->exists()
+            || $this->actionItems()->where('owner_id', $user->id)->exists();
     }
 }
