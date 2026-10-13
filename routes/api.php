@@ -80,6 +80,7 @@ use App\Http\Controllers\Api\InterviewController;
 use App\Http\Controllers\Api\PartCannibalizationController;
 use App\Http\Controllers\Api\PermissionController;
 use App\Http\Controllers\Api\TaskController;
+use App\Http\Controllers\Api\MeetingController;
 use App\Http\Controllers\Api\TicketAttachmentController;
 use App\Http\Controllers\Api\VendorBillController;
 use Illuminate\Support\Facades\Route;
@@ -554,6 +555,21 @@ Route::prefix('v1')->group(function () {
 
         // Tasks (general — separate from service tickets)
         Route::apiResource('tasks', TaskController::class)->except(['show']);
+
+        // Meetings register (Administrator = secretary; attendees read their own).
+        Route::get('meetings/report',                                [MeetingController::class, 'report']);
+        Route::get('meetings',                                       [MeetingController::class, 'index']);
+        Route::post('meetings',                                      [MeetingController::class, 'store']);
+        Route::get('meetings/{meeting}',                             [MeetingController::class, 'show']);
+        Route::put('meetings/{meeting}',                             [MeetingController::class, 'update']);
+        Route::delete('meetings/{meeting}',                          [MeetingController::class, 'destroy']);
+        Route::post('meetings/{meeting}/circulate',                  [MeetingController::class, 'circulate']);
+        Route::get('meetings/{meeting}/pdf',                         [MeetingController::class, 'pdf']);
+        Route::post('meetings/{meeting}/action-items',               [MeetingController::class, 'storeActionItem']);
+        Route::put('meetings/{meeting}/action-items/{item}',         [MeetingController::class, 'updateActionItem']);
+        Route::delete('meetings/{meeting}/action-items/{item}',      [MeetingController::class, 'destroyActionItem']);
+        Route::post('meetings/{meeting}/attachments',                [MeetingController::class, 'storeAttachment']);
+        Route::delete('meetings/{meeting}/attachments/{attachment}', [MeetingController::class, 'destroyAttachment']);
 
         // Leave requests
         Route::get('leave-requests', [LeaveController::class, 'index']);
