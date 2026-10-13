@@ -50,7 +50,7 @@ class CreditNoteController extends Controller
     // duties).
     public function approve(Request $request, CreditNote $creditNote)
     {
-        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can approve credit notes.');
+        abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the Director can approve credit notes.');
         abort_if($creditNote->status !== 'draft', 422, 'Only a draft credit note can be approved.');
         abort_if($creditNote->created_by === $request->user()->id, 403, 'You cannot approve a credit note you issued.');
 

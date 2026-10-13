@@ -122,6 +122,7 @@ class PermissionSeeder extends Seeder
             // decomposing them further is deferred (see plan doc, Phase 2).
             'authority' => [
                 'authority.admin_tier'         => ['Full System Authority', 'Director-tier authority — supersedes every module-specific gate'],
+                'authority.final_money_approval' => ['Final Authorisation of Money', 'Director sign-off on money; never implied by admin_tier (see EffectivePermissionResolver::RESERVED)'],
                 'authority.manager_tier'       => ['Cross-Department Manager Authority', 'Task assignment/reassignment across any department'],
                 'authority.cto_tier'           => ['CTO Approval Authority', 'Bundles stock-out approval, per-diem final approval, expense CTO-stage approval, and service-ticket technician assignment'],
                 'authority.team_lead_tier'     => ['Team Lead Approval Authority', 'Per-diem team-lead (first) stage approval'],

@@ -89,7 +89,7 @@ class ExpenseController extends Controller
     public function updateCategory(Request $request, ExpenseCategory $expenseCategory)
     {
         if ($request->has('requires_director_approval') && count($request->all()) === 1) {
-            abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can change approval routing.');
+            abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the Director can change approval routing.');
             $expenseCategory->update($request->validate(['requires_director_approval' => ['required', 'boolean']]));
             return response()->json(['data' => $this->categoryPayload($expenseCategory->load(['account', 'parent']))]);
         }
@@ -232,7 +232,7 @@ class ExpenseController extends Controller
         $user = $request->user();
 
         if ($expense->status === 'paid') {
-            abort_if(! $user->hasDirectorAuthority(), 403, 'Only the Director can delete a paid expense.');
+            abort_if(! $user->hasFinalMoneyAuthority(), 403, 'Only the Director can delete a paid expense.');
             DB::transaction(function () use ($expense, $financePosting) {
                 $financePosting->reverseExpense($expense);
                 $expense->delete();
@@ -240,7 +240,7 @@ class ExpenseController extends Controller
         } elseif (in_array($expense->status, ['pending_payment', 'pending_release'], true)) {
             // Approved but no ledger entry posted yet — still Director-only,
             // since it's already past the approval gate.
-            abort_if(! $user->hasDirectorAuthority(), 403, 'Only the Director can delete an approved expense.');
+            abort_if(! $user->hasFinalMoneyAuthority(), 403, 'Only the Director can delete an approved expense.');
             $expense->delete();
         } else {
             abort_if($expense->created_by !== $user->id && ! $user->hasCtoApprovalAuthority(), 403, 'Not authorised.');
@@ -263,7 +263,7 @@ class ExpenseController extends Controller
             abort_if(! $user->hasCtoApprovalAuthority(), 403, 'You are not authorised to approve expenses.');
             abort_if($expense->requires_director_approval, 422, 'This expense requires Director approval — escalate it instead.');
         } elseif ($expense->status === 'pending_director') {
-            abort_if(! $user->hasDirectorAuthority(), 403, 'Only the Director can approve this expense.');
+            abort_if(! $user->hasFinalMoneyAuthority(), 403, 'Only the Director can approve this expense.');
         } else {
             abort(422, 'Only pending expenses can be approved.');
         }
@@ -312,7 +312,7 @@ class ExpenseController extends Controller
     public function markPaid(Request $request, Expense $expense, FinancePostingService $financePosting)
     {
         $user = $request->user();
-        abort_if(! $user->hasAccountantAuthority() && ! $user->hasDirectorAuthority(), 403,
+        abort_if(! $user->hasAccountantAuthority() && ! $user->hasFinalMoneyAuthority(), 403,
             'Only the accountant or Director can release expense payment.');
         $this->abortIfSelfActioning($expense, $request);
         abort_if($expense->status !== 'pending_release', 422, 'Only expenses awaiting release can be marked paid.');
@@ -366,7 +366,7 @@ class ExpenseController extends Controller
         if ($expense->status === 'pending_cto') {
             abort_if(! $user->hasCtoApprovalAuthority(), 403, 'You are not authorised to review this expense.');
         } elseif ($expense->status === 'pending_director') {
-            abort_if(! $user->hasDirectorAuthority(), 403, 'Only the Director can reject this expense.');
+            abort_if(! $user->hasFinalMoneyAuthority(), 403, 'Only the Director can reject this expense.');
         } else {
             abort(422, 'Only pending expenses can be rejected.');
         }
@@ -409,7 +409,7 @@ class ExpenseController extends Controller
     {
         $name = $expense->createdBy?->name ?? 'A staff member';
 
-        User::whereIn('role', User::ADMIN_TIER)
+        User::holdingPermission('authority.final_money_approval')
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,

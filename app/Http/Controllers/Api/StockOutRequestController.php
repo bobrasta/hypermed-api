@@ -134,7 +134,7 @@ class StockOutRequestController extends Controller
         $name = $stockOutRequest->requester?->name ?? 'A staff member';
         $item = $stockOutRequest->inventoryItem?->name ?? 'an item';
 
-        User::whereIn('role', User::CTO_TIER)
+        User::holdingPermission('authority.cto_tier')
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,

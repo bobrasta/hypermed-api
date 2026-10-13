@@ -63,7 +63,7 @@ class LateArrivalController extends Controller
         $when = $late->expected_time ? " — expected around {$late->expected_time}" : '';
         $reasonSuffix = $late->reason ? " Reason: {$late->reason}" : '';
 
-        User::whereIn('role', User::HR_APPROVAL_ROLES)
+        User::holdingPermission('hr.approve_leave')
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,

@@ -125,6 +125,13 @@ class PermissionController extends Controller
             'permissions.*.scope' => ['nullable', 'string', 'in:none,masked,own,team,all'],
         ]);
 
+        $current = DB::table('role_has_permissions')
+            ->join('permissions', 'permissions.id', '=', 'role_has_permissions.permission_id')
+            ->where('role_has_permissions.role_id', $role->id)
+            ->pluck('permissions.name')->all();
+        $next = array_column($data['permissions'], 'key');
+        $this->abortUnlessDirectorFor($request, [...array_diff($current, $next), ...array_diff($next, $current)]);
+
         DB::transaction(function () use ($role, $data) {
             DB::table('role_has_permissions')->where('role_id', $role->id)->delete();
 
@@ -193,6 +200,8 @@ class PermissionController extends Controller
             'reason' => ['nullable', 'string', 'max:255'],
         ]);
 
+        $this->abortUnlessDirectorFor($request, [$data['key']]);
+
         $permission = Permission::where('name', $data['key'])->firstOrFail();
 
         DB::table('user_permission_overrides')->updateOrInsert(
@@ -215,6 +224,12 @@ class PermissionController extends Controller
     {
         abort_if(! $resolver->can($request->user(), 'roles.manage'), 403, 'You are not authorised to manage member permissions.');
 
+        $key = DB::table('user_permission_overrides')
+            ->join('permissions', 'permissions.id', '=', 'user_permission_overrides.permission_id')
+            ->where('user_permission_overrides.id', $override)
+            ->value('permissions.name');
+        $this->abortUnlessDirectorFor($request, array_filter([$key]));
+
         DB::table('user_permission_overrides')
             ->where('id', $override)
             ->where('user_id', $user->id)
@@ -223,5 +238,15 @@ class PermissionController extends Controller
         $resolver->invalidate($user);
 
         return response()->json(null, 204);
+    }
+
+    // Admin-tier and the reserved money/role-management permissions are the
+    // Director's to hand out or take away — roles.manage (HR, and the
+    // Administrator) must not be a way to grant them, to anyone or oneself.
+    private function abortUnlessDirectorFor(Request $request, array $keys): void
+    {
+        $guarded = [...EffectivePermissionResolver::RESERVED, 'authority.admin_tier'];
+        abort_if(array_intersect($keys, $guarded) !== [] && ! $request->user()->isDirector(), 403,
+            'Only the Director can grant or remove admin-tier or money-approval permissions.');
     }
 }

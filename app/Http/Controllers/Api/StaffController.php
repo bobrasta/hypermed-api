@@ -100,7 +100,7 @@ class StaffController extends Controller
         // to Director authority specifically, same segregation-of-duty
         // reasoning as SalaryAdjustment's approval-only self-escalation gap.
         abort_if(
-            self::roleGrantsAdminTier($data['role']) && ! $user->hasDirectorAuthority(),
+            self::roleGrantsAdminTier($data['role']) && ! $user->isDirector(),
             403,
             'Only a Director can create an admin-tier account.',
         );
@@ -218,7 +218,7 @@ class StaffController extends Controller
         // Same segregation-of-duty rule as store(): staff.manage alone must
         // not be a way to promote someone (including yourself) into the
         // admin tier, nor to edit/demote an existing admin-tier account.
-        $director = $request->user()->hasDirectorAuthority();
+        $director = $request->user()->isDirector();
         abort_if(
             ! $director && isset($data['role']) && self::roleGrantsAdminTier($data['role']),
             403,
@@ -253,7 +253,7 @@ class StaffController extends Controller
     public function destroy(Request $request, User $user)
     {
         abort_if(! $request->user()->hasStaffManageAuthority(), 403, 'You are not authorised to deactivate staff accounts.');
-        abort_if($user->isAdminTier() && ! $request->user()->hasDirectorAuthority(), 403,
+        abort_if($user->isAdminTier() && ! $request->user()->isDirector(), 403,
             'Only a Director can deactivate an admin-tier account.');
 
         $user->update(['is_active' => false]);

@@ -104,7 +104,7 @@ class ExpenseService
     private function notifySubmitted(Expense $expense): void
     {
         $name = $expense->createdBy?->name ?? 'A staff member';
-        $roles = $expense->requires_director_approval ? User::ADMIN_TIER : User::CTO_TIER;
+        $permission = $expense->requires_director_approval ? 'authority.final_money_approval' : 'authority.cto_tier';
         $templateKey = $expense->requires_director_approval ? 'expense.submitted_escalated' : 'expense.submitted_cto';
 
         $vars = [
@@ -113,7 +113,7 @@ class ExpenseService
             'gross_amount' => number_format($expense->gross_amount),
         ];
 
-        User::whereIn('role', $roles)
+        User::holdingPermission($permission)
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,

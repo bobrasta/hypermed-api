@@ -595,7 +595,7 @@ class InvoiceController extends Controller
 
             return response()->json(null, 204);
         }
-        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can delete an invoice.');
+        abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the Director can delete an invoice.');
 
         DB::transaction(function () use ($invoice, $financePosting) {
             $financePosting->reverseInvoice($invoice->load('payments'));

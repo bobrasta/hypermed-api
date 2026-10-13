@@ -56,7 +56,7 @@ class SalaryAdjustmentController extends Controller
 
     public function approve(Request $request, User $user, SalaryAdjustment $salaryAdjustment)
     {
-        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can approve a salary adjustment.');
+        abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the Director can approve a salary adjustment.');
         abort_if($salaryAdjustment->user_id !== $user->id, 404);
         abort_if($salaryAdjustment->status !== 'pending', 422, 'Only a pending adjustment can be approved.');
         abort_if($salaryAdjustment->created_by === $request->user()->id, 403, 'You cannot approve a salary adjustment you recorded.');

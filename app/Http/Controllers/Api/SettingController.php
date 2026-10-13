@@ -8,6 +8,10 @@ use Illuminate\Http\Request;
 
 class SettingController extends Controller
 {
+    // Settings that decide which money needs the Director's sign-off — the
+    // CTO's admin-tier must not be a way around final authorisation.
+    private const MONEY_ROUTING_KEYS = ['expense_director_threshold'];
+
     public function index()
     {
         return response()->json(['data' => Setting::pluck('value', 'key')]);
@@ -16,6 +20,8 @@ class SettingController extends Controller
     public function update(Request $request, string $key)
     {
         abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can change approval settings.');
+        abort_if(in_array($key, self::MONEY_ROUTING_KEYS, true) && ! $request->user()->hasFinalMoneyAuthority(), 403,
+            'Only the Director can change who has to approve money.');
 
         $data = $request->validate(['value' => ['required', 'string']]);
 

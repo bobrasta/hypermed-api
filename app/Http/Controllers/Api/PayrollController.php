@@ -214,7 +214,7 @@ class PayrollController extends Controller
     // out of.
     public function approve(Request $request, PayrollRun $payrollRun)
     {
-        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can approve a payroll run.');
+        abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the Director can approve a payroll run.');
         abort_if($payrollRun->status !== 'reviewed', 422, 'Only a reviewed run can be approved.');
         abort_if($payrollRun->created_by === $request->user()->id, 403, 'You cannot approve a payroll run you created.');
 

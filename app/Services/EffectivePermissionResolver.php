@@ -27,6 +27,20 @@ class EffectivePermissionResolver
 {
     private const TTL = 600;
 
+    // authority.admin_tier means "every permission in the catalog" — except
+    // these, which must be granted explicitly (the Director's role holds them
+    // all). This is what lets the CTO be handed admin-tier through a single
+    // per-user override while final authorisation of money, payment handling
+    // and the Role Builder stay with the Director.
+    public const RESERVED = [
+        'authority.final_money_approval',
+        'procurement.initiate_payment',
+        'procurement.approve_po_director_stage',
+        'procurement.approve_payment_final',
+        'finance.approve_step2',
+        'roles.manage',
+    ];
+
     /** @return Collection<int, array{key: string, scope: string}> */
     public function resolve(User $user): Collection
     {
@@ -65,11 +79,24 @@ class EffectivePermissionResolver
                 ->select('permissions.name as key', 'user_permission_overrides.effect', 'user_permission_overrides.scope')
                 ->get();
 
+            $denied = [];
             foreach ($overrides as $o) {
                 if ($o->effect === 'deny') {
                     $effective->forget($o->key);
+                    $denied[] = $o->key;
                 } else {
                     $effective->put($o->key, ['key' => $o->key, 'scope' => $o->scope ?? 'all']);
+                }
+            }
+
+            if ($effective->has('authority.admin_tier')) {
+                $implied = DB::table('permissions')
+                    ->whereNotIn('name', [...self::RESERVED, ...$denied])
+                    ->pluck('name');
+                foreach ($implied as $key) {
+                    if (! $effective->has($key)) {
+                        $effective->put($key, ['key' => $key, 'scope' => 'all']);
+                    }
                 }
             }
 

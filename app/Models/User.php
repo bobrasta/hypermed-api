@@ -6,6 +6,7 @@ use App\Services\EffectivePermissionResolver;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
@@ -30,17 +31,9 @@ class User extends Authenticatable
     }
 
     // These tier lists are NOT used for the hasXAuthority() boolean checks
-    // below anymore (those now go through EffectivePermissionResolver) — they
-    // still back several controllers' `User::whereIn('role', User::CTO_TIER)`
-    // notification-recipient queries (StockOutRequestController, PerDiemController,
-    // ExpenseController, LeaveController, LateArrivalController, TaskController).
-    // Kept as-is deliberately: rewiring notification fan-out to query by
-    // Spatie permission instead of role string is real, separate work,
-    // out of scope for this pass. Known limitation: if the Role Builder is
-    // used to grant e.g. authority.cto_tier to a role NOT in CTO_TIER, that
-    // role's users will be able to approve but won't be notified — flag this
-    // to whoever uses the Role Builder until the notification queries are
-    // migrated too.
+    // below (those go through EffectivePermissionResolver), nor any longer
+    // for notification fan-out (scopeHoldingPermission() below). Kept for
+    // StaffController's built-in admin-role check and the client mirrors.
     public const ADMIN_TIER = ['super_admin', 'admin'];
     public const MANAGER_ROLES = ['super_admin', 'admin', 'sales_manager', 'finance_manager'];
     public const SALES_APPROVAL_ROLES = ['super_admin', 'admin', 'sales_manager'];
@@ -380,6 +373,60 @@ class User extends Authenticatable
     public function hasDirectorAuthority(): bool
     {
         return $this->isAdminTier() || $this->activeDelegationAsDelegate() !== null;
+    }
+
+    // Final authorisation of money (Director approval of expenses, POs,
+    // payroll, vendor bills/fees, credit notes, salary changes; deleting
+    // approved money records; approval routing). Narrower than
+    // hasDirectorAuthority(): the CTO may hold admin-tier through a per-user
+    // override but never this — authority.final_money_approval is one of
+    // EffectivePermissionResolver::RESERVED. An active Delegation still
+    // grants it, so the Director can hand it over while away.
+    public function hasFinalMoneyAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'authority.final_money_approval')
+            || $this->activeDelegationAsDelegate() !== null;
+    }
+
+    // The Director's own seat, never via a delegation: creating/revoking
+    // delegations, making someone admin-tier, editing an admin-tier account,
+    // granting reserved permissions.
+    public function isDirector(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'authority.final_money_approval');
+    }
+
+    // Users who explicitly hold $key — through their role, a direct grant or
+    // an allow override, minus deny overrides. Deliberately NOT the
+    // admin-tier expansion in EffectivePermissionResolver: notification
+    // fan-out goes to whoever owns that queue, so a CTO with admin-tier
+    // isn't sent every HR or Director notification.
+    public function scopeHoldingPermission($query, string $key)
+    {
+        $permissionId = DB::table('permissions')->where('name', $key)->value('id');
+        if ($permissionId === null) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        $viaRole = DB::table('model_has_roles')
+            ->join('role_has_permissions', 'role_has_permissions.role_id', '=', 'model_has_roles.role_id')
+            ->where('model_has_roles.model_type', self::class)
+            ->where('role_has_permissions.permission_id', $permissionId)
+            ->select('model_has_roles.model_id');
+        $direct = DB::table('model_has_permissions')
+            ->where('model_type', self::class)
+            ->where('permission_id', $permissionId)
+            ->select('model_id');
+        $override = fn (string $effect) => DB::table('user_permission_overrides')
+            ->where('permission_id', $permissionId)
+            ->where('effect', $effect)
+            ->select('user_id');
+
+        return $query
+            ->where(fn ($q) => $q->whereIn('users.id', $viaRole)
+                ->orWhereIn('users.id', $direct)
+                ->orWhereIn('users.id', $override('allow')))
+            ->whereNotIn('users.id', $override('deny'));
     }
 
     // The delegation, if any, currently letting this user act with Director

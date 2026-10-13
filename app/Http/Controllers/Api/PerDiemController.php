@@ -285,7 +285,7 @@ class PerDiemController extends Controller
     // below), so releasing still always takes two people.
     public function markPaid(Request $request, PerDiemRequest $perDiemRequest)
     {
-        abort_if(! $request->user()->hasAccountantAuthority() && ! $request->user()->hasDirectorAuthority(), 403,
+        abort_if(! $request->user()->hasAccountantAuthority() && ! $request->user()->hasFinalMoneyAuthority(), 403,
             'Only the accountant or Director can release per-diem payment.');
         $this->abortIfSelfActioning($perDiemRequest, $request);
         abort_if($perDiemRequest->status !== 'pending_director', 422, 'Only requests awaiting Director authorization can be marked paid.');
@@ -678,7 +678,7 @@ class PerDiemController extends Controller
         $name = $perDiem->user?->name ?? 'A staff member';
 
         $teamLeadIds = User::where('role', 'team_leader')->pluck('id');
-        $recipientIds = $teamLeadIds->isNotEmpty() ? $teamLeadIds : User::whereIn('role', User::CTO_TIER)->pluck('id');
+        $recipientIds = $teamLeadIds->isNotEmpty() ? $teamLeadIds : User::holdingPermission('authority.cto_tier')->pluck('id');
 
         $recipientIds->each(fn ($id) => AppNotification::create([
             'user_id'     => $id,
@@ -699,7 +699,7 @@ class PerDiemController extends Controller
     {
         $name = $perDiem->user?->name ?? 'A staff member';
 
-        User::whereIn('role', User::CTO_TIER)
+        User::holdingPermission('authority.cto_tier')
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
@@ -735,7 +735,7 @@ class PerDiemController extends Controller
     {
         $name = $perDiem->user?->name ?? 'A staff member';
 
-        User::whereIn('role', User::ADMIN_TIER)
+        User::holdingPermission('authority.final_money_approval')
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
@@ -839,7 +839,7 @@ class PerDiemController extends Controller
     {
         $name = $perDiem->user?->name ?? 'A staff member';
 
-        User::whereIn('role', User::CTO_TIER)
+        User::holdingPermission('authority.cto_tier')
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,

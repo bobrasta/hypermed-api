@@ -137,7 +137,7 @@ class VendorBillController extends Controller
 
     public function destroy(Request $request, VendorBill $vendorBill, FinancePostingService $financePosting)
     {
-        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can delete a vendor bill.');
+        abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the Director can delete a vendor bill.');
 
         DB::transaction(function () use ($vendorBill, $financePosting) {
             $financePosting->reverseVendorBill($vendorBill->load('payments'));
@@ -167,7 +167,7 @@ class VendorBillController extends Controller
     // accountant who entered the bill (store()) cannot also approve it.
     public function approve(Request $request, VendorBill $vendorBill)
     {
-        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can approve vendor bills for payment.');
+        abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the Director can approve vendor bills for payment.');
         abort_if($vendorBill->status !== 'pending', 422, 'Only a pending bill can be approved.');
         abort_if($vendorBill->created_by === $request->user()->id, 403, 'You cannot approve a vendor bill you recorded.');
 

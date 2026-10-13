@@ -194,7 +194,7 @@ class VendorFeeController extends Controller
     // call", not just be true at submission time.
     public function approve(Request $request, VendorFee $vendorFee)
     {
-        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can approve a vendor fee for payment.');
+        abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the Director can approve a vendor fee for payment.');
         $this->abortIfSelfActioning($vendorFee, $request);
         abort_if($vendorFee->status !== 'ready_for_payment', 422, 'Only fees submitted for payment can be approved.');
 
@@ -227,7 +227,7 @@ class VendorFeeController extends Controller
 
     public function reject(Request $request, VendorFee $vendorFee)
     {
-        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can reject a vendor fee.');
+        abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the Director can reject a vendor fee.');
         $this->abortIfSelfActioning($vendorFee, $request);
         abort_if($vendorFee->status !== 'ready_for_payment', 422, 'Only fees submitted for payment can be rejected.');
 
@@ -249,7 +249,7 @@ class VendorFeeController extends Controller
 
     private function notifyDirector(VendorFee $fee): void
     {
-        User::whereIn('role', User::ADMIN_TIER)
+        User::holdingPermission('authority.final_money_approval')
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id' => $id,

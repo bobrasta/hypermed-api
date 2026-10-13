@@ -559,7 +559,7 @@ class ShipmentController extends Controller
             'can_manage' => $canManage,
             // Read-only viewers with Section 16 approval authority act on the
             // fee from the Vendors screen; this just tells the UI to link there.
-            'can_approve_fee' => $request->user()->hasDirectorAuthority(),
+            'can_approve_fee' => $request->user()->hasFinalMoneyAuthority(),
             'recipients' => User::whereIn('id', $this->notifier->recipients($s))->orderBy('name')->get(['id', 'name', 'role'])
                 ->map(fn ($u) => ['name' => $u->name, 'role' => $u->role])->values(),
         ];

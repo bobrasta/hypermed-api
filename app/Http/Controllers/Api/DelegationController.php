@@ -22,7 +22,7 @@ class DelegationController extends Controller
 
     public function store(Request $request)
     {
-        abort_if(! $request->user()->isAdminTier(), 403, 'Only the Director can delegate approval authority.');
+        abort_if(! $request->user()->isDirector(), 403, 'Only the Director can delegate approval authority.');
 
         $data = $request->validate([
             'delegate_id' => ['required', 'exists:users,id', 'different:delegator_id'],
@@ -46,7 +46,7 @@ class DelegationController extends Controller
 
     public function revoke(Request $request, Delegation $delegation)
     {
-        abort_if(! $request->user()->isAdminTier(), 403, 'Only the Director can revoke a delegation.');
+        abort_if(! $request->user()->isDirector(), 403, 'Only the Director can revoke a delegation.');
         abort_if($delegation->revoked_at !== null, 422, 'This delegation is already revoked.');
 
         $delegation->update(['revoked_at' => now(), 'revoked_by' => $request->user()->id]);

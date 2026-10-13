@@ -198,7 +198,7 @@ class PurchaseOrderController extends Controller
 
     public function approveDirectorReview(Request $request, PurchaseOrder $purchaseOrder)
     {
-        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the director can approve this purchase order.');
+        abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the director can approve this purchase order.');
         $this->abortIfSelfActioning($purchaseOrder, $request);
         abort_if($purchaseOrder->status !== 'pending_director_review', 422, 'Only orders awaiting director review can be approved at this stage.');
 
@@ -217,7 +217,7 @@ class PurchaseOrderController extends Controller
 
     public function rejectDirectorReview(Request $request, PurchaseOrder $purchaseOrder)
     {
-        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the director can reject this purchase order.');
+        abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the director can reject this purchase order.');
         abort_if($purchaseOrder->status !== 'pending_director_review', 422, 'Only orders awaiting director review can be rejected at this stage.');
 
         $this->reject($request, $purchaseOrder);
@@ -252,7 +252,7 @@ class PurchaseOrderController extends Controller
 
     public function approveDirectorFinal(Request $request, PurchaseOrder $purchaseOrder)
     {
-        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the director can give final approval on this purchase order.');
+        abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the director can give final approval on this purchase order.');
         $this->abortIfSelfActioning($purchaseOrder, $request);
         abort_if($purchaseOrder->status !== 'pending_director_final', 422, 'Only orders awaiting final director approval can be actioned at this stage.');
         abort_if($purchaseOrder->payment_initiated_by === $request->user()->id, 403, 'The same person cannot both initiate payment and give final approval on it.');
@@ -274,7 +274,7 @@ class PurchaseOrderController extends Controller
 
     public function rejectDirectorFinal(Request $request, PurchaseOrder $purchaseOrder)
     {
-        abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the director can reject this purchase order.');
+        abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the director can reject this purchase order.');
         abort_if($purchaseOrder->status !== 'pending_director_final', 422, 'Only orders awaiting final director approval can be rejected at this stage.');
 
         $this->reject($request, $purchaseOrder);
@@ -322,8 +322,8 @@ class PurchaseOrderController extends Controller
         $recipientIds = match ($target) {
             'sales_manager' => User::where('role', 'sales_manager')->pluck('id'),
             'accountant'    => User::where('role', 'accountant')->pluck('id'),
-            'director'      => User::whereIn('role', User::ADMIN_TIER)->pluck('id'),
-            'cto'           => User::whereIn('role', User::CTO_TIER)->pluck('id'),
+            'director'      => User::holdingPermission('authority.final_money_approval')->pluck('id'),
+            'cto'           => User::holdingPermission('authority.cto_tier')->pluck('id'),
             'ordered_by'    => collect([$po->ordered_by])->filter(),
             default         => collect(),
         };

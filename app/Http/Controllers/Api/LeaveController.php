@@ -156,7 +156,7 @@ class LeaveController extends Controller
     {
         $name = $leave->user?->name ?? 'A staff member';
 
-        User::whereIn('role', User::HR_APPROVAL_ROLES)
+        User::holdingPermission('hr.approve_leave')
             ->pluck('id')
             ->each(fn ($id) => AppNotification::create([
                 'user_id'     => $id,
