@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Api\Concerns\FiltersByPeriod;
 use App\Http\Controllers\Controller;
 use App\Models\AppNotification;
+use App\Models\Department;
 use App\Models\Meeting;
 use App\Models\MeetingActionItem;
 use App\Models\MeetingAttachment;
@@ -73,6 +74,9 @@ class MeetingController extends Controller
         return response()->json([
             'data' => $meetings->map(fn (Meeting $m) => $this->summary($m))->values(),
             'can_manage' => $canManage,
+            // For the meeting form's department picker.
+            'departments' => $canManage ? Department::orderBy('name')->get(['id', 'name']) : [],
+            'categories' => Meeting::CATEGORIES,
         ]);
     }
 
