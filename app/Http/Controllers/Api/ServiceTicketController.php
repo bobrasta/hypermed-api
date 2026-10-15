@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Api\Concerns\FiltersByPeriod;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\ChecklistItemResource;
 use App\Http\Resources\ServiceTicketResource;
 use App\Models\AppNotification;
 use App\Models\ApprovalLog;
@@ -690,6 +691,22 @@ class ServiceTicketController extends Controller
         return response()->json([
             'data' => new ServiceTicketResource($ticket->fresh()->load(['machine', 'machines', 'hospital', 'assignee', 'checklistItems'])),
         ]);
+    }
+
+    // Adds one item to an open ticket's checklist (items given at creation
+    // go through store()). Same gate as ticking one off. update() never took
+    // checklist items, so the app's Add and tick used to vanish on reload.
+    public function addChecklistItem(Request $request, ServiceTicket $ticket)
+    {
+        abort_if(
+            ! $request->user()->hasCtoApprovalAuthority() && $ticket->assigned_to !== $request->user()->id,
+            403, 'Access Denied: you can only act on tickets assigned to you.',
+        );
+
+        $data = $request->validate(['label' => ['required', 'string', 'max:255']]);
+        $item = $ticket->checklistItems()->create(['label' => trim($data['label']), 'is_checked' => false]);
+
+        return response()->json(['data' => new ChecklistItemResource($item)], 201);
     }
 
     public function toggleChecklist(Request $request, ServiceTicket $ticket, ChecklistItem $item)
