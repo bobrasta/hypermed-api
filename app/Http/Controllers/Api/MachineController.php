@@ -80,6 +80,8 @@ class MachineController extends Controller
         $data = $request->validate([
             'serial_no'        => ['required', 'string', 'unique:machines'],
             'model'            => ['required', 'string'],
+            'model_number'     => ['nullable', 'string', 'max:100'],
+            'manufacturer'     => ['nullable', 'string', 'max:150'],
             'type'             => ['required', 'string'],
             'hospital_id'      => ['required', 'exists:hospitals,id'],
             'ward'             => ['nullable', 'string'],
@@ -144,6 +146,8 @@ class MachineController extends Controller
         $data = $request->validate([
             'serial_no'        => ['sometimes', 'string', 'unique:machines,serial_no,' . $machine->id],
             'model'            => ['sometimes', 'string'],
+            'model_number'     => ['nullable', 'string', 'max:100'],
+            'manufacturer'     => ['nullable', 'string', 'max:150'],
             'type'             => ['sometimes', 'string'],
             'hospital_id'      => ['sometimes', 'exists:hospitals,id'],
             'ward'             => ['nullable', 'string'],
@@ -193,6 +197,7 @@ class MachineController extends Controller
         $data = $request->validate([
             'serial_no'          => ['required', 'string', 'unique:machines'],
             'model'              => ['required', 'string'],
+            'model_number'       => ['nullable', 'string', 'max:100'],
             'type'               => ['required', 'string'],
             'manufacturer'       => ['nullable', 'string'],
             'condition'          => ['nullable', 'string'],

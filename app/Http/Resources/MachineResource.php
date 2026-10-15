@@ -14,6 +14,7 @@ class MachineResource extends JsonResource
             'id'               => $this->id,
             'serial_no'        => $this->serial_no,
             'model'            => $this->model,
+            'model_number'     => $this->model_number,
             'type'             => $this->type,
             'hospital_id'      => $this->hospital_id,
             // hospital_id is nullable now (In Stock machines) — avoid

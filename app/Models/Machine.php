@@ -17,7 +17,7 @@ class Machine extends Model
         'install_date', 'warranty_expiry', 'status', 'revenue_per_month',
         'sales_order_id', 'installation_ticket_id',
         'installed_by', 'installed_at', 'signed_off_by', 'signed_off_at',
-        'lifecycle_stage', 'manufacturer', 'condition', 'arrival_date', 'store_location_id',
+        'lifecycle_stage', 'manufacturer', 'model_number', 'condition', 'arrival_date', 'store_location_id',
         'purchase_cost', 'purchase_cost_currency', 'purchase_cost_fx_rate',
         'purchase_cost_tsh', 'purchase_cost_recorded_at',
     ];
