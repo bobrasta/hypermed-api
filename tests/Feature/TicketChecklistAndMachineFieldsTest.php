@@ -108,4 +108,53 @@ class TicketChecklistAndMachineFieldsTest extends TestCase
             ->assertJsonPath('data.type', 'Ultrasound Unit');
         $this->assertDatabaseHas('machines', ['serial_no' => 'CHK-TEST-002', 'model_number' => 'DC-70', 'manufacturer' => 'Mindray']);
     }
+
+    public function test_register_machine_fills_missing_facility_code_and_coordinates(): void
+    {
+        Sanctum::actingAs($this->tech);
+
+        $this->postJson('/api/v1/machines', [
+            'model' => 'Checklist Test X-Ray', 'serial_no' => 'CHK-TEST-003', 'type' => 'X-Ray',
+            'hospital_id' => $this->hospital->id, 'status' => 'pending_installation',
+            'facility_code' => ' 111144-2 ', 'facility_latitude' => -3.36642, 'facility_longitude' => 36.69498,
+        ])->assertCreated();
+
+        $h = $this->hospital->fresh();
+        $this->assertSame('111144-2', $h->short_code);
+        $this->assertEqualsWithDelta(-3.36642, $h->latitude, 0.00001);
+        $this->assertEqualsWithDelta(36.69498, $h->longitude, 0.00001);
+    }
+
+    public function test_register_machine_never_overwrites_facility_data(): void
+    {
+        $this->hospital->forceFill(['short_code' => 'KEEP-1', 'latitude' => -6.8, 'longitude' => 39.2])->save();
+        Sanctum::actingAs($this->tech);
+
+        $this->postJson('/api/v1/machines', [
+            'model' => 'Checklist Test X-Ray', 'serial_no' => 'CHK-TEST-004', 'type' => 'X-Ray',
+            'hospital_id' => $this->hospital->id, 'status' => 'pending_installation',
+            'facility_code' => 'OTHER', 'facility_latitude' => 1, 'facility_longitude' => 1,
+        ])->assertCreated();
+
+        $h = $this->hospital->fresh();
+        $this->assertSame('KEEP-1', $h->short_code);
+        $this->assertEqualsWithDelta(-6.8, $h->latitude, 0.00001);
+    }
+
+    public function test_facility_coordinates_must_come_as_a_valid_pair(): void
+    {
+        Sanctum::actingAs($this->tech);
+
+        $this->postJson('/api/v1/machines', [
+            'model' => 'Checklist Test X-Ray', 'serial_no' => 'CHK-TEST-005', 'type' => 'X-Ray',
+            'hospital_id' => $this->hospital->id, 'status' => 'pending_installation',
+            'facility_latitude' => -3.3,
+        ])->assertUnprocessable()->assertJsonValidationErrors('facility_longitude');
+
+        $this->postJson('/api/v1/machines', [
+            'model' => 'Checklist Test X-Ray', 'serial_no' => 'CHK-TEST-006', 'type' => 'X-Ray',
+            'hospital_id' => $this->hospital->id, 'status' => 'pending_installation',
+            'facility_latitude' => 120, 'facility_longitude' => 36.6,
+        ])->assertUnprocessable()->assertJsonValidationErrors('facility_latitude');
+    }
 }

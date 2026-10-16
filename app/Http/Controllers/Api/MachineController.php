@@ -106,7 +106,19 @@ class MachineController extends Controller
             'purchase_cost'          => ['nullable', 'integer', 'min:0'],
             'purchase_cost_currency' => ['nullable', 'string', 'size:3'],
             'purchase_cost_fx_rate'  => ['nullable', 'numeric', 'min:0'],
+            // The facility's government code and GPS position, entered on
+            // Register New Machine when the facility record lacks them.
+            'facility_code'      => ['nullable', 'string', 'max:20'],
+            'facility_latitude'  => ['nullable', 'numeric', 'between:-90,90', 'required_with:facility_longitude'],
+            'facility_longitude' => ['nullable', 'numeric', 'between:-180,180', 'required_with:facility_latitude'],
         ]);
+
+        $facility = array_filter([
+            'short_code' => isset($data['facility_code']) ? trim($data['facility_code']) : null,
+            'latitude'   => $data['facility_latitude'] ?? null,
+            'longitude'  => $data['facility_longitude'] ?? null,
+        ], fn ($v) => $v !== null && $v !== '');
+        unset($data['facility_code'], $data['facility_latitude'], $data['facility_longitude']);
 
         // Duplicate prevention server-side, not just in the combobox — a
         // direct API call or a stale client still normalizes onto whatever
@@ -120,6 +132,7 @@ class MachineController extends Controller
 
         $machine = Machine::create($data);
         self::recomputeHospitalCounts($machine->hospital_id);
+        self::fillFacilityBlanks($machine->hospital_id, $facility);
 
         return response()->json(['data' => new MachineResource($machine->load('hospital'))], 201);
     }
@@ -336,6 +349,29 @@ class MachineController extends Controller
         self::recomputeHospitalCounts($machine->hospital_id);
 
         return response()->json(['data' => new MachineResource($machine->load(['hospital', 'installedBy', 'signedOffBy']))]);
+    }
+
+    /**
+     * Only fills a facility's code/coordinates where they are still empty —
+     * whoever registers a machine can complete a facility record but never
+     * overwrite one (editing stays behind hospitals.manage on the facility
+     * form). Latitude and longitude are written as a pair.
+     */
+    private static function fillFacilityBlanks(int $hospitalId, array $facility): void
+    {
+        if ($facility === []) return;
+        $hospital = Hospital::find($hospitalId);
+        if (! $hospital) return;
+
+        if (isset($facility['short_code']) && blank($hospital->short_code)) {
+            $hospital->short_code = $facility['short_code'];
+        }
+        if (isset($facility['latitude'], $facility['longitude'])
+            && $hospital->latitude === null && $hospital->longitude === null) {
+            $hospital->latitude  = $facility['latitude'];
+            $hospital->longitude = $facility['longitude'];
+        }
+        if ($hospital->isDirty()) $hospital->save();
     }
 
     // Hospital.machine_count/machines_operational are denormalized for the
