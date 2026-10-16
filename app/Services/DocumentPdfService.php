@@ -99,6 +99,8 @@ class DocumentPdfService
             'currencyCode' => $this->currencyPrefix($invoice->currency),
             'currency'     => $this->currencyLabel($invoice->currency),
             'terms'        => DocumentTerms::resolve($invoice->term_items),
+            // The invoice form's "Sell note" — printed just above the terms.
+            'note'         => trim((string) $invoice->notes) ?: null,
             'filename'     => "{$invoice->invoice_number}.pdf",
         ]);
     }
@@ -395,7 +397,7 @@ class DocumentPdfService
      *
      * @param array{title:string,docLabel:string,docNumber:string,date:string,tag:string,client:array,
      *              clientAddress?:array,items:array,subtotal:string,discount:string,tax:string,total:string,
-     *              shipping?:string,paid?:?string,balance?:?string,
+     *              shipping?:string,paid?:?string,balance?:?string,note?:?string,
      *              currencyCode:string,currency:string,terms:array,filename:string} $d
      */
     private function render(array $d): Response
@@ -624,7 +626,11 @@ class DocumentPdfService
             }
             $html .= '</table>';
 
-            // terms
+            // sell note (invoices), then terms
+            if (! empty($d['note'])) {
+                $html .= "<div id='terms'><div class='terms-h'><strong>NOTE</strong></div>"
+                    . "<div style='padding-top:10px;font-size:8.5pt;line-height:1.5;color:#5d5d60'>" . nl2br(e($d['note'])) . '</div></div>';
+            }
             $html .= "<div id='terms'><div class='terms-h'><strong>TERMS &amp; CONDITIONS</strong></div><table id='termsrow'><tr>";
             foreach ($d['terms'] as $t) {
                 $html .= "<td style='width:" . round(100 / max(1, count($d['terms']))) . "%'>"
