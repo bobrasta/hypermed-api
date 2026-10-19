@@ -12,3 +12,11 @@ Schedule::command('leads:follow-up-reminders')->dailyAt('07:00');
 Schedule::command('hr:check-expirations')->dailyAt('07:15');
 Schedule::command('expenses:generate-recurring')->dailyAt('06:00');
 Schedule::command('tenders:deadline-reminders')->dailyAt('07:30');
+
+// NeST tender tracker — three polite checks a day plus the morning digest,
+// on Dar es Salaam time (the app itself runs in UTC).
+foreach (['07:00', '13:00', '19:00'] as $at) {
+    Schedule::command('nest:sync --jitter')->dailyAt($at)->timezone('Africa/Dar_es_Salaam')
+        ->withoutOverlapping(40)->runInBackground();
+}
+Schedule::command('nest:digest')->dailyAt('07:30')->timezone('Africa/Dar_es_Salaam');

@@ -7,6 +7,61 @@
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
 </p>
 
+## NeST tender tracker
+
+Pulls published tenders from NeST (nest.go.tz, Tanzania's e-procurement
+system), scores them for a medical-device / laboratory-reagent supplier and
+serves them to the Hypermed app (NeST tenders screen, Tendering group).
+
+**Pieces.** `config/nest.php` (query, politeness, threshold) ·
+`app/Services/Nest/` (`NestClient`, `NestSyncService`, `RelevanceEngine`,
+`NestNotifier`, `NestDocumentService`) · `nest_tenders`,
+`nest_tender_changes`, `nest_relevance_rules`, `nest_sync_runs` ·
+`/api/v1/nest/*` (`NestTenderController`). Viewing needs `screens.tenders`;
+triage, rules, the NeST login and "Check now" need `tenders.manage`.
+
+**Sync.** `php artisan nest:sync [--jitter] [--max-pages=N] [--no-notify] [--force]`.
+Scheduled at 07:00, 13:00 and 19:00 Africa/Dar_es_Salaam with a random
+0–10 min jitter (`routes/console.php`); `nest:digest` at 07:30. At most 3
+runs a day (manual "Check now" counts), one at a time, 1.5–3.5 s between
+pages, 30 s timeout, 2 retries. All pages are fetched (cap 30) so closing-date
+moves and addenda on older tenders are caught. A failed run logs the error in
+`nest_sync_runs` and stops; nothing is closed or deleted because of it. The
+server's crontab must run `php artisan schedule:run` every minute and a queue
+worker must be up (rule recompute and "Check now" are queued).
+
+**Relevance.** Rules are editable in the app (Settings tab). Whole-word,
+case-insensitive matching on description + sub-category; score = sum of the
+matched rules' weights, each once; relevant at the threshold (default 10),
+"maybe" from 5. Excludes never veto a tender that also matches DEVICES or
+REAGENTS; SERVICE terms count only with a device term or medical/laboratory
+in the text; only categories G and NC (NC only with SERVICE). Editing a rule
+or the threshold queues a recompute of every stored tender.
+
+**Notifications.** In-app notifications (and their email copies on the VPS)
+to everyone who can see tenders, per-user toggles in the app: new relevant
+tenders (one summary on the first run or when more than 5 arrive at once),
+changes on tenders under review or being bid on, and the 07:30 digest of
+relevant tenders closing within 3 days. "Start bid" creates a regular
+Section 19 tender; until its bid is submitted its submission deadline
+follows NeST's closing date.
+
+**Tender documents.** Need the company's NeST login (entered in the app,
+password stored with Laravel's encrypter) and `NEST_CLIENT_SECRET` in `.env`.
+The API signs in with NeST's OAuth password grant and fetches the PDF the
+way NeST's "Tender Document" button does; files are kept in
+`storage/app/nest-documents/`.
+
+**When NeST changes its listing.** Open https://nest.go.tz, open the
+browser's developer tools → Network, filter on `graphql`, and reload the
+"Current tenders" section of the landing page. Copy the request's URL,
+`operationName`, `query` and `variables` into `config/nest.php`
+(`endpoint`/`operation_name` can also be set in `.env`), putting the strings
+`'__PAGE__'` and `'__PAGE_SIZE__'` where the page number and page size go. The
+response must keep the root aliased to `items` and the list to `rows`; the
+field names read are listed in `NestSyncService::upsert()`. Run
+`php artisan nest:sync --max-pages=1 --no-notify --force` to check.
+
 ## About Laravel
 
 Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
