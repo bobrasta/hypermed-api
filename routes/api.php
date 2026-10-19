@@ -238,6 +238,8 @@ Route::prefix('v1')->group(function () {
         Route::patch('nest/tenders/{nestTender}',               [NestTenderController::class, 'update'])->whereNumber('nestTender');
         Route::post('nest/tenders/{nestTender}/start-bid',      [NestTenderController::class, 'startBid'])->whereNumber('nestTender');
         Route::get('nest/tenders/{nestTender}/document',        [NestTenderController::class, 'document'])->whereNumber('nestTender');
+        Route::get('nest/tenders/{nestTender}/documents',       [NestTenderController::class, 'documents'])->whereNumber('nestTender');
+        Route::get('nest/tenders/{nestTender}/documents/{file}', [NestTenderController::class, 'documentFile'])->whereNumber('nestTender')->whereUuid('file');
         Route::get('nest/procuring-entities',                   [NestTenderController::class, 'entities']);
         Route::get('nest/procuring-entities/{uuid}/tenders',    [NestTenderController::class, 'entityTenders'])->whereUuid('uuid');
         Route::get('nest/relevance-rules',                      [NestTenderController::class, 'rules']);

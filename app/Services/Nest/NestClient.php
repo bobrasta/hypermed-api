@@ -109,6 +109,12 @@ class NestClient
         return $this->post(config('nest.gateway') . '/' . ltrim($path, '/'), $body, $this->token(), graphql: false);
     }
 
+    /** Bearer token for NeST calls made outside GraphQL (file downloads). */
+    public function accessToken(): string
+    {
+        return $this->token();
+    }
+
     private function token(): string
     {
         if (! self::hasCredentials()) {

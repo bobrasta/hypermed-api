@@ -193,17 +193,40 @@ class NestTenderController extends Controller
         return $this->show($request, $nestTender->fresh())->additional(['tender_id' => $tender->id]);
     }
 
+    /** The main tender document (the call apps on v1.1.8 make). */
     public function document(Request $request, NestTender $nestTender)
     {
         $this->assertView($request);
         try {
-            $path = app(NestDocumentService::class)->fetch($nestTender, $request->boolean('refresh'));
+            [$path, $name] = app(NestDocumentService::class)->tenderDocument($nestTender, $request->boolean('refresh'));
         } catch (NestException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
-        $name = preg_replace('/[^A-Za-z0-9._-]+/', '_', $nestTender->reference_number ?: $nestTender->entity_uuid) . '.pdf';
 
-        return Storage::disk('local')->download($path, $name, ['Content-Type' => 'application/pdf']);
+        return Storage::disk('local')->download($path, $name);
+    }
+
+    /** Every document NeST shows a tenderer for this tender, plus clarifications and addendum details. */
+    public function documents(Request $request, NestTender $nestTender)
+    {
+        $this->assertView($request);
+        if (! NestClient::hasCredentials()) {
+            return response()->json(['message' => 'The company NeST login is not set up yet (NeST tenders → Settings).'], 422);
+        }
+
+        return response()->json(['data' => app(NestDocumentService::class)->listing($nestTender, $request->boolean('refresh'))]);
+    }
+
+    public function documentFile(Request $request, NestTender $nestTender, string $file)
+    {
+        $this->assertView($request);
+        try {
+            [$path, $name] = app(NestDocumentService::class)->file($nestTender, $file, $request->boolean('refresh'));
+        } catch (NestException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return Storage::disk('local')->download($path, $name);
     }
 
     // ---------------------------------------------------------- dashboard

@@ -46,7 +46,9 @@ class NestTenderSyncTest extends TestCase
         DB::table('nest_sync_runs')->delete();
         Cache::flush();
         config(['nest.delay_ms' => [0, 0], 'nest.page_size' => 2]);
-        Http::fake(['nest.go.tz/*' => fn () => Http::response(array_shift($this->responses) ?? ['errors' => [['message' => 'no more fake pages']]])]);
+        Http::fake(['nest.go.tz/*' => fn ($req) => $this->handler
+            ? ($this->handler)($req)
+            : Http::response(array_shift($this->responses) ?? ['errors' => [['message' => 'no more fake pages']]])]);
 
         $this->officer = $this->user('procurement_manager', 'nest-officer');
         $this->technician = $this->user('technician', 'nest-tech');
@@ -88,6 +90,9 @@ class NestTenderSyncTest extends TestCase
 
     /** Responses NeST will give, in order (one fake for the whole test). */
     private array $responses = [];
+
+    /** Or route each request yourself. */
+    private ?\Closure $handler = null;
 
     /** @param list<list<array>> $pages */
     private function fakeNest(array $pages): void
@@ -274,5 +279,61 @@ class NestTenderSyncTest extends TestCase
 
         Sanctum::actingAs($this->technician);
         $this->putJson('/api/v1/nest/settings', ['nest_username' => 'x', 'nest_password' => 'y'])->assertForbidden();
+    }
+
+    public function test_documents_lists_every_source_and_serves_only_listed_files(): void
+    {
+        $this->fakeNest($this->threePages());
+        app(NestSyncService::class)->run(notify: false);
+        $a = NestTender::where('entity_uuid', self::A)->first();
+        $a->update(['has_addendum' => true]);
+
+        config(['nest.auth.client_secret' => 'test-secret']);
+        \App\Services\Nest\NestClient::storeCredentials('tenders@example.com', 'pw', null);
+
+        $doc = '11111111-aaaa-4aaa-8aaa-000000000001';
+        $clarFile = '11111111-aaaa-4aaa-8aaa-000000000002';
+        $minutes = '11111111-aaaa-4aaa-8aaa-000000000003';
+        $spec = '11111111-aaaa-4aaa-8aaa-000000000004';
+        $this->handler = function ($req) use ($doc, $clarFile, $minutes, $spec) {
+            $url = $req->url();
+            $q = $req['query'] ?? '';
+            return match (true) {
+                str_contains($url, 'oauth/token') => Http::response(['access_token' => 'tok', 'refresh_token' => 'r', 'expires_in' => 3600]),
+                str_contains($url, 'attachment/download') => Http::response('%PDF-1.4 fake', 200, ['Content-Disposition' => 'attachment; filename="x.pdf"']),
+                str_contains($q, 'getDocumentByItemUuidAndType') => Http::response(['data' => ['results' => ['code' => 9000, 'data' => ['fileUuid' => $doc]]]]),
+                str_contains($q, 'getClarificationByTenderUuid') => Http::response(['data' => ['getClarificationByTenderUuid' => ['totalRecords' => 1, 'rows' => [[
+                    'title' => 'Lot 2 specs', 'question' => 'Is a 3T magnet acceptable?', 'isPE' => false, 'createdAt' => '2026-10-10T09:00',
+                    'clarificationAttachments' => [],
+                    'clarificationResponses' => [['isPE' => true, 'reply_or_question' => 'Yes, see attached.', 'createdAt' => '2026-10-11T09:00',
+                        'clarificationResponseAttachments' => [['attachmentUuid' => $clarFile]]]],
+                ]]]]]),
+                str_contains($q, 'getPreBidMeetingByEntityUuid') => Http::response(['data' => ['getPreBidMeetingByEntityUuid' => ['code' => 9000,
+                    'data' => ['meetingDate' => '2026-10-12', 'meetingLocationAndVenue' => 'Board room', 'attachmentUuid' => $minutes, 'isDraft' => false]]]]),
+                str_contains($q, 'getProcurementRequisitionItemByTenderUuid') => Http::response(['data' => ['getProcurementRequisitionItemByTenderUuid' => ['code' => 9000,
+                    'data' => [['procurementRequisitionAttachments' => [['attachmentType' => 'SPECIFICATION', 'title' => 'Technical specifications', 'attachmentUuid' => $spec]]]]]]]),
+                str_contains($q, 'getPublishedEntityAddendumByEntityUuid') => Http::response(['data' => ['getPublishedEntityAddendumByEntityUuid' => ['code' => 9000,
+                    'data' => ['approvalStatus' => 'APPROVED', 'publishedEntityAddendumAreas' => [['reason' => 'More time', 'addendumArea' => ['name' => 'Update Tender Submission Deadline']]]]]]]),
+                default => Http::response(['errors' => [['message' => 'unexpected']]]),
+            };
+        };
+
+        Sanctum::actingAs($this->officer);
+        $data = $this->getJson("/api/v1/nest/tenders/{$a->id}/documents")->assertOk()->json('data');
+        $this->assertSame([$doc, $clarFile, $minutes, $spec], array_column($data['documents'], 'id'));
+        $this->assertSame('Tender document', $data['documents'][0]['title']);
+        $this->assertSame('Yes, see attached.', $data['clarifications'][0]['replies'][0]['text']);
+        $this->assertSame('Update Tender Submission Deadline', $data['addendum']['changes'][0]['area']);
+        $this->assertSame([], $data['errors']);
+
+        $res = $this->get("/api/v1/nest/tenders/{$a->id}/documents/{$spec}")->assertOk();
+        $this->assertStringContainsString('Technical_specifications.pdf', $res->headers->get('content-disposition'));
+
+        // Not on this tender's list: refused, never fetched from NeST.
+        $this->getJson("/api/v1/nest/tenders/{$a->id}/documents/22222222-bbbb-4bbb-8bbb-000000000009")->assertStatus(422);
+        // Apps on v1.1.8 still get the main document.
+        $this->get("/api/v1/nest/tenders/{$a->id}/document")->assertOk();
+
+        \Illuminate\Support\Facades\Storage::disk('local')->deleteDirectory("nest-documents/{$a->entity_uuid}");
     }
 }
