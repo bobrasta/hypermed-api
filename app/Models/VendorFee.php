@@ -10,7 +10,7 @@ class VendorFee extends Model
         'vendor_id', 'delivery_job_id', 'description', 'billed_amount', 'currency',
         'status', 'created_by',
         'submitted_by', 'submitted_at',
-        'paid_by', 'paid_at', 'payment_reference',
+        'paid_by', 'paid_at', 'payment_reference', 'paid_from_account_id',
         'rejected_by', 'rejected_at', 'rejection_reason',
     ];
 
@@ -99,5 +99,10 @@ class VendorFee extends Model
     public function isPayable(): bool
     {
         return $this->paymentBlockReason() === null;
+    }
+
+    public function paidFrom()
+    {
+        return $this->belongsTo(ChartOfAccount::class, 'paid_from_account_id');
     }
 }

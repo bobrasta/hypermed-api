@@ -8,8 +8,10 @@ use App\Http\Resources\VendorBillResource;
 use App\Models\ApprovalLog;
 use App\Models\VendorBill;
 use App\Models\VendorBillPayment;
+use App\Models\PurchaseOrder;
+use App\Models\Supplier;
+use App\Services\Creditors\CreditorService;
 use App\Services\DocumentNumberService;
-use App\Services\FinancePostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -54,12 +56,22 @@ class VendorBillController extends Controller
         return VendorBillResource::collection($query->latest('issue_date')->paginate($this->perPage($request, 50)));
     }
 
-    public function store(Request $request, FinancePostingService $financePosting, DocumentNumberService $documentNumbers)
+    /**
+     * A supplier's invoice, in the supplier's currency at the invoice's
+     * exchange rate. Posts at once (stock for an LPO invoice, else the
+     * category's expense) against Trade Creditors, using any earlier
+     * advance first. Payment is requested separately and needs the Director.
+     */
+    public function store(Request $request, CreditorService $creditors, DocumentNumberService $documentNumbers)
     {
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to record vendor bills.');
+        $supplier = Supplier::find($request->input('supplier_id'));
+        $currency = strtoupper($supplier?->currency ?: 'TZS');
 
         $data = $request->validate([
             'supplier_id'        => ['required', 'exists:suppliers,id'],
+            'supplier_reference' => ['nullable', 'string', 'max:120'],
+            'exchange_rate'      => [$currency === 'TZS' ? 'nullable' : 'required', 'numeric', 'min:0.0001'],
             'purchase_order_id'  => ['nullable', 'exists:purchase_orders,id'],
             'category_id'        => ['required_without:purchase_order_id', 'nullable', 'exists:expense_categories,id'],
             'tax_rate'           => ['nullable', 'numeric', 'min:0', 'max:100'],
@@ -69,27 +81,35 @@ class VendorBillController extends Controller
             'line_items'         => ['required', 'array', 'min:1'],
             'line_items.*.description' => ['required', 'string'],
             'line_items.*.quantity'    => ['required', 'numeric', 'min:0.01'],
-            'line_items.*.unit_price'  => ['required', 'integer', 'min:0'],
-        ]);
+            'line_items.*.unit_price'  => ['required', 'numeric', 'min:0'],
+        ], ['exchange_rate.required' => "Enter the invoice's exchange rate (TZS per {$currency})."]);
+
+        if (! empty($data['purchase_order_id'])) {
+            $po = PurchaseOrder::findOrFail($data['purchase_order_id']);
+            abort_if($po->supplier_id !== (int) $data['supplier_id'], 422, 'That purchase order belongs to another supplier.');
+        }
 
         $lineItems = $data['line_items'];
         unset($data['line_items']);
 
-        $subtotal = collect($lineItems)->sum(fn ($i) => (int) ($i['quantity'] * $i['unit_price']));
+        // Cents, so foreign invoices add up exactly.
+        $lineCents = fn ($i) => (int) round($i['quantity'] * CreditorService::cents($i['unit_price']));
+        $subtotal = collect($lineItems)->sum($lineCents);
         $taxRate  = $data['tax_rate'] ?? 0;
         $taxAmount = (int) round($subtotal * $taxRate / 100);
 
-        $data['subtotal']    = $subtotal;
+        $data['subtotal']    = $subtotal / 100;
         $data['tax_rate']    = $taxRate;
-        $data['tax_amount']  = $taxAmount;
-        $data['total']       = $subtotal + $taxAmount;
+        $data['tax_amount']  = $taxAmount / 100;
+        $data['total']       = ($subtotal + $taxAmount) / 100;
         $data['amount_paid'] = 0;
         $data['status']      = 'pending';
-        $data['currency']    = 'TZS';
+        $data['currency']    = $currency;
+        $data['exchange_rate'] = $currency === 'TZS' ? 1 : $data['exchange_rate'];
         $data['bill_number'] = $documentNumbers->next('vendor_bill');
         $data['created_by']  = $request->user()->id;
 
-        $bill = DB::transaction(function () use ($data, $lineItems, $financePosting, $request) {
+        $bill = DB::transaction(function () use ($data, $lineItems, $creditors, $request, $lineCents) {
             $bill = VendorBill::create($data);
 
             foreach ($lineItems as $item) {
@@ -97,14 +117,14 @@ class VendorBillController extends Controller
                     'description' => $item['description'],
                     'quantity'    => $item['quantity'],
                     'unit_price'  => $item['unit_price'],
-                    'total'       => (int) ($item['quantity'] * $item['unit_price']),
+                    'total'       => $lineCents($item) / 100,
                 ]);
             }
 
-            $financePosting->postVendorBillIssued($bill);
+            $creditors->postBill($bill->fresh());
             ApprovalLog::record($bill, 'initiated', $request->user());
 
-            return $bill;
+            return $bill->fresh();
         });
 
         return response()->json([
@@ -135,28 +155,27 @@ class VendorBillController extends Controller
         return response()->json(['data' => new VendorBillResource($vendorBill->load(['supplier', 'purchaseOrder', 'category', 'lineItems', 'payments', 'approvedBy']))]);
     }
 
-    public function destroy(Request $request, VendorBill $vendorBill, FinancePostingService $financePosting)
+    public function destroy(Request $request, VendorBill $vendorBill, CreditorService $creditors)
     {
         abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the Director can delete a vendor bill.');
 
-        DB::transaction(function () use ($vendorBill, $financePosting) {
-            $financePosting->reverseVendorBill($vendorBill->load('payments'));
+        DB::transaction(function () use ($vendorBill, $creditors) {
+            $creditors->reverseBill($vendorBill);
             $vendorBill->delete();
         });
 
         return response()->json(null, 204);
     }
 
-    public function cancel(Request $request, VendorBill $vendorBill, FinancePostingService $financePosting)
+    public function cancel(Request $request, VendorBill $vendorBill, CreditorService $creditors)
     {
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to cancel vendor bills.');
-        if ($vendorBill->status === 'paid') {
-            return response()->json(['message' => 'Paid bills cannot be cancelled.'], 422);
-        }
+        abort_if($vendorBill->status === 'cancelled', 422, 'This invoice is already cancelled.');
 
-        DB::transaction(function () use ($vendorBill, $financePosting) {
-            $financePosting->reverseVendorBill($vendorBill->load('payments'));
-            $vendorBill->update(['status' => 'cancelled']);
+        DB::transaction(function () use ($vendorBill, $creditors) {
+            $creditors->reverseBill($vendorBill);
+            $vendorBill->update(['status' => 'cancelled', 'amount_paid' => 0]);
+            $creditors->refreshPurchaseOrder($vendorBill->purchaseOrder);
         });
         ApprovalLog::record($vendorBill, 'cancelled', $request->user());
 
@@ -181,50 +200,24 @@ class VendorBillController extends Controller
         return response()->json(['data' => new VendorBillResource($vendorBill->load(['supplier', 'purchaseOrder', 'category', 'lineItems', 'payments', 'approvedBy']))]);
     }
 
-    public function recordPayment(Request $request, VendorBill $vendorBill, FinancePostingService $financePosting, DocumentNumberService $documentNumbers)
+    /**
+     * Requests a payment of this invoice. It posts only when the Director
+     * approves it (Finance → Director, never the same person).
+     */
+    public function recordPayment(Request $request, VendorBill $vendorBill, DocumentNumberService $documentNumbers)
     {
-        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to record vendor bill payments.');
-        if (in_array($vendorBill->status, ['paid', 'cancelled'])) {
-            return response()->json(['message' => 'Cannot record payment on a ' . $vendorBill->status . ' bill.'], 422);
-        }
-        if (! in_array($vendorBill->status, ['approved', 'partial'])) {
-            return response()->json(['message' => 'This bill needs Director approval before a payment can be recorded.'], 422);
-        }
+        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to request vendor bill payments.');
+        abort_if(in_array($vendorBill->status, ['paid', 'cancelled'], true), 422, 'Cannot pay a ' . $vendorBill->status . ' invoice.');
 
-        $data = $request->validate([
-            'amount'         => ['required', 'integer', 'min:1'],
-            'payment_method' => ['required', 'in:cash,bank_transfer,mobile_money,cheque'],
-            'reference'      => ['nullable', 'string', 'max:255'],
-            'paid_at'        => ['required', 'date'],
-            'notes'          => ['nullable', 'string'],
+        $payment = app(SupplierPaymentController::class)->initiate($request, $documentNumbers, [
+            'supplier_id' => $vendorBill->supplier_id,
+            'purchase_order_id' => $vendorBill->purchase_order_id,
+            'vendor_bill_id' => $vendorBill->id,
         ]);
-
-        $data['vendor_bill_id'] = $vendorBill->id;
-        $data['recorded_by']    = $request->user()->id;
-        $data['payment_number'] = $documentNumbers->next('vendor_bill_payment');
-
-        $payment = DB::transaction(function () use ($data, $vendorBill, $financePosting, $request) {
-            $payment = VendorBillPayment::create($data);
-
-            $totalPaid = $vendorBill->payments()->sum('amount');
-
-            $newStatus = match (true) {
-                $totalPaid >= $vendorBill->total => 'paid',
-                $totalPaid > 0                   => 'partial',
-                default                           => $vendorBill->status,
-            };
-
-            $vendorBill->update(['amount_paid' => $totalPaid, 'status' => $newStatus]);
-
-            $financePosting->postVendorBillPayment($vendorBill, $payment);
-            ApprovalLog::record($vendorBill, 'paid', $request->user(), "Payment {$payment->payment_number}");
-
-            return $payment;
-        });
 
         return response()->json([
             'data' => new VendorBillResource($vendorBill->fresh()->load(['supplier', 'purchaseOrder', 'category', 'lineItems', 'payments', 'approvedBy'])),
-            'payment_id' => $payment->id,
+            'payment' => app(SupplierPaymentController::class)->fmt($payment),
         ], 201);
     }
 

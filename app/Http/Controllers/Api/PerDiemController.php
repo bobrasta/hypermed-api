@@ -13,6 +13,7 @@ use App\Models\PerDiemRequest;
 use App\Models\PerDiemRevision;
 use App\Models\User;
 use App\Services\NotificationTemplateService;
+use App\Services\Creditors\CreditorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -254,7 +255,10 @@ class PerDiemController extends Controller
         $data = $request->validate([
             'payment_method'    => ['nullable', 'in:cash,bank_transfer,mobile_money,cheque'],
             'payment_reference' => ['nullable', 'string', 'max:255'],
+            // The account the money leaves from; older app versions: by method.
+            'paid_from_account_id' => ['nullable', 'integer'],
         ]);
+        $accountId = isset($data['paid_from_account_id']) ? CreditorService::assertPaymentAccount($data['paid_from_account_id'])->id : null;
 
         $perDiemRequest->update([
             'status'               => 'pending_director',
@@ -262,6 +266,7 @@ class PerDiemController extends Controller
             'payment_initiated_at' => now(),
             'payment_method'       => $data['payment_method'] ?? null,
             'payment_reference'    => $data['payment_reference'] ?? null,
+            'paid_from_account_id' => $accountId,
         ]);
         ApprovalLog::record($perDiemRequest, 'payment_initiated', $request->user());
 
@@ -291,11 +296,15 @@ class PerDiemController extends Controller
         abort_if($perDiemRequest->status !== 'pending_director', 422, 'Only requests awaiting Director authorization can be marked paid.');
         abort_if($perDiemRequest->payment_initiated_by === $request->user()->id, 403, 'You cannot authorize a payment you initiated.');
 
-        $perDiemRequest->update([
-            'status'  => 'paid',
-            'paid_by' => $request->user()->id,
-            'paid_at' => now(),
-        ]);
+        DB::transaction(function () use ($perDiemRequest, $request) {
+            $perDiemRequest->update([
+                'status'  => 'paid',
+                'paid_by' => $request->user()->id,
+                'paid_at' => now(),
+            ]);
+            // Money is out: Field Works and Per Diem Expenses against the account it left.
+            app(CreditorService::class)->postPerDiemPaid($perDiemRequest->fresh());
+        });
         ApprovalLog::record($perDiemRequest, 'paid', $request->user());
 
         AppNotification::create([

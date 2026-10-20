@@ -9,6 +9,8 @@ use App\Models\ApprovalLog;
 use App\Models\Location;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequisition;
+use App\Models\SupplierPayment;
+use App\Services\Creditors\CreditorService;
 use App\Models\User;
 use App\Services\DocumentNumberService;
 use App\Services\NotificationTemplateService;
@@ -27,6 +29,7 @@ class PurchaseOrderController extends Controller
         'supplier', 'location', 'orderedBy', 'items.inventoryItem',
         'salesApprovedBy', 'directorReviewedBy', 'paymentInitiatedBy',
         'directorApprovedBy', 'rejectedBy',
+        'supplierPayments.paidFrom', 'vendorBills',
     ];
 
     // No self-approval for anyone, at any stage — even the sales manager,
@@ -231,18 +234,33 @@ class PurchaseOrderController extends Controller
         $this->abortIfSelfActioning($purchaseOrder, $request);
         abort_if($purchaseOrder->status !== 'pending_payment_initiation', 422, 'Only orders awaiting payment initiation can be actioned at this stage.');
 
+        // Either a payment (the whole order, a deposit, …) through the
+        // supplier-payment chain, or "on credit": the supplier is paid later
+        // against their invoice, and the order shows on their ledger.
         $data = $request->validate([
-            'amount_paid' => 'nullable|integer|min:0',
+            'on_credit'   => 'nullable|boolean',
+            'amount'      => 'nullable|numeric|min:0.01',
+            'amount_paid' => 'nullable|integer|min:0', // older app versions
         ]);
+        $onCredit = $request->boolean('on_credit');
 
-        $purchaseOrder->update([
-            'status'               => 'pending_director_final',
-            'payment_initiated_by' => $request->user()->id,
-            'payment_initiated_at' => now(),
-            'payment_status'       => 'partial', // existing enum has no 'initiated' — 'partial' covers "payment underway"; approveDirectorFinal() moves it to 'paid'
-            'amount_paid'          => $data['amount_paid'] ?? $purchaseOrder->total_amount,
-        ]);
-        ApprovalLog::record($purchaseOrder, 'payment_initiated', $request->user());
+        DB::transaction(function () use ($request, $purchaseOrder, $data, $onCredit) {
+            if (! $onCredit) {
+                $amount = $data['amount'] ?? $data['amount_paid'] ?? $purchaseOrder->total_amount;
+                $request->merge(['amount' => $amount]);
+                app(SupplierPaymentController::class)->initiate($request, app(DocumentNumberService::class), [
+                    'supplier_id' => $purchaseOrder->supplier_id,
+                    'purchase_order_id' => $purchaseOrder->id,
+                ]);
+            }
+            $purchaseOrder->update([
+                'status'               => 'pending_director_final',
+                'payment_initiated_by' => $request->user()->id,
+                'payment_initiated_at' => now(),
+                'on_credit'            => $onCredit,
+            ]);
+        });
+        ApprovalLog::record($purchaseOrder, $onCredit ? 'credit_requested' : 'payment_initiated', $request->user());
 
         $this->notifyStage($purchaseOrder, 'director', 'purchase_order.payment_initiated',
             ['po_number' => $purchaseOrder->po_number]);
@@ -258,12 +276,20 @@ class PurchaseOrderController extends Controller
         abort_if($purchaseOrder->payment_initiated_by === $request->user()->id, 403, 'The same person cannot both initiate payment and give final approval on it.');
         abort_if($purchaseOrder->director_reviewed_by === $request->user()->id, 403, 'The director who reviewed this PO cannot also give final approval.');
 
-        $purchaseOrder->update([
-            'status'                => 'approved',
-            'director_approved_by'  => $request->user()->id,
-            'director_approved_at'  => now(),
-            'payment_status'        => 'paid',
-        ]);
+        DB::transaction(function () use ($request, $purchaseOrder) {
+            // The payment requested with this order posts now (books + ledger).
+            $pending = SupplierPayment::where('purchase_order_id', $purchaseOrder->id)->where('status', 'pending_director')->get();
+            foreach ($pending as $payment) {
+                $paid = app(CreditorService::class)->approvePayment($payment, $request->user());
+                ApprovalLog::record($paid, 'paid', $request->user());
+            }
+            $purchaseOrder->update([
+                'status'                => 'approved',
+                'director_approved_by'  => $request->user()->id,
+                'director_approved_at'  => now(),
+            ]);
+            app(CreditorService::class)->refreshPurchaseOrder($purchaseOrder->fresh());
+        });
         ApprovalLog::record($purchaseOrder, 'approved', $request->user());
 
         $this->notifyStage($purchaseOrder, 'ordered_by', 'purchase_order.approved',
@@ -278,6 +304,10 @@ class PurchaseOrderController extends Controller
         abort_if($purchaseOrder->status !== 'pending_director_final', 422, 'Only orders awaiting final director approval can be rejected at this stage.');
 
         $this->reject($request, $purchaseOrder);
+        SupplierPayment::where('purchase_order_id', $purchaseOrder->id)->where('status', 'pending_director')->update([
+            'status' => 'rejected', 'rejected_by' => $request->user()->id, 'rejected_at' => now(),
+            'rejection_reason' => $purchaseOrder->rejection_reason ?: 'The purchase order was rejected.',
+        ]);
 
         return response()->json(['data' => $purchaseOrder->fresh(self::RELATIONS)]);
     }
@@ -365,9 +395,19 @@ class PurchaseOrderController extends Controller
             'items.*.batch_number'              => 'nullable|string|max:100',
             'items.*.expiry_date'               => 'nullable|date',
             'notes'                             => 'nullable|string',
+            'exchange_rate'                     => 'nullable|numeric|min:0.0001',
         ]);
 
-        return DB::transaction(function () use ($data, $purchaseOrder, $stockService) {
+        // Stock is valued in TZS. A foreign-currency order converts at the
+        // rate given here, else the average rate of its approved payments.
+        $rate = 1.0;
+        if (strtoupper((string) $purchaseOrder->currency) !== 'TZS') {
+            $paid = SupplierPayment::where('purchase_order_id', $purchaseOrder->id)->where('status', 'paid')->get();
+            $rate = (float) ($data['exchange_rate'] ?? ($paid->sum('amount') > 0 ? $paid->sum('amount_tzs') / $paid->sum('amount') : 0));
+            abort_if($rate <= 0, 422, "Enter the exchange rate (TZS per {$purchaseOrder->currency}) to value this stock.");
+        }
+
+        return DB::transaction(function () use ($data, $purchaseOrder, $stockService, $rate) {
             $allReceived = true;
             $location = $purchaseOrder->location;
 
@@ -389,7 +429,7 @@ class PurchaseOrderController extends Controller
                     $poItem->inventoryItem,
                     $location,
                     $received['quantity_received'],
-                    $poItem->unit_cost,
+                    (int) round($poItem->unit_cost * $rate),
                     $data['notes'] ?? "Received via {$purchaseOrder->po_number}",
                     $purchaseOrder,
                 );

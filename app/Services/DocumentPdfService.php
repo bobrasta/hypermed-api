@@ -198,6 +198,83 @@ class DocumentPdfService
         ]);
     }
 
+    /** A creditor's statement (what Hypermed owes a supplier/vendor), in their currency. */
+    public function creditorStatementPdf(array $s): Response
+    {
+        $c = $s['creditor'];
+        $from = $s['period']['from'] ? Carbon::parse($s['period']['from'])->format('d M Y') : null;
+        $to = Carbon::parse($s['period']['to'] ?? now())->format('d M Y');
+        $period = $from ? "{$from} – {$to}" : "All dates to {$to}";
+        $slug = preg_replace('/[^A-Za-z0-9]+/', '-', (string) $c['name']);
+
+        return $this->render([
+            'statement'         => true,
+            'creditorStatement' => true,
+            'title'             => 'CREDITOR LEDGER',
+            'docLabel'          => 'Ledger No:',
+            'docNumber'         => 'CL-' . now()->format('ymd') . '-' . strtoupper(substr($c['type'], 0, 1)) . $c['id'],
+            'date'              => now()->format('d M Y'),
+            'tag'               => strtoupper($c['category']) . ' CREDITOR · ' . strtoupper($period),
+            'client'            => array_values(array_filter([$c['name'], $c['contact_person'], $c['phone'], $c['email']])),
+            'clientAddress'     => array_values(array_filter([$c['country']])),
+            'period'            => $period,
+            'statementData'     => $s,
+            'currencyCode'      => $c['currency'],
+            'currency'          => $c['currency'],
+            'filename'          => 'Creditor-Ledger-' . trim($slug, '-') . '-' . now()->format('Y-m-d') . '.pdf',
+        ]);
+    }
+
+    /** Totals strip and the ledger in the creditor's currency, with the TZS columns for foreign creditors. */
+    private function creditorStatementBody(array $d): string
+    {
+        $s = $d['statementData'];
+        $cur = $s['creditor']['currency'];
+        $fx = $cur !== 'TZS';
+        $n = fn ($v) => number_format((float) $v, $fx ? 2 : 0);
+        $t = fn ($v) => number_format((int) $v);
+        $date = fn ($v) => $v ? Carbon::parse($v)->format('d M Y') : '—';
+
+        $html = "<table id='sumstrip'><tr>";
+        foreach (['OPENING BALANCE' => $s['opening_balance'], 'TOTAL CREDIT' => $s['total_credit'],
+            'TOTAL DEBIT' => $s['total_debit'], 'BALANCE OWED' => $s['closing_balance']] as $label => $value) {
+            $html .= "<td style='width:25%'><div class='meta-lbl'><strong>{$label}</strong></div><div class='sum-val'><strong>" . e($cur . ' ' . $n($value)) . '</strong></div></td>';
+        }
+        $html .= '</tr></table>';
+
+        $html .= "<table id='ledger' repeat_header='1'><thead><tr><th style='width:11%'>DATE</th><th style='white-space:normal'>NARRATION</th><th style='width:11%'>REF</th>"
+            . ($fx ? "<th class='num' style='width:8%'>XRATE</th>" : '')
+            . "<th class='num' style='width:12%'>DEBIT</th><th class='num' style='width:12%'>CREDIT</th><th class='num' style='width:13%'>BALANCE</th>"
+            . ($fx ? "<th class='num' style='width:13%'>BALANCE TZS</th>" : '') . '</tr></thead>';
+        if ($s['period']['from']) {
+            $html .= "<tr><td class='dim'>" . e($date($s['period']['from'])) . "</td><td style='font-weight:500'>Opening balance</td><td></td>"
+                . ($fx ? '<td></td>' : '') . "<td></td><td></td><td class='num' style='font-weight:700'>" . e($n($s['opening_balance'])) . '</td>'
+                . ($fx ? "<td class='num'>" . e($t($s['opening_balance_tzs'])) . '</td>' : '') . '</tr>';
+        }
+        foreach ($s['entries'] as $e) {
+            $html .= "<tr><td class='dim'>" . e($date($e['date'])) . "</td><td style='font-weight:500'>" . e($e['narration']) . "</td><td class='dim'>" . e($e['ref']) . '</td>'
+                . ($fx ? "<td class='num dim'>" . e(rtrim(rtrim(number_format($e['rate'], 4), '0'), '.')) . '</td>' : '')
+                . "<td class='num'>" . ($e['debit'] ? e($n($e['debit'])) : '') . '</td>'
+                . "<td class='num'>" . ($e['credit'] ? e($n($e['credit'])) : '') . '</td>'
+                . "<td class='num' style='font-weight:700'>" . e($n($e['balance'])) . '</td>'
+                . ($fx ? "<td class='num'>" . e($t($e['balance_tzs'])) . '</td>' : '') . '</tr>';
+        }
+        if (! $s['entries']) {
+            $html .= "<tr><td colspan='" . ($fx ? 8 : 6) . "' class='dim'>No invoices or payments in this period.</td></tr>";
+        }
+        $html .= '</table>';
+
+        $html .= "<table id='totals' align='right'>"
+            . "<tr><td class='lbl'>Total credit (invoices)</td><td class='val'>" . e($cur . ' ' . $n($s['total_credit'])) . '</td></tr>'
+            . "<tr class='muted'><td class='lbl'>Total debit (payments)</td><td class='val'>" . e($cur . ' ' . $n($s['total_debit'])) . '</td></tr>'
+            . "<tr class='grand'><td class='lbl'><div class='grand-lbl'><strong>BALANCE OWED</strong></div></td>"
+            . "<td class='val'><div class='grand-val'><strong>" . e($cur . ' ' . $n($s['closing_balance'])) . '</strong></div></td></tr>'
+            . ($fx ? "<tr class='muted'><td class='lbl'>In TZS at the last rate</td><td class='val'>TSh " . e($t($s['closing_balance_tzs'])) . '</td></tr>' : '')
+            . '</table>';
+
+        return $html;
+    }
+
     /** Summary strip, the dated ledger, then invoice status with ageing. */
     private function statementBody(array $d): string
     {
@@ -583,6 +660,8 @@ class DocumentPdfService
 
         if ($delivery) {
             $html .= $this->deliveryNoteBody($d);
+        } elseif (! empty($d['creditorStatement'])) {
+            $html .= $this->creditorStatementBody($d);
         } elseif ($statement) {
             $html .= $this->statementBody($d)
                 . $this->paymentFooter('Please pay the balance due directly to the accounts below, quoting the invoice numbers. Contact us if this statement does not match your records.');

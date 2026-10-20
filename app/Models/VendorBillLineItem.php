@@ -10,8 +10,8 @@ class VendorBillLineItem extends Model
 
     protected $casts = [
         'quantity'   => 'float',
-        'unit_price' => 'integer',
-        'total'      => 'integer',
+        'unit_price' => 'decimal:2',
+        'total'      => 'decimal:2',
     ];
 
     public function vendorBill()

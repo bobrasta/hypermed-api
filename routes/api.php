@@ -194,6 +194,20 @@ Route::prefix('v1')->group(function () {
         Route::post('vendor-bills/{vendorBill}/approve',  [VendorBillController::class, 'approve']);
         Route::post('vendor-bills/{vendorBill}/payments', [VendorBillController::class, 'recordPayment']);
         Route::post('vendor-bills/{vendorBill}/cancel',   [VendorBillController::class, 'cancel']);
+
+        // Creditors Ledger + payments to creditors (initiate → Director)
+        Route::get('creditors',                                   [\App\Http\Controllers\Api\CreditorController::class, 'index']);
+        Route::get('creditors/xlsx',                              [\App\Http\Controllers\Api\CreditorController::class, 'allXlsx']);
+        Route::get('creditors/{type}/{id}/statement',             [\App\Http\Controllers\Api\CreditorController::class, 'statement'])->whereIn('type', ['supplier', 'vendor'])->whereNumber('id');
+        Route::get('creditors/{type}/{id}/statement/xlsx',        [\App\Http\Controllers\Api\CreditorController::class, 'statementXlsx'])->whereIn('type', ['supplier', 'vendor'])->whereNumber('id');
+        Route::get('creditors/{type}/{id}/statement/pdf',         [\App\Http\Controllers\Api\CreditorController::class, 'statementPdf'])->whereIn('type', ['supplier', 'vendor'])->whereNumber('id');
+        Route::put('creditors/{type}/{id}/opening-balance',       [\App\Http\Controllers\Api\CreditorController::class, 'saveOpening'])->whereIn('type', ['supplier', 'vendor'])->whereNumber('id');
+        Route::delete('creditors/{type}/{id}/opening-balance',    [\App\Http\Controllers\Api\CreditorController::class, 'deleteOpening'])->whereIn('type', ['supplier', 'vendor'])->whereNumber('id');
+        Route::get('supplier-payments',                           [\App\Http\Controllers\Api\SupplierPaymentController::class, 'index']);
+        Route::get('supplier-payments/accounts',                  [\App\Http\Controllers\Api\SupplierPaymentController::class, 'accounts']);
+        Route::post('supplier-payments',                          [\App\Http\Controllers\Api\SupplierPaymentController::class, 'store']);
+        Route::post('supplier-payments/{supplierPayment}/approve', [\App\Http\Controllers\Api\SupplierPaymentController::class, 'approve']);
+        Route::post('supplier-payments/{supplierPayment}/reject',  [\App\Http\Controllers\Api\SupplierPaymentController::class, 'reject']);
         Route::apiResource('vendor-bills', VendorBillController::class);
 
         // Delegated approval authority (Director → temporary delegate)

@@ -24,7 +24,7 @@ class PerDiemRequest extends Model
         'days_count', 'daily_rate', 'amount', 'purpose', 'status',
         'team_lead_reviewed_by', 'team_lead_reviewed_at', 'team_lead_rejection_reason',
         'reviewed_by', 'reviewed_at', 'rejection_reason',
-        'payment_initiated_by', 'payment_initiated_at', 'payment_method', 'payment_reference',
+        'payment_initiated_by', 'payment_initiated_at', 'payment_method', 'payment_reference', 'paid_from_account_id',
         'paid_by', 'paid_at',
         'cancelled_by', 'cancelled_at', 'cancellation_reason',
     ];
@@ -138,5 +138,10 @@ class PerDiemRequest extends Model
             'avg_days_per_site' => $sitesVisited > 0 ? round($daysSpent / $sitesVisited, 1) : null,
             'avg_cost_per_site' => $sitesVisited > 0 ? round($grandTotal / $sitesVisited) : null,
         ];
+    }
+
+    public function paidFrom()
+    {
+        return $this->belongsTo(ChartOfAccount::class, 'paid_from_account_id');
     }
 }

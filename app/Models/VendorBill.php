@@ -19,7 +19,7 @@ class VendorBill extends Model
     }
 
     protected $fillable = [
-        'bill_number', 'supplier_id', 'purchase_order_id', 'category_id', 'issue_date', 'due_date',
+        'bill_number', 'supplier_reference', 'exchange_rate', 'total_tzs', 'supplier_id', 'purchase_order_id', 'category_id', 'issue_date', 'due_date',
         'subtotal', 'tax_rate', 'tax_amount', 'total', 'amount_paid', 'status', 'currency',
         'notes', 'created_by', 'approved_by', 'approved_at',
     ];
@@ -27,11 +27,13 @@ class VendorBill extends Model
     protected $casts = [
         'issue_date'  => 'date',
         'due_date'    => 'date',
-        'subtotal'    => 'integer',
+        'subtotal'    => 'decimal:2',
         'tax_rate'    => 'float',
-        'tax_amount'  => 'integer',
-        'total'       => 'integer',
-        'amount_paid' => 'integer',
+        'tax_amount'  => 'decimal:2',
+        'total'       => 'decimal:2',
+        'amount_paid' => 'decimal:2',
+        'exchange_rate' => 'decimal:4',
+        'total_tzs'   => 'integer',
         'approved_at' => 'datetime',
     ];
 
@@ -70,8 +72,19 @@ class VendorBill extends Model
         return $this->belongsTo(User::class, 'approved_by');
     }
 
-    public function getBalanceDueAttribute(): int
+    public function allocations()
     {
-        return $this->total - $this->amount_paid;
+        return $this->hasMany(CreditorAllocation::class);
+    }
+
+    public function supplierPayments()
+    {
+        return $this->hasMany(SupplierPayment::class);
+    }
+
+    /** In the invoice currency. */
+    public function getBalanceDueAttribute(): float
+    {
+        return round((float) $this->total - (float) $this->amount_paid, 2);
     }
 }

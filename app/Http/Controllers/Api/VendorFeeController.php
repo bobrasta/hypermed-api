@@ -8,6 +8,7 @@ use App\Models\ApprovalLog;
 use App\Models\DeliveryJob;
 use App\Models\User;
 use App\Models\VendorFee;
+use App\Services\Creditors\CreditorService;
 use App\Services\NotificationTemplateService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -137,7 +138,8 @@ class VendorFeeController extends Controller
             'delivery_job_id' => ['nullable', 'exists:delivery_jobs,id'],
             'description' => ['required', 'string', 'max:255'],
             'billed_amount' => ['required', 'integer', 'min:1'],
-            'currency' => ['nullable', 'string', 'max:10'],
+            // Vendors (clearing, transport, couriers) bill in shillings.
+            'currency' => ['nullable', 'in:TZS'],
         ]);
 
         if (! empty($data['delivery_job_id'])) {
@@ -152,7 +154,13 @@ class VendorFeeController extends Controller
         $data['currency'] = $data['currency'] ?? 'TZS';
         $data['status'] = 'pending_receipt';
 
-        $fee = VendorFee::create($data);
+        $fee = DB::transaction(function () use ($data) {
+            $fee = VendorFee::create($data);
+            // Owed from the moment it's recorded: cost against Trade Creditors — Local.
+            app(CreditorService::class)->postVendorFee($fee);
+
+            return $fee;
+        });
         ApprovalLog::record($fee, 'created', $request->user());
 
         if (! empty($data['delivery_job_id'])) {
@@ -205,15 +213,20 @@ class VendorFeeController extends Controller
             // Transfer only, per 16.2 — no cash disbursement to an
             // individual for a vendor fee.
             'payment_reference' => ['required', 'string', 'max:255'],
+            // The bank account it's paid from (older app versions: the general bank account).
+            'paid_from_account_id' => ['nullable', 'integer'],
         ]);
+        $accountId = isset($data['paid_from_account_id']) ? CreditorService::assertPaymentAccount($data['paid_from_account_id'])->id : null;
 
-        DB::transaction(function () use ($vendorFee, $request, $data) {
+        DB::transaction(function () use ($vendorFee, $request, $data, $accountId) {
             $vendorFee->update([
                 'status' => 'paid',
                 'paid_by' => $request->user()->id,
                 'paid_at' => now(),
                 'payment_reference' => $data['payment_reference'],
+                'paid_from_account_id' => $accountId,
             ]);
+            app(CreditorService::class)->postVendorFeePaid($vendorFee->fresh());
             if ($vendorFee->delivery_job_id) {
                 $vendorFee->deliveryJob()->update(['status' => 'paid']);
             }
@@ -240,6 +253,8 @@ class VendorFeeController extends Controller
             'rejected_at' => now(),
             'rejection_reason' => $data['rejection_reason'],
         ]);
+        // Not owed as billed: out of the books (and the vendor's ledger).
+        app(CreditorService::class)->reverseVendorFee($vendorFee);
         ApprovalLog::record($vendorFee, 'rejected', $request->user(), $data['rejection_reason']);
 
         $this->notifyCreator($vendorFee, 'vendor_fee.rejected', approved: false);

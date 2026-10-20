@@ -21,7 +21,7 @@ class PurchaseOrder extends Model
     protected $fillable = [
         'po_number', 'supplier_id', 'location_id', 'purchase_requisition_id', 'status',
         'ordered_by', 'expected_delivery_date', 'actual_delivery_date',
-        'currency', 'total_amount', 'amount_paid', 'payment_status',
+        'currency', 'total_amount', 'amount_paid', 'payment_status', 'on_credit',
         'shipping_address', 'terms', 'notes', 'sent_at',
         'sales_approved_by', 'sales_approved_at',
         'director_reviewed_by', 'director_reviewed_at',
@@ -36,6 +36,7 @@ class PurchaseOrder extends Model
         'sent_at'                => 'datetime',
         'total_amount'           => 'integer',
         'amount_paid'            => 'integer',
+        'on_credit'              => 'boolean',
         'sales_approved_at'      => 'datetime',
         'director_reviewed_at'   => 'datetime',
         'payment_initiated_at'   => 'datetime',
@@ -91,5 +92,15 @@ class PurchaseOrder extends Model
     public function items()
     {
         return $this->hasMany(PurchaseOrderItem::class);
+    }
+
+    public function supplierPayments()
+    {
+        return $this->hasMany(SupplierPayment::class);
+    }
+
+    public function vendorBills()
+    {
+        return $this->hasMany(VendorBill::class);
     }
 }
