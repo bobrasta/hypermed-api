@@ -81,7 +81,7 @@ class ShipmentController extends Controller
     {
         $this->assertView($request);
 
-        $q = Shipment::with(['supplier:id,name', 'purchaseOrder:id,po_number', 'department:id,name', 'documents:id,shipment_id,type', 'vendorFee.receipts', 'vendorFee.vendor:id,name', 'vendorFee.deliveryJob'])
+        $q = Shipment::with(['supplier:id,name', 'carrier:id,name,type', 'purchaseOrder:id,po_number', 'department:id,name', 'documents:id,shipment_id,type', 'vendorFee.receipts', 'vendorFee.vendor:id,name', 'vendorFee.deliveryJob'])
             ->latest('updated_at');
         if (! $this->seesAll($request)) {
             $q->whereIn('department_id', $this->managedDepartmentIds($request));
@@ -127,7 +127,7 @@ class ShipmentController extends Controller
         $files = $this->validatedFiles($request, $data['direction']);
 
         if ($this->flow->settings()['docs_required_at_creation']) {
-            $missing = array_diff(ShipmentFlow::requiredDocTypes($data['direction'], $data['freight_mode']), array_keys($files));
+            $missing = array_diff(ShipmentFlow::requiredDocTypes($data['direction'], $data['freight_mode'], $data['coa_required'] ?? true), array_keys($files));
             if ($missing) {
                 throw ValidationException::withMessages(['documents' => 'All shipping documents are required at creation: '
                     . implode(', ', array_map(fn ($t) => ShipmentFlow::DOC_LABELS[$t], $missing)) . '.']);
@@ -147,6 +147,9 @@ class ShipmentController extends Controller
                 'shipment_id' => $shipment->id, 'from_step' => null, 'to_step' => 1,
                 'note' => $data['location_notes'] ?? null, 'user_id' => $request->user()->id, 'created_at' => now(),
             ]);
+            if (ShipmentFlow::manufacturerPaid($shipment)) {
+                $this->logNote($shipment, $this->costBearerNote($shipment), $request->user()->id);
+            }
 
             return $shipment;
         });
@@ -168,7 +171,21 @@ class ShipmentController extends Controller
         if ($why = $this->flow->blockReason($shipment->load('documents'), $shipment->step)) {
             throw ValidationException::withMessages(['shipment' => $why]);
         }
-        $shipment->save();
+        // Who pays and whether a COA applies change what the shipment waits
+        // for, so they go on the shipment's own timeline, not just the audit log.
+        $notes = [];
+        if ($shipment->isDirty('cost_bearer') || ($shipment->cost_bearer === 'manufacturer' && $shipment->isDirty('paid_by'))) {
+            $notes[] = $this->costBearerNote($shipment);
+        }
+        if ($shipment->isDirty('coa_required')) {
+            $notes[] = $shipment->coa_required ? 'COA marked required.' : 'COA marked not required for this shipment.';
+        }
+        DB::transaction(function () use ($shipment, $notes, $request) {
+            $shipment->save();
+            foreach ($notes as $note) {
+                $this->logNote($shipment, $note, $request->user()->id);
+            }
+        });
 
         return response()->json(['data' => $this->detail($request, $shipment)]);
     }
@@ -274,6 +291,7 @@ class ShipmentController extends Controller
     {
         $this->assertManage($request);
         abort_if($shipment->direction !== 'import', 422, 'Only import shipments have a clearing fee.');
+        abort_if(ShipmentFlow::manufacturerPaid($shipment), 422, 'This shipment is paid by the manufacturer — there is no clearing fee for HyperMed.');
         abort_if($shipment->vendorFee && $shipment->vendorFee->status === 'paid', 422, 'The clearing fee is already paid.');
 
         $data = $request->validate([
@@ -330,8 +348,10 @@ class ShipmentController extends Controller
                     'supplier_name' => $po->supplier?->name, 'status' => $po->status, 'total' => (int) $po->total_amount]),
             'departments' => $this->departmentRows(),
             'tenders' => Tender::latest('id')->limit(200)->get(['id', 'tender_number', 'title']),
-            // Clearing agents first — the fee here is almost always theirs.
-            'vendors' => Vendor::orderByRaw("type = 'clearing' desc")->orderBy('name')->get(['id', 'name', 'type']),
+            // Clearing agents and couriers (DHL, FedEx clear their own) first — the fee here is almost always theirs.
+            'vendors' => Vendor::where('is_active', true)->orderByRaw("type in ('clearing','courier') desc")->orderBy('name')->get(['id', 'name', 'type']),
+            'carriers' => Vendor::where('is_active', true)->whereIn('type', ['courier', 'delivery'])
+                ->orderByRaw("type = 'courier' desc")->orderBy('name')->get(['id', 'name', 'type']),
             'open_vendor_fees' => VendorFee::with('vendor:id,name')->whereNotIn('id', $linked)->where('status', '!=', 'rejected')
                 ->latest('id')->limit(100)->get()
                 ->map(fn ($f) => ['id' => $f->id, 'vendor_name' => $f->vendor?->name, 'description' => $f->description,
@@ -426,7 +446,14 @@ class ShipmentController extends Controller
             'tmda_applied_at' => ['nullable', 'date'],
             'tmda_issued_at' => ['nullable', 'date'],
             'control_number' => ['nullable', 'string', 'max:120'],
+            'coa_required' => ['sometimes', 'boolean'],
+            'carrier_vendor_id' => ['nullable', Rule::exists('vendors', 'id')->whereIn('type', ['courier', 'delivery'])],
+            'cost_bearer' => ['sometimes', Rule::in(['hypermed', 'manufacturer'])],
+            'paid_by' => ['nullable', 'required_if:cost_bearer,manufacturer', 'string', 'max:120'],
         ]);
+        if (($data['cost_bearer'] ?? null) === 'hypermed') {
+            $data['paid_by'] = null;
+        }
 
         // A PO's own supplier wins, so the two can't disagree.
         if (! empty($data['purchase_order_id']) && empty($data['supplier_id'])) {
@@ -450,6 +477,22 @@ class ShipmentController extends Controller
         }
 
         return $files;
+    }
+
+    private function costBearerNote(Shipment $s): string
+    {
+        return ShipmentFlow::manufacturerPaid($s)
+            ? 'Paid by ' . ($s->paid_by ?: 'the manufacturer') . ' — no cost to HyperMed. Clearing payment, duty and freight steps don\'t apply.'
+            : 'Costs are paid by HyperMed again — the clearing fee applies.';
+    }
+
+    /** A note on the timeline at the current status (from = to, so it isn't a move). */
+    private function logNote(Shipment $s, string $note, int $userId): void
+    {
+        ShipmentEvent::create([
+            'shipment_id' => $s->id, 'from_step' => $s->step, 'to_step' => $s->step,
+            'note' => $note, 'user_id' => $userId, 'created_at' => now(),
+        ]);
     }
 
     private function feePayload(?VendorFee $fee): ?array
@@ -476,7 +519,7 @@ class ShipmentController extends Controller
     private function summary(Shipment $s): array
     {
         $flag = $this->flow->flag($s);
-        $required = ShipmentFlow::requiredDocTypes($s->direction, $s->freight_mode);
+        $required = ShipmentFlow::requiredFor($s);
 
         return [
             'id' => $s->id,
@@ -499,6 +542,11 @@ class ShipmentController extends Controller
             'expected_arrival' => $s->expected_arrival?->toDateString(),
             'location_notes' => $s->location_notes,
             'fee_status' => $s->vendorFee?->status,
+            'coa_required' => (bool) $s->coa_required,
+            'cost_bearer' => $s->cost_bearer,
+            'paid_by' => $s->paid_by,
+            'carrier_vendor_id' => $s->carrier_vendor_id,
+            'carrier_name' => $s->carrier?->name,
             // For the TMDA Permits and Clearing Fees lists.
             'tmda' => $s->direction === 'import' ? [
                 'application_ref' => $s->tmda_application_ref,
@@ -514,12 +562,12 @@ class ShipmentController extends Controller
 
     private function detail(Request $request, Shipment $s): array
     {
-        $s->load(['supplier:id,name', 'purchaseOrder:id,po_number,status,total_amount', 'department.manager:id,name', 'tender:id,tender_number,title',
+        $s->load(['supplier:id,name', 'carrier:id,name,type', 'purchaseOrder:id,po_number,status,total_amount', 'department.manager:id,name', 'tender:id,tender_number,title',
             'documents.uploader:id,name', 'events.user:id,name', 'vendorFee.receipts', 'vendorFee.vendor:id,name',
             'vendorFee.deliveryJob', 'machines:id,serial_no,model,type', 'creator:id,name']);
 
         $labels = $this->flow->labels($s);
-        $required = ShipmentFlow::requiredDocTypes($s->direction, $s->freight_mode);
+        $required = ShipmentFlow::requiredFor($s);
         $docs = $s->documents->keyBy('type');
         $canManage = $this->canManage($request);
 
@@ -533,11 +581,13 @@ class ShipmentController extends Controller
                 'status' => $s->purchaseOrder->status, 'total' => (int) $s->purchaseOrder->total_amount] : null,
             'department_manager' => $s->department?->manager?->name,
             'documents' => collect(ShipmentFlow::allowedDocTypes($s->direction))
-                ->filter(fn ($t) => in_array($t, $required, true) || $docs->has($t) || in_array($t, ['tmda_permit', 'recipient_receipt'], true))
+                ->filter(fn ($t) => in_array($t, $required, true) || $docs->has($t) || in_array($t, ['tmda_permit', 'recipient_receipt', 'coa'], true))
                 ->map(fn ($t) => [
                     'type' => $t,
                     'label' => ShipmentFlow::DOC_LABELS[$t],
                     'required' => in_array($t, $required, true),
+                    // COA switched off for this shipment: shown, but not applicable.
+                    'not_applicable' => $t === 'coa' && ! $s->coa_required,
                     'file_name' => $docs->get($t)?->original_name,
                     'uploaded_by' => $docs->get($t)?->uploader?->name,
                     'uploaded_at' => $docs->get($t)?->updated_at?->toIso8601String(),

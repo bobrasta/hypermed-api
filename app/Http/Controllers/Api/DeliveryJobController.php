@@ -99,7 +99,7 @@ class DeliveryJobController extends Controller
         ]);
 
         $vendor = Vendor::findOrFail($data['vendor_id']);
-        abort_if($vendor->type !== 'delivery', 422, 'Delivery jobs can only be linked to a delivery/transport vendor.');
+        abort_if(! in_array($vendor->type, ['delivery', 'courier'], true), 422, 'Delivery jobs can only be linked to a delivery/transport vendor or a courier.');
 
         $data['created_by'] = $request->user()->id;
         $data['status'] = 'pending';

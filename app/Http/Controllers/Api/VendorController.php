@@ -28,13 +28,35 @@ class VendorController extends Controller
         );
     }
 
+    private function hasFinanceAccess(Request $request): bool
+    {
+        return $request->user()->hasFinanceApprovalAuthority() || $request->user()->hasDirectorAuthority();
+    }
+
+    // Finance/Director, plus the procurement manager (requisition approver),
+    // who adds the clearing agents and couriers they work with.
     private function assertManageAccess(Request $request): void
     {
         abort_if(
-            ! $request->user()->hasFinanceApprovalAuthority() && ! $request->user()->hasDirectorAuthority(),
+            ! $this->hasFinanceAccess($request) && ! $request->user()->hasProcurementApprovalAuthority(),
             403,
             'You are not authorised to manage vendor records.'
         );
+    }
+
+    /**
+     * Where an existing vendor gets paid stays Finance's call: procurement
+     * sets it on a new vendor and edits everything else.
+     */
+    private function assertPaymentEditAccess(Request $request, Vendor $vendor, array $data): void
+    {
+        if ($this->hasFinanceAccess($request)) {
+            return;
+        }
+        foreach (['payment_account_type', 'payment_account_name', 'payment_account_number', 'payment_bank_name'] as $f) {
+            abort_if(array_key_exists($f, $data) && (string) $data[$f] !== (string) $vendor->{$f}, 403,
+                'Only Finance or a Director can change an existing vendor\'s payment account.');
+        }
     }
 
     private function fmt(Vendor $v): array
@@ -81,7 +103,7 @@ class VendorController extends Controller
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'type' => ['required', 'in:clearing,delivery,other'],
+            'type' => ['required', 'in:clearing,delivery,courier,other'],
             'tin' => ['nullable', 'string', 'max:50'],
             'payment_account_type' => ['nullable', 'in:bank,mobile_money'],
             'payment_account_name' => ['nullable', 'string', 'max:255'],
@@ -103,7 +125,7 @@ class VendorController extends Controller
 
         $data = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
-            'type' => ['sometimes', 'in:clearing,delivery,other'],
+            'type' => ['sometimes', 'in:clearing,delivery,courier,other'],
             'tin' => ['nullable', 'string', 'max:50'],
             'payment_account_type' => ['nullable', 'in:bank,mobile_money'],
             'payment_account_name' => ['nullable', 'string', 'max:255'],
@@ -115,6 +137,7 @@ class VendorController extends Controller
             'is_active' => ['sometimes', 'boolean'],
         ]);
 
+        $this->assertPaymentEditAccess($request, $vendor, $data);
         $vendor->update($data);
 
         return response()->json(['data' => $this->fmt($vendor->fresh())]);

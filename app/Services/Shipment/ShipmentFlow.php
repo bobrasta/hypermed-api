@@ -99,15 +99,29 @@ class ShipmentFlow
         return $s->direction === 'export' ? count(self::EXPORT_LABELS) : count(self::IMPORT_LABELS);
     }
 
-    /** Documents the shipment must carry before it can move past step 1. */
-    public static function requiredDocTypes(string $direction, string $freightMode): array
+    /**
+     * Documents the shipment must carry before it can move past step 1. The
+     * COA is per shipment: switched off, it is not applicable at all.
+     */
+    public static function requiredDocTypes(string $direction, string $freightMode, bool $coaRequired = true): array
     {
         return array_values(array_filter([
             $freightMode === 'air' ? 'air_waybill' : 'bill_of_lading',
             'packing_list',
             'commercial_invoice',
-            $direction === 'import' ? 'coa' : null,
+            $direction === 'import' && $coaRequired ? 'coa' : null,
         ]));
+    }
+
+    public static function requiredFor(Shipment $s): array
+    {
+        return self::requiredDocTypes($s->direction, $s->freight_mode, $s->coa_required ?? true);
+    }
+
+    /** Paid by the manufacturer: no clearing cost to HyperMed, so no control number or payment to wait for. */
+    public static function manufacturerPaid(Shipment $s): bool
+    {
+        return $s->cost_bearer === 'manufacturer';
     }
 
     public static function allowedDocTypes(string $direction): array
@@ -121,7 +135,7 @@ class ShipmentFlow
     {
         $have = $s->documents->pluck('type')->all();
 
-        return array_values(array_diff(self::requiredDocTypes($s->direction, $s->freight_mode), $have));
+        return array_values(array_diff(self::requiredFor($s), $have));
     }
 
     /**
@@ -157,6 +171,9 @@ class ShipmentFlow
         if ($target >= self::STEP_TO_CLEARING_AGENT && $cfg['permit_gate'] && ! $s->tmda_issued_at) {
             return "Documents can't go to the clearing agent until the TMDA permit is issued (step "
                 . self::STEP_PERMIT_ISSUED . '). This rule can be switched off in Shipments settings.';
+        }
+        if (self::manufacturerPaid($s)) {
+            return null;
         }
         if ($target >= self::STEP_ASSESSMENT && ! $s->control_number) {
             return "Enter the clearing agent's control number before {$name(self::STEP_ASSESSMENT)}.";

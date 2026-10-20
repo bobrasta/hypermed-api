@@ -19,11 +19,12 @@ class Shipment extends Model
         'reference', 'direction', 'freight_mode', 'description', 'supplier_id', 'purchase_order_id',
         'outbound_reason', 'department_id', 'tender_id', 'expected_arrival', 'port', 'location_notes',
         'step', 'tmda_application_ref', 'tmda_applied_at', 'tmda_issued_at', 'control_number',
-        'vendor_fee_id', 'created_by',
+        'vendor_fee_id', 'created_by', 'coa_required', 'carrier_vendor_id', 'cost_bearer', 'paid_by',
     ];
 
     protected $casts = [
         'step' => 'integer',
+        'coa_required' => 'boolean',
         'expected_arrival' => 'date',
         'tmda_applied_at' => 'date',
         'tmda_issued_at' => 'date',
@@ -52,6 +53,12 @@ class Shipment extends Model
     public function tender()
     {
         return $this->belongsTo(Tender::class);
+    }
+
+    /** Courier / freight forwarder carrying it (a vendor, e.g. DHL). */
+    public function carrier()
+    {
+        return $this->belongsTo(Vendor::class, 'carrier_vendor_id');
     }
 
     public function vendorFee()
