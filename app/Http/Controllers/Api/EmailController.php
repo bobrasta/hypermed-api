@@ -192,8 +192,9 @@ class EmailController extends Controller
             $this->files->ensureStored($syncedEmail);
         }
 
-        // Mark as read
-        if (! $syncedEmail->is_read) {
+        // Mark as read (mark_read=0: the app fetching attachments for an email
+        // whose read state it toggles itself).
+        if (! $syncedEmail->is_read && $request->boolean('mark_read', true)) {
             $syncedEmail->update(['is_read' => true]);
             $this->imapMarkRead($syncedEmail);
         }
