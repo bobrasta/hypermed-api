@@ -203,6 +203,7 @@ Route::prefix('v1')->group(function () {
         Route::get('creditors/{type}/{id}/statement/pdf',         [\App\Http\Controllers\Api\CreditorController::class, 'statementPdf'])->whereIn('type', ['supplier', 'vendor'])->whereNumber('id');
         Route::put('creditors/{type}/{id}/opening-balance',       [\App\Http\Controllers\Api\CreditorController::class, 'saveOpening'])->whereIn('type', ['supplier', 'vendor'])->whereNumber('id');
         Route::delete('creditors/{type}/{id}/opening-balance',    [\App\Http\Controllers\Api\CreditorController::class, 'deleteOpening'])->whereIn('type', ['supplier', 'vendor'])->whereNumber('id');
+        Route::get('connections/{type}/{id}',                    [\App\Http\Controllers\Api\ConnectionsController::class, 'show'])->whereNumber('id');
         Route::get('supplier-payments',                           [\App\Http\Controllers\Api\SupplierPaymentController::class, 'index']);
         Route::get('supplier-payments/accounts',                  [\App\Http\Controllers\Api\SupplierPaymentController::class, 'accounts']);
         Route::post('supplier-payments',                          [\App\Http\Controllers\Api\SupplierPaymentController::class, 'store']);

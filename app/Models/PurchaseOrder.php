@@ -103,4 +103,9 @@ class PurchaseOrder extends Model
     {
         return $this->hasMany(VendorBill::class);
     }
+
+    public function purchaseRequisition()
+    {
+        return $this->belongsTo(PurchaseRequisition::class);
+    }
 }
