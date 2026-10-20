@@ -7,13 +7,18 @@ use App\Http\Resources\SyncedEmailResource;
 use App\Jobs\SyncEmailsJob;
 use App\Models\EmailAccount;
 use App\Models\SyncedEmail;
+use App\Models\SyncedEmailAttachment;
+use App\Services\Email\EmailAttachmentStore;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Mail\Message;
 use Webklex\PHPIMAP\ClientManager;
 
 class EmailController extends Controller
 {
+    public function __construct(private EmailAttachmentStore $files) {}
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private function resolveAccount(Request $request, ?int $accountId): EmailAccount
@@ -182,6 +187,10 @@ class EmailController extends Controller
         abort_if($syncedEmail->account->user_id !== $request->user()->id, 403);
 
         $syncedEmail->load('attachments');
+        // Emails synced before attachments were kept: fetch their files once.
+        if ($syncedEmail->has_attachments) {
+            $this->files->ensureStored($syncedEmail);
+        }
 
         // Mark as read
         if (! $syncedEmail->is_read) {
@@ -225,11 +234,15 @@ class EmailController extends Controller
             'subject'     => ['required', 'string'],
             'body'        => ['required', 'string'],
             'in_reply_to' => ['nullable', 'string'],
+            'attachments'   => ['nullable', 'array', 'max:20'],
+            'attachments.*' => ['string'],
         ]);
 
         $account = $this->resolveAccount($request, $data['account_id'] ?? null);
+        $files = $this->files->staged($request->user()->id, $data['attachments'] ?? []);
+        EmailAttachmentStore::assertWithinLimit($files);
 
-        $this->sendViaSMTP($account, $data);
+        $this->sendViaSMTP($account, $data + ['files' => $files]);
 
         // Store in sent folder locally
         $sent = SyncedEmail::create([
@@ -248,8 +261,9 @@ class EmailController extends Controller
             'is_read'          => true,
             'email_date'       => now(),
         ]);
+        $this->files->keepOnSentCopy($sent, $files, $request->user()->id);
 
-        return response()->json(['data' => new SyncedEmailResource($sent)], 201);
+        return response()->json(['data' => new SyncedEmailResource($sent->load('attachments'))], 201);
     }
 
     private function sendViaSMTP(EmailAccount $account, array $data): void
@@ -287,6 +301,9 @@ class EmailController extends Controller
                 }
                 foreach ($data['bcc'] ?? [] as $recipient) {
                     $msg->bcc($recipient['email'], $recipient['name'] ?? null);
+                }
+                foreach ($data['files'] ?? [] as $f) {
+                    $msg->attach(Storage::disk(EmailAttachmentStore::DISK)->path($f['path']), ['as' => $f['name'], 'mime' => $f['mime']]);
                 }
                 if (! empty($data['in_reply_to'])) {
                     $msg->getHeaders()->addTextHeader('In-Reply-To', $data['in_reply_to']);
@@ -331,9 +348,13 @@ class EmailController extends Controller
         $data = $request->validate([
             'body'        => ['required', 'string'],
             'reply_all'   => ['nullable', 'boolean'],
+            'attachments'   => ['nullable', 'array', 'max:20'],
+            'attachments.*' => ['string'],
         ]);
 
         $account = $syncedEmail->account;
+        $files = $this->files->staged($request->user()->id, $data['attachments'] ?? []);
+        EmailAttachmentStore::assertWithinLimit($files);
 
         $to = [['email' => $syncedEmail->from_email, 'name' => $syncedEmail->from_name]];
 
@@ -361,6 +382,7 @@ class EmailController extends Controller
             'subject'     => $subject,
             'body'        => $data['body'] . $quotedBody,
             'in_reply_to' => $syncedEmail->message_id,
+            'files'       => $files,
         ]);
 
         $sent = SyncedEmail::create([
@@ -378,8 +400,9 @@ class EmailController extends Controller
             'is_read'          => true,
             'email_date'       => now(),
         ]);
+        $this->files->keepOnSentCopy($sent, $files, $request->user()->id);
 
-        return response()->json(['data' => new SyncedEmailResource($sent)], 201);
+        return response()->json(['data' => new SyncedEmailResource($sent->load('attachments'))], 201);
     }
 
     // ── Forward ───────────────────────────────────────────────────────────────
@@ -393,9 +416,18 @@ class EmailController extends Controller
             'to.*.email' => ['required', 'email'],
             'to.*.name'  => ['nullable', 'string'],
             'body'       => ['nullable', 'string'],
+            'attachments'   => ['nullable', 'array', 'max:20'],
+            'attachments.*' => ['string'],
+            // The original email's attachments go along unless switched off.
+            'include_attachments' => ['nullable', 'boolean'],
         ]);
 
         $account = $syncedEmail->account;
+        $files = array_merge(
+            $request->boolean('include_attachments', true) ? $this->files->forwardable($syncedEmail->load('attachments')) : [],
+            $this->files->staged($request->user()->id, $data['attachments'] ?? []),
+        );
+        EmailAttachmentStore::assertWithinLimit($files);
 
         $subject = str_starts_with(strtolower($syncedEmail->subject ?? ''), 'fwd:')
             ? $syncedEmail->subject
@@ -413,6 +445,7 @@ class EmailController extends Controller
             'to'      => $data['to'],
             'subject' => $subject,
             'body'    => $fwdBody,
+            'files'   => $files,
         ]);
 
         $sent = SyncedEmail::create([
@@ -427,8 +460,9 @@ class EmailController extends Controller
             'is_read'          => true,
             'email_date'       => now(),
         ]);
+        $this->files->keepOnSentCopy($sent, $files, $request->user()->id);
 
-        return response()->json(['data' => new SyncedEmailResource($sent)], 201);
+        return response()->json(['data' => new SyncedEmailResource($sent->load('attachments'))], 201);
     }
 
     // ── Mark read / flag ──────────────────────────────────────────────────────
@@ -470,8 +504,34 @@ class EmailController extends Controller
             // Continue even if IMAP delete fails — remove from local DB
         }
 
+        $this->files->deleteFor($syncedEmail);
         $syncedEmail->delete();
 
         return response()->json(null, 204);
+    }
+
+    // ── Attachments ───────────────────────────────────────────────────────────
+
+    /** One file picked in compose/reply/forward; sent later by its token. */
+    public function uploadAttachment(Request $request)
+    {
+        $request->validate(['file' => ['required', 'file', 'max:20480']]);
+
+        return response()->json(['data' => $this->files->stage($request->user()->id, $request->file('file'))], 201);
+    }
+
+    public function downloadAttachment(Request $request, SyncedEmail $syncedEmail, SyncedEmailAttachment $attachment)
+    {
+        abort_if($syncedEmail->account->user_id !== $request->user()->id, 403);
+        abort_if($attachment->synced_email_id !== $syncedEmail->id, 404);
+
+        $disk = Storage::disk(EmailAttachmentStore::DISK);
+        if (! $attachment->storage_path || ! $disk->exists($attachment->storage_path)) {
+            abort(404, 'This attachment is no longer on the mail server.');
+        }
+
+        return $disk->download($attachment->storage_path, $attachment->filename, [
+            'Content-Type' => $attachment->mime_type ?: 'application/octet-stream',
+        ]);
     }
 }

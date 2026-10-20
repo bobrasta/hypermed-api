@@ -4,21 +4,22 @@ namespace App\Jobs;
 
 use App\Models\EmailAccount;
 use App\Models\SyncedEmail;
+use App\Services\Email\EmailAttachmentStore;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Webklex\PHPIMAP\ClientManager;
 use Webklex\PHPIMAP\IMAP;
 
 // Runs synchronously (dispatch() call is instantiate-and-handle() directly, see
 // EmailController::sync()) — this used to implement ShouldQueue, but nothing in this
 // deployment ever runs `queue:work`, so jobs just piled up unprocessed and sync silently
-// never happened. Each sync fetches up to $limit new messages, one at a time.
+// never happened. Each sync fetches up to $limit new messages, one at a time, in
+// full (the mail server caps messages at 30 MB), and keeps their attachments.
 class SyncEmailsJob
 {
     use Queueable;
 
-    /** Messages above this come in headers-only (no body/attachments in memory). */
-    private const MAX_BODY_BYTES = 15 * 1024 * 1024;
+    private const BUDGET_SECONDS = 15;
 
     public function __construct(
         public readonly int    $accountId,
@@ -33,16 +34,9 @@ class SyncEmailsJob
 
         $account = EmailAccount::findOrFail($this->accountId);
 
-        $cm     = new ClientManager();
-        $client = $cm->make([
-            'host'          => $account->imap_host,
-            'port'          => $account->imap_port,
-            'encryption'    => $account->imap_encryption,
-            'validate_cert' => false,
-            'username'      => $account->username,
-            'password'      => $account->password,
-            'protocol'      => 'imap',
-        ]);
+        $client = EmailAttachmentStore::client($account);
+        $store  = app(EmailAttachmentStore::class);
+        EmailAttachmentStore::raiseMemoryLimit();
 
         $client->connect();
         $box = $client->getFolder($this->folder);
@@ -63,7 +57,6 @@ class SyncEmailsJob
         $uids = array_values(array_filter($uids, fn ($u) => ! isset($known[$u])));
         rsort($uids);
         $uids = array_slice($uids, 0, $this->limit);
-        $sizes = $uids ? (array) $conn->fetch('RFC822.SIZE', $uids, null, IMAP::ST_UID) : [];
 
         @set_time_limit(max(120, (int) ini_get('max_execution_time')));
 
@@ -75,13 +68,19 @@ class SyncEmailsJob
                 ->values()->toArray();
         };
 
+        // Keep each call inside the app's request timeout: stop starting new
+        // messages after ~15 s; the next sync carries on from there.
+        $started = microtime(true);
         foreach ($uids as $uid) {
-            // One message in memory at a time; very large ones come in headers-only.
-            $tooBig = (int) ($sizes[$uid] ?? 0) > self::MAX_BODY_BYTES;
-            // One unreadable message is skipped (and logged), not the whole sync.
+            if (microtime(true) - $started > self::BUDGET_SECONDS) {
+                break;
+            }
+            // One message in memory at a time. One unreadable message is
+            // skipped (and logged), not the whole sync.
             try {
-                $msg = $box->query()->leaveUnread()->setFetchBody(! $tooBig)->getMessageByUid($uid);
-                $this->store($account, $msg, $mapAddresses, $tooBig);
+                $msg = $box->query()->leaveUnread()->getMessageByUid($uid);
+                // A failure part-way (e.g. disk) rolls the row back so the next sync retries it.
+                DB::transaction(fn () => $this->store($account, $msg, $mapAddresses, $store));
                 $syncedCount++;
             } catch (\Throwable $e) {
                 Log::warning("Email sync: skipped UID {$uid} for account {$account->id}: {$e->getMessage()}");
@@ -96,13 +95,11 @@ class SyncEmailsJob
         return $syncedCount;
     }
 
-    private function store(EmailAccount $account, $msg, callable $mapAddresses, bool $tooBig): void
+    private function store(EmailAccount $account, $msg, callable $mapAddresses, EmailAttachmentStore $store): void
     {
         $uid = (string) $msg->getUid();
-        $bodyHtml = $tooBig ? null : ($msg->getHTMLBody() ?: null);
-        $bodyText = $tooBig
-            ? 'This message is too large to show here — open it in your mail client.'
-            : ($msg->getTextBody() ?: null);
+        $bodyHtml = $msg->getHTMLBody() ?: null;
+        $bodyText = $msg->getTextBody() ?: null;
 
         if (empty($bodyText) && ! empty($bodyHtml)) {
             $stripped = preg_replace('/<style[^>]*>.*?<\/style>/is', '', $bodyHtml);
@@ -134,18 +131,12 @@ class SyncEmailsJob
             'is_read'          => $flags->contains('Seen')    || $flags->contains('\Seen'),
             'is_flagged'       => $flags->contains('Flagged') || $flags->contains('\Flagged'),
             'is_draft'         => $flags->contains('Draft')   || $flags->contains('\Draft'),
-            'has_attachments'  => $tooBig || $msg->hasAttachments(),
+            'has_attachments'  => false,
             'email_date'       => $emailDate,
         ]);
 
-        if (! $tooBig && $msg->hasAttachments()) {
-            foreach ($msg->getAttachments() as $att) {
-                $email->attachments()->create([
-                    'filename'  => $att->getName() ?? 'attachment',
-                    'mime_type' => $att->getMimeType() ?? null,
-                    'size'      => $att->getSize() ?? 0,
-                ]);
-            }
+        if ($msg->hasAttachments() && $store->storeFromMessage($email, $msg) > 0) {
+            $email->update(['has_attachments' => true]);
         }
     }
 }

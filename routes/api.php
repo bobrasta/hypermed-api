@@ -663,6 +663,8 @@ Route::prefix('v1')->group(function () {
         Route::get('emails/folder/{folderName}', [EmailController::class, 'folder']);
         Route::post('emails/sync',        [EmailController::class, 'sync']);
         Route::post('emails/compose',     [EmailController::class, 'compose']);
+        Route::post('emails/attachments',     [EmailController::class, 'uploadAttachment']);
+        Route::get('emails/{syncedEmail}/attachments/{attachment}', [EmailController::class, 'downloadAttachment']);
         Route::get('emails/{syncedEmail}',                    [EmailController::class, 'show']);
         Route::post('emails/{syncedEmail}/reply',             [EmailController::class, 'reply']);
         Route::post('emails/{syncedEmail}/forward',           [EmailController::class, 'forward']);
