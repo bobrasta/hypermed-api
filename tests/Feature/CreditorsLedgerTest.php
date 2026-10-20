@@ -186,6 +186,9 @@ class CreditorsLedgerTest extends TestCase
         $this->postJson("/api/v1/purchase-orders/{$po->id}/initiate-payment", ['amount' => 3000, 'exchange_rate' => 2700,
             'paid_from_account_id' => $this->bank, 'reference' => 'TT 30% deposit'])->assertOk();
         $this->assertSame('pending_director', SupplierPayment::where('purchase_order_id', $po->id)->value('status'));
+        // It's approved with the LPO, not on its own.
+        Sanctum::actingAs($this->director);
+        $this->postJson('/api/v1/supplier-payments/' . SupplierPayment::where('purchase_order_id', $po->id)->value('id') . '/approve')->assertStatus(422);
 
         Sanctum::actingAs($this->director);
         $this->postJson("/api/v1/purchase-orders/{$po->id}/approve-director-final")->assertOk();

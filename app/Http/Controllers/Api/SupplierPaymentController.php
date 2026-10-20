@@ -131,6 +131,9 @@ class SupplierPaymentController extends Controller
     public function approve(Request $request, SupplierPayment $supplierPayment)
     {
         abort_unless($request->user()->hasFinalMoneyAuthority(), 403, 'Only the Director can approve payments.');
+        // An LPO's own payment is approved with the LPO's final approval.
+        abort_if($supplierPayment->purchaseOrder?->status === 'pending_director_final', 422,
+            "Approve this with {$supplierPayment->purchaseOrder?->po_number}'s final approval.");
         $payment = $this->creditors->approvePayment($supplierPayment, $request->user());
         ApprovalLog::record($payment, 'paid', $request->user());
         $this->notify($payment, 'initiator', 'supplier_payment.paid', $request->user());
