@@ -94,7 +94,12 @@ class CreditorLedgerService
         }
 
         if ($type === 'supplier') {
-            foreach (VendorBill::with('purchaseOrder:id,po_number')->where('supplier_id', $id)->where('status', '!=', 'cancelled')->get() as $b) {
+            $currency = strtoupper(Supplier::whereKey($id)->value('currency') ?: 'TZS');
+            // An invoice in another currency than its supplier's predates currency
+            // support; it stays off the ledger until its real currency/rate is set.
+            $bills = VendorBill::with('purchaseOrder:id,po_number')->where('supplier_id', $id)->where('status', '!=', 'cancelled')
+                ->get()->filter(fn ($b) => strtoupper($b->currency) === $currency);
+            foreach ($bills as $b) {
                 $add([
                     'date' => $b->issue_date->toDateString(), 'seq' => 1,
                     'narration' => 'INVOICE' . ($b->purchaseOrder ? ' — ' . $b->purchaseOrder->po_number : '') . ($b->notes ? ' — ' . $b->notes : ''),
@@ -185,7 +190,9 @@ class CreditorLedgerService
         $o = CreditorOpeningBalance::where('creditor_type', $type)->where('creditor_id', $id)->whereDate('as_at', '<=', $to)->first();
         $sum = $o ? (int) $o->amount_tzs : 0;
         if ($type === 'supplier') {
-            $sum += (int) VendorBill::where('supplier_id', $id)->where('status', '!=', 'cancelled')->whereDate('issue_date', '<=', $to)->sum('total_tzs');
+            $currency = strtoupper(Supplier::whereKey($id)->value('currency') ?: 'TZS');
+            $sum += (int) VendorBill::where('supplier_id', $id)->where('status', '!=', 'cancelled')->where('currency', $currency)
+                ->whereDate('issue_date', '<=', $to)->sum('total_tzs');
         } else {
             $fees = VendorFee::where('vendor_id', $id)->where('status', '!=', 'rejected');
             $sum += (int) (clone $fees)->whereDate('created_at', '<=', $to)->sum('billed_amount');

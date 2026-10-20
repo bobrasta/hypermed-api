@@ -243,4 +243,29 @@ class CreditorsLedgerTest extends TestCase
             $this->assertSame(150000, (int) Transaction::where('reference', "PDM-{$pd->id}")->where('type', 'debit')->sum('amount'));
         }
     }
+
+    public function test_bills_from_before_are_reposted_to_trade_creditors(): void
+    {
+        $local = $this->supplier('ZZ POWER SOLUTIONS', 'TZS');
+        $usd = $this->supplier('ZZ BODITECH', 'USD');
+        $cat = \App\Models\ExpenseCategory::value('id');
+        $old = fn (Supplier $s, int $total) => tap(VendorBill::create(['bill_number' => 'ZZ-OLD-' . $s->id, 'supplier_id' => $s->id, 'category_id' => $cat,
+            'issue_date' => '2026-10-05', 'due_date' => '2026-11-05', 'subtotal' => $total, 'tax_amount' => 0, 'total' => $total, 'amount_paid' => 0,
+            'status' => 'pending', 'currency' => 'TZS', 'created_by' => $this->accountant->id]), function ($b) use ($total) {
+                app(\App\Services\AccountingService::class)->recordTransaction([
+                    ['account_id' => ChartOfAccount::where('code', '5010')->value('id'), 'type' => 'debit', 'amount' => $total],
+                    ['account_id' => ChartOfAccount::where('code', '2001')->value('id'), 'type' => 'credit', 'amount' => $total],
+                ], 'old bill', "BILL-{$b->id}");
+            });
+        $a = $old($local, 270000);
+        $b = $old($usd, 25000000);
+        $before2001 = (int) ChartOfAccount::where('code', '2001')->value('balance');
+
+        (require database_path('migrations/2026_10_20_140000_repost_existing_bills_to_trade_creditors.php'))->up();
+
+        $this->assertSame(270000, $a->fresh()->total_tzs);
+        $this->assertSame(270000, $this->moved('2025'));
+        $this->assertSame($before2001 - 270000, (int) ChartOfAccount::where('code', '2001')->value('balance'));
+        $this->assertSame(0, $b->fresh()->total_tzs); // currency differs from its USD supplier: left for a person
+    }
 }
