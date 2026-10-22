@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\ReceiptController;
 use App\Http\Controllers\Api\VendorController;
 use App\Http\Controllers\Api\VendorFeeController;
 use App\Http\Controllers\Api\NotificationTemplateController;
+use App\Http\Controllers\Api\StoreDashboardController;
 use App\Http\Controllers\Api\UnifiedDashboardController;
 use App\Http\Controllers\Api\EmailAccountController;
 use App\Http\Controllers\Api\EmailController;
@@ -134,6 +135,7 @@ Route::prefix('v1')->group(function () {
         Route::get('dashboard/sales', [DashboardController::class, 'sales']);
         Route::get('dashboard/sales/overview', [SalesOverviewController::class, 'index']);
         Route::get('dashboard/unified', [UnifiedDashboardController::class, 'index']);
+        Route::get('dashboard/store', [StoreDashboardController::class, 'index']);
         Route::get('dashboard/admin-overview', [AdminOverviewController::class, 'index']);
         Route::get('dashboard/cto-overview', [CtoOverviewController::class, 'index']);
 
