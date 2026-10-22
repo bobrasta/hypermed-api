@@ -407,6 +407,7 @@ class NestTenderController extends Controller
             'term' => [$req, 'string', 'min:2', 'max:120'],
             'weight' => [$req, 'integer', 'min:-100', 'max:100'],
             'active' => ['sometimes', 'boolean'],
+            'context' => ['sometimes', 'nullable', Rule::in(NestRelevanceRule::CONTEXTS)],
         ]);
         if (isset($v['term'])) {
             $v['term'] = trim(preg_replace('/\s+/', ' ', $v['term']));
@@ -414,6 +415,7 @@ class NestTenderController extends Controller
         $type = $v['type'] ?? $rule?->type;
         if ($type !== 'keyword') {
             $v['tag'] = null;
+            $v['context'] = null;
         } elseif (array_key_exists('tag', $v) || ! $rule) {
             if (empty($v['tag'])) {
                 throw ValidationException::withMessages(['tag' => 'Pick a tag (Devices, Reagents, Consumables or Service) for a keyword.']);

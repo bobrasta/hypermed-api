@@ -14,10 +14,15 @@ use Illuminate\Support\Collection;
  *    sub-category name ("particular" never matches "icu"); a trailing s/es is
  *    allowed so "monitor" also catches "monitors".
  *  - Score = sum of the weights of the rules that matched, each rule once.
- *  - SERVICE terms (maintenance, repair, …) only count when the text also
- *    has a DEVICES term or the word medical/laboratory.
+ *  - Generic keywords carry a context ("equipment", "reagents", "x-ray"…) and
+ *    only count for a health tender: 'text' needs a health word in the
+ *    description or a health sub-category; 'health' also accepts a health
+ *    buyer (hospital, MSD, …). Without it they flag ICT, mining, railway or
+ *    water-lab tenders.
+ *  - SERVICE terms (maintenance, repair, …) only count with a counted
+ *    DEVICES term or a health tender.
  *  - Excludes (medicines, fuel, …) subtract — unless the tender also has a
- *    DEVICES or REAGENTS match, so mixed tenders are never hidden.
+ *    counted DEVICES or REAGENTS match, so mixed tenders are never hidden.
  *  - Only eligible categories (G, NC) score at all; NC only with a counted
  *    SERVICE match.
  *  - Relevant at score >= threshold; "maybe" from maybe_min up to it.
@@ -68,10 +73,19 @@ class RelevanceEngine
             }
         }
 
-        $tagged = fn (string $tag) => collect($hits)->contains(fn ($r) => $r->type === 'keyword' && $r->tag === $tag);
+        $healthText = collect($hits)->contains(fn ($r) => $r->type === 'health_subcategory')
+            || collect(config('nest.health_text_terms'))->contains(fn ($w) => $this->matches($w, $text));
+        $healthBuyer = collect(config('nest.health_entity_terms'))->contains(fn ($w) => $this->matches($w, $entity));
+        $inContext = fn ($r) => match ($r->context) {
+            'text' => $healthText,
+            'health' => $healthText || $healthBuyer,
+            default => true,
+        };
+
+        $tagged = fn (string $tag) => collect($hits)->contains(fn ($r) => $r->type === 'keyword' && $r->tag === $tag && $inContext($r));
         $hasDevices = $tagged('DEVICES');
         $hasReagents = $tagged('REAGENTS');
-        $serviceContext = $hasDevices || $this->matches('medical', $text) || $this->matches('laboratory', $text);
+        $serviceContext = $hasDevices || $healthText || $healthBuyer;
 
         $score = 0;
         $tags = [];
@@ -79,9 +93,14 @@ class RelevanceEngine
         foreach ($hits as $r) {
             $counts = true;
             $note = null;
-            if ($r->type === 'keyword' && $r->tag === 'SERVICE' && ! $serviceContext) {
+            if ($r->type === 'keyword' && ! $inContext($r)) {
                 $counts = false;
-                $note = 'service term without a device or medical/laboratory context';
+                $note = $r->context === 'text'
+                    ? 'not counted: no medical/health wording in the tender'
+                    : 'not counted: not a health tender or health buyer';
+            } elseif ($r->type === 'keyword' && $r->tag === 'SERVICE' && ! $serviceContext) {
+                $counts = false;
+                $note = 'service term without a device or health context';
             }
             if ($r->type === 'exclude' && ($hasDevices || $hasReagents)) {
                 $counts = false;
@@ -94,7 +113,7 @@ class RelevanceEngine
                 }
             }
             $matched[] = array_filter([
-                'term' => $r->term, 'type' => $r->type, 'tag' => $r->tag, 'weight' => $r->weight,
+                'term' => $r->term, 'type' => $r->type, 'tag' => $r->tag, 'weight' => $r->weight, 'context' => $r->context,
                 'counted' => $counts, 'note' => $note,
             ], fn ($v) => $v !== null);
         }

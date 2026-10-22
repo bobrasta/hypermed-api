@@ -57,6 +57,20 @@ GQL,
     // app; the threshold can be changed there too and is kept in settings).
     'relevance_threshold' => (int) env('NEST_RELEVANCE_THRESHOLD', 10),
     'maybe_min' => 5,
+    // Rules with a context only count for health tenders, so "equipment",
+    // "reagents" or "x-ray" don't pull in ICT, mining or water-lab tenders.
+    //  - 'text'  : a health word below in the description / sub-category,
+    //              or a health sub-category (a HEALTH_SECTOR rule matched)
+    //  - 'health': any of those, or a health buyer (entity words below)
+    'health_text_terms' => [
+        'medical', 'hospital', 'health', 'clinical', 'clinic', 'patient', 'diagnostic', 'diagnostics',
+        'surgical', 'orthopaedic', 'orthopedic', 'physiotherapy', 'rehabilitation', 'dental', 'biomedical',
+        'maternity', 'medicine', 'blood', 'haematology', 'hematology', 'dispensary',
+    ],
+    'health_entity_terms' => [
+        'hospital', 'health', 'medical', 'clinic', 'dispensary', 'blood transfusion', 'nbts',
+        'orthopaedic', 'cardiac', 'cancer', 'mental',
+    ],
     'eligible_categories' => ['G', 'NC'],
     'closing_soon_days' => 3,
 
