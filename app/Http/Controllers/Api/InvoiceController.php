@@ -236,6 +236,32 @@ class InvoiceController extends Controller
         ];
     }
 
+    // Product, unit of measure, lot and expiry on each line (as Clickhuduma
+    // had) — printed in the invoice PDF's LOT / EXP. / UOM columns.
+    private const LINE_PRODUCT_RULES = [
+        'line_items.*.inventory_item_id' => ['nullable', 'integer', 'exists:inventory_items,id'],
+        'line_items.*.unit_of_measure'   => ['nullable', 'string', 'max:30'],
+        'line_items.*.lot_number'        => ['nullable', 'string', 'max:100'],
+        'line_items.*.expiry_date'       => ['nullable', 'date'],
+    ];
+
+    private static function lineAttributes(array $item): array
+    {
+        $text = fn ($k) => isset($item[$k]) && trim((string) $item[$k]) !== '' ? trim((string) $item[$k]) : null;
+
+        return [
+            'inventory_item_id' => $item['inventory_item_id'] ?? null,
+            'description'       => $item['description'],
+            'quantity'          => $item['quantity'],
+            'unit_of_measure'   => $text('unit_of_measure'),
+            'lot_number'        => $text('lot_number'),
+            'expiry_date'       => $text('expiry_date'),
+            'unit_price'        => $item['unit_price'],
+            'discount'          => (int) ($item['discount'] ?? 0),
+            'total'             => LineDiscount::net($item),
+        ];
+    }
+
     public function store(Request $request, CreditCheckService $creditCheck, FinancePostingService $financePosting, DocumentNumberService $documentNumbers, InvoicePaymentService $payments)
     {
         abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to create invoices.');
@@ -272,6 +298,7 @@ class InvoiceController extends Controller
             'line_items.*.quantity'    => ['required', 'numeric', 'min:0.01'],
             'line_items.*.unit_price'  => ['required', 'integer', 'min:0'],
             'line_items.*.discount'    => ['nullable', 'integer', 'min:0'],
+            ...self::LINE_PRODUCT_RULES,
         ], ['client_tin.regex' => Tin::MESSAGE, 'client_tin.required' => 'Client TIN is required.']);
         $data['client_tin'] = ! empty($data['client_tin']) ? Tin::normalize($data['client_tin']) : null;
         $saleStatus = $data['sale_status'] ?? 'final';
@@ -334,13 +361,7 @@ class InvoiceController extends Controller
             $invoice = Invoice::create($data);
 
             foreach ($lineItems as $item) {
-                $invoice->lineItems()->create([
-                    'description' => $item['description'],
-                    'quantity'    => $item['quantity'],
-                    'unit_price'  => $item['unit_price'],
-                    'discount'    => (int) ($item['discount'] ?? 0),
-                    'total'       => LineDiscount::net($item),
-                ]);
+                $invoice->lineItems()->create(self::lineAttributes($item));
             }
 
             if ($final) {
@@ -408,6 +429,7 @@ class InvoiceController extends Controller
             'line_items.*.quantity'    => ['required_with:line_items', 'numeric', 'min:0.01'],
             'line_items.*.unit_price'  => ['required_with:line_items', 'integer', 'min:0'],
             'line_items.*.discount'    => ['nullable', 'integer', 'min:0'],
+            ...self::LINE_PRODUCT_RULES,
         ], ['client_tin.regex' => Tin::MESSAGE]);
         if (! empty($data['client_tin'])) {
             $data['client_tin'] = Tin::normalize($data['client_tin']);
@@ -447,13 +469,7 @@ class InvoiceController extends Controller
             if ($lineItems !== null) {
                 $invoice->lineItems()->delete();
                 foreach ($lineItems as $item) {
-                    $invoice->lineItems()->create([
-                        'description' => $item['description'],
-                        'quantity'    => $item['quantity'],
-                        'unit_price'  => $item['unit_price'],
-                        'discount'    => (int) ($item['discount'] ?? 0),
-                        'total'       => LineDiscount::net($item),
-                    ]);
+                    $invoice->lineItems()->create(self::lineAttributes($item));
                 }
             }
             $this->recomputeTotals($invoice, $financePosting, $lineItems !== null);

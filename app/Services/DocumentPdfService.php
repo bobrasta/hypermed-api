@@ -64,7 +64,7 @@ class DocumentPdfService
         $company = config('company');
 
         $items = $invoice->lineItems->values()->map(fn ($i, $idx) => [
-            $idx + 1, $i->description, '-', '-', '-',
+            $idx + 1, $i->description, $i->lot_number ?: '-', $i->expiry_date?->format('d/m/Y') ?? '-', $i->unit_of_measure ?: '-',
             $this->trimmedQuantity($i->quantity), number_format($i->unit_price, 2),
             number_format($i->total, 2), (int) $i->discount,
         ])->all();
@@ -126,7 +126,10 @@ class DocumentPdfService
             'client'        => $client,
             'clientAddress' => array_values(array_filter([$invoice->shipping_address ?: $invoice->hospital?->address])),
             'items'         => $invoice->lineItems->values()->map(fn ($i, $idx) => [
-                $idx + 1, $i->description, $this->trimmedQuantity($i->quantity),
+                $idx + 1, $i->description, $this->trimmedQuantity($i->quantity)
+                    . ($i->unit_of_measure ? ' ' . $i->unit_of_measure : ''),
+                implode(' · ', array_filter([$i->lot_number ? "Lot {$i->lot_number}" : null,
+                    $i->expiry_date ? 'Exp ' . $i->expiry_date->format('d/m/Y') : null])),
             ])->all(),
             'shippingDetails' => $invoice->shipping_details,
             'deliveredTo'     => $invoice->delivered_to,
@@ -142,7 +145,8 @@ class DocumentPdfService
             <th style='width:6%'>#</th><th style='white-space:normal'>DESCRIPTION</th>
             <th class='num' style='width:14%'>QTY ORDERED</th><th class='num' style='width:16%'>QTY RECEIVED</th></tr>";
         foreach ($d['items'] as $i) {
-            $html .= '<tr><td class="dim">' . e($i[0]) . '</td><td style="font-weight:500">' . e($i[1]) . '</td>'
+            $html .= '<tr><td class="dim">' . e($i[0]) . '</td><td style="font-weight:500">' . e($i[1])
+                . ($i[3] ? '<div class="dim" style="font-weight:400; font-size:7.5pt">' . e($i[3]) . '</div>' : '') . '</td>'
                 . '<td class="num" style="font-weight:700">' . e($i[2]) . '</td><td class="num">&nbsp;</td></tr>';
         }
         $html .= '</table>';

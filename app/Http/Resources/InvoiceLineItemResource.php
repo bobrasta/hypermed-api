@@ -11,8 +11,12 @@ class InvoiceLineItemResource extends JsonResource
     {
         return [
             'id'          => $this->id,
+            'inventory_item_id' => $this->inventory_item_id,
             'description' => $this->description,
             'quantity'    => $this->quantity,
+            'unit_of_measure' => $this->unit_of_measure,
+            'lot_number'  => $this->lot_number,
+            'expiry_date' => $this->expiry_date?->toDateString(),
             'unit_price'  => $this->unit_price,
             'discount'    => (int) $this->discount,
             'total'       => $this->total,

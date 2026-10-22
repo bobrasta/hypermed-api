@@ -340,8 +340,10 @@ class SalesOrderController extends Controller
 
                 $discount = $soItem->discountFor($qty, $soItem->quantity_invoiced);
                 $inv->lineItems()->create([
+                    'inventory_item_id' => $soItem->inventory_item_id,
                     'description' => $soItem->description,
                     'quantity'    => $qty,
+                    'unit_of_measure' => $soItem->unit_of_measure,
                     'unit_price'  => $soItem->unit_price,
                     'discount'    => $discount,
                     'total'       => $qty * $soItem->unit_price - $discount,
