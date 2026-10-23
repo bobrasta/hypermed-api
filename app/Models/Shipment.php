@@ -20,7 +20,7 @@ class Shipment extends Model
         'outbound_reason', 'department_id', 'tender_id', 'expected_arrival', 'port', 'location_notes',
         'step', 'tmda_application_ref', 'tmda_applied_at', 'tmda_issued_at', 'control_number',
         'vendor_fee_id', 'created_by', 'coa_required', 'carrier_vendor_id', 'cost_bearer', 'paid_by',
-        'goods_category',
+        'goods_category', 'cost_note', 'permit_sent_at', 'permit_sent_vendor_id',
     ];
 
     protected $casts = [
@@ -29,6 +29,7 @@ class Shipment extends Model
         'expected_arrival' => 'date',
         'tmda_applied_at' => 'date',
         'tmda_issued_at' => 'date',
+        'permit_sent_at' => 'date',
     ];
 
     public function getActivitylogOptions(): LogOptions
@@ -60,6 +61,12 @@ class Shipment extends Model
     public function carrier()
     {
         return $this->belongsTo(Vendor::class, 'carrier_vendor_id');
+    }
+
+    /** Courier the import permit was sent to (e.g. DHL clearing a manufacturer-paid parcel). */
+    public function permitSentVendor()
+    {
+        return $this->belongsTo(Vendor::class, 'permit_sent_vendor_id');
     }
 
     public function vendorFee()

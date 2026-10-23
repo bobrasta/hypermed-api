@@ -81,7 +81,7 @@ class ShipmentController extends Controller
     {
         $this->assertView($request);
 
-        $q = Shipment::with(['supplier:id,name', 'carrier:id,name,type', 'purchaseOrder:id,po_number', 'department:id,name', 'documents:id,shipment_id,type', 'vendorFee.receipts', 'vendorFee.vendor:id,name', 'vendorFee.deliveryJob'])
+        $q = Shipment::with(['supplier:id,name', 'carrier:id,name,type', 'permitSentVendor:id,name', 'purchaseOrder:id,po_number', 'department:id,name', 'documents:id,shipment_id,type', 'vendorFee.receipts', 'vendorFee.vendor:id,name', 'vendorFee.deliveryJob'])
             ->latest('updated_at');
         if (! $this->seesAll($request)) {
             $q->whereIn('department_id', $this->managedDepartmentIds($request));
@@ -174,7 +174,7 @@ class ShipmentController extends Controller
         // Who pays and whether a COA applies change what the shipment waits
         // for, so they go on the shipment's own timeline, not just the audit log.
         $notes = [];
-        if ($shipment->isDirty('cost_bearer') || ($shipment->cost_bearer === 'manufacturer' && $shipment->isDirty('paid_by'))) {
+        if ($this->costBearerChanged($shipment)) {
             $notes[] = $this->costBearerNote($shipment);
         }
         if ($shipment->isDirty('goods_category')) {
@@ -208,8 +208,14 @@ class ShipmentController extends Controller
             'tmda_applied_at' => ['nullable', 'date'],
             'tmda_issued_at' => ['nullable', 'date'],
             'control_number' => ['nullable', 'string', 'max:120'],
+            // The payment mode can be chosen on the step itself: "Manufacturer
+            // paid shipping / payment not required" lifts the payment gates.
+            ...$this->costBearerRules(),
         ]);
         $target = (int) $data['step'];
+        if (isset($data['cost_bearer']) && $shipment->direction !== 'import') {
+            throw ValidationException::withMessages(['cost_bearer' => 'Only import shipments have clearing costs.']);
+        }
         $from = $shipment->step;
 
         if ($target === $from) {
@@ -221,18 +227,28 @@ class ShipmentController extends Controller
         }
 
         $details = array_filter(array_intersect_key($data, array_flip(['tmda_application_ref', 'tmda_applied_at', 'tmda_issued_at', 'control_number'])));
+        if (isset($data['cost_bearer'])) {
+            $details += $this->costBearerFields($data);
+        }
         if (isset($details['tmda_application_ref']) && ! isset($details['tmda_applied_at']) && ! $shipment->tmda_applied_at) {
             $details['tmda_applied_at'] = now()->toDateString();
         }
         $shipment->fill($details + ['step' => $target]);
         $shipment->load(['documents', 'vendorFee.receipts', 'vendorFee.deliveryJob']);
+        $costNote = $this->costBearerChanged($shipment) ? $this->costBearerNote($shipment) : null;
 
         if ($target > $from && ($why = $this->flow->blockReason($shipment, $target))) {
             throw ValidationException::withMessages(['step' => $why]);
         }
 
-        DB::transaction(function () use ($shipment, $from, $target, $data, $request) {
+        DB::transaction(function () use ($shipment, $from, $target, $data, $request, $costNote) {
             $shipment->save();
+            if ($costNote) {
+                ShipmentEvent::create([
+                    'shipment_id' => $shipment->id, 'from_step' => $from, 'to_step' => $from,
+                    'note' => $costNote, 'user_id' => $request->user()->id, 'created_at' => now(),
+                ]);
+            }
             ShipmentEvent::create([
                 'shipment_id' => $shipment->id, 'from_step' => $from, 'to_step' => $target,
                 'note' => $data['note'] ?? null,
@@ -454,11 +470,12 @@ class ShipmentController extends Controller
             'coa_required' => ['sometimes', 'boolean'],
             'goods_category' => ['sometimes', Rule::in(['medical', 'non_medical'])],
             'carrier_vendor_id' => ['nullable', Rule::exists('vendors', 'id')->whereIn('type', ['courier', 'delivery'])],
-            'cost_bearer' => ['sometimes', Rule::in(['hypermed', 'manufacturer'])],
-            'paid_by' => ['nullable', 'required_if:cost_bearer,manufacturer', 'string', 'max:120'],
+            ...$this->costBearerRules(),
+            'permit_sent_at' => ['nullable', 'date'],
+            'permit_sent_vendor_id' => ['nullable', Rule::exists('vendors', 'id')->whereIn('type', ['courier', 'delivery'])],
         ]);
-        if (($data['cost_bearer'] ?? null) === 'hypermed') {
-            $data['paid_by'] = null;
+        if (isset($data['cost_bearer'])) {
+            $data = $this->costBearerFields($data) + $data;
         }
 
         // A PO's own supplier wins, so the two can't disagree.
@@ -485,10 +502,38 @@ class ShipmentController extends Controller
         return $files;
     }
 
+    /** Who pays: "We pay" (hypermed, the default) or manufacturer-paid, with who paid and an optional note. */
+    private function costBearerRules(): array
+    {
+        return [
+            'cost_bearer' => ['sometimes', Rule::in(['hypermed', 'manufacturer'])],
+            'paid_by' => ['nullable', 'required_if:cost_bearer,manufacturer', 'string', 'max:120'],
+            'cost_note' => ['nullable', 'string', 'max:1000'],
+        ];
+    }
+
+    /** "We pay" clears who-paid and the note, so a stale "Diasorin" can't linger. */
+    private function costBearerFields(array $data): array
+    {
+        $manufacturer = $data['cost_bearer'] === 'manufacturer';
+
+        return [
+            'cost_bearer' => $data['cost_bearer'],
+            'paid_by' => $manufacturer ? trim((string) $data['paid_by']) : null,
+            'cost_note' => $manufacturer ? (trim((string) ($data['cost_note'] ?? '')) ?: null) : null,
+        ];
+    }
+
+    private function costBearerChanged(Shipment $s): bool
+    {
+        return $s->isDirty('cost_bearer') || ($s->cost_bearer === 'manufacturer' && $s->isDirty(['paid_by', 'cost_note']));
+    }
+
     private function costBearerNote(Shipment $s): string
     {
         return ShipmentFlow::manufacturerPaid($s)
             ? 'Paid by ' . ($s->paid_by ?: 'the manufacturer') . ' — no cost to HyperMed. Clearing payment, duty and freight steps don\'t apply.'
+                . ($s->cost_note ? ' Note: ' . $s->cost_note : '')
             : 'Costs are paid by HyperMed again — the clearing fee applies.';
     }
 
@@ -550,8 +595,11 @@ class ShipmentController extends Controller
             'fee_status' => $s->vendorFee?->status,
             'coa_required' => (bool) $s->coa_required,
             'goods_category' => $s->goods_category ?? 'medical',
-            'cost_bearer' => $s->cost_bearer,
+            'cost_bearer' => $s->cost_bearer ?? 'hypermed',
             'paid_by' => $s->paid_by,
+            'cost_note' => $s->cost_note,
+            // HyperMed's clearing cost: 0 when the manufacturer paid, null when no fee is recorded yet.
+            'clearing_cost' => ShipmentFlow::manufacturerPaid($s) ? 0 : ($s->vendorFee ? (int) $s->vendorFee->billed_amount : null),
             'carrier_vendor_id' => $s->carrier_vendor_id,
             'carrier_name' => $s->carrier?->name,
             // For the TMDA Permits and Clearing Fees lists. Non-medical goods need no permit.
@@ -560,6 +608,9 @@ class ShipmentController extends Controller
                 'applied_at' => $s->tmda_applied_at?->toDateString(),
                 'issued_at' => $s->tmda_issued_at?->toDateString(),
                 'permit_uploaded' => $s->documents->contains('type', 'tmda_permit'),
+                'sent_at' => $s->permit_sent_at?->toDateString(),
+                'sent_vendor_id' => $s->permit_sent_vendor_id,
+                'sent_vendor_name' => $s->permitSentVendor?->name,
             ] : null,
             'control_number' => $s->control_number,
             'clearing_fee' => $this->feePayload($s->vendorFee),
@@ -569,7 +620,7 @@ class ShipmentController extends Controller
 
     private function detail(Request $request, Shipment $s): array
     {
-        $s->load(['supplier:id,name', 'carrier:id,name,type', 'purchaseOrder:id,po_number,status,total_amount', 'department.manager:id,name', 'tender:id,tender_number,title',
+        $s->load(['supplier:id,name', 'carrier:id,name,type', 'permitSentVendor:id,name', 'purchaseOrder:id,po_number,status,total_amount', 'department.manager:id,name', 'tender:id,tender_number,title',
             'documents.uploader:id,name', 'events.user:id,name', 'vendorFee.receipts', 'vendorFee.vendor:id,name',
             'vendorFee.deliveryJob', 'machines:id,serial_no,model,type', 'creator:id,name']);
 

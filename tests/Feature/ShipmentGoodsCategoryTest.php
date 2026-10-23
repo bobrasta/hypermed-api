@@ -32,6 +32,9 @@ class ShipmentGoodsCategoryTest extends TestCase
         if (! Schema::hasColumn('shipments', 'goods_category')) {
             (require database_path('migrations/2026_10_23_000001_add_goods_category_to_shipments.php'))->up();
         }
+        if (! Schema::hasColumn('shipments', 'cost_note')) {
+            (require database_path('migrations/2026_10_23_000002_add_cost_note_and_permit_sent_to_shipments.php'))->up();
+        }
         Storage::fake('public');
         $officer = User::forceCreate([
             'name' => 'Test ship officer', 'email' => 'ship-officer-goods@example.com',
