@@ -271,6 +271,12 @@ class User extends Authenticatable
         return app(EffectivePermissionResolver::class)->can($this, 'sales.edit');
     }
 
+    /** Engineers (2026-10-23): create and edit their own draft quotations — no orders or invoices. */
+    public function hasQuotationPrepareAuthority(): bool
+    {
+        return app(EffectivePermissionResolver::class)->can($this, 'sales.prepare_quotation');
+    }
+
     public function hasSalesIssueQuotationAuthority(): bool
     {
         return app(EffectivePermissionResolver::class)->can($this, 'sales.issue_quotation');

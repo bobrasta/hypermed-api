@@ -45,6 +45,7 @@ use App\Http\Controllers\Api\SalesLeadController;
 use App\Http\Controllers\Api\SalesOverviewController;
 use App\Http\Controllers\Api\SalesTargetController;
 use App\Http\Controllers\Api\PerformanceController;
+use App\Http\Controllers\Api\ContributionController;
 use App\Http\Controllers\Api\ActivityLogController;
 use App\Http\Controllers\Api\TaxRateController;
 use App\Http\Controllers\Api\SalesOrderController;
@@ -390,6 +391,9 @@ Route::prefix('v1')->group(function () {
         // Performance — universal "my performance" + manager-only team view
         Route::get('performance/mine', [PerformanceController::class, 'mine']);
         Route::get('performance/team', [PerformanceController::class, 'team']);
+        // Staff contributions — who did what, for the Director's bonus decisions.
+        Route::get('contributions', [ContributionController::class, 'index']);
+        Route::get('contributions/{user}/{metric}', [ContributionController::class, 'show']);
 
         // Activity log — admin-tier only, company-wide change history
         Route::get('activity-log', [ActivityLogController::class, 'index']);

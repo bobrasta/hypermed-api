@@ -6,8 +6,12 @@ use App\Http\Controllers\Api\Concerns\FiltersByPeriod;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\QuotationResource;
 use App\Http\Resources\SalesOrderResource;
+use App\Models\AppNotification;
 use App\Models\Quotation;
 use App\Models\SalesOrder;
+use App\Models\User;
+use App\Services\EffectivePermissionResolver;
+use App\Services\NotificationTemplateService;
 use App\Services\ApprovalService;
 use App\Services\DocumentNumberService;
 use App\Services\DocumentPdfService;
@@ -73,7 +77,8 @@ class QuotationController extends Controller
 
     public function store(Request $request, ApprovalService $approval, DocumentNumberService $documentNumbers)
     {
-        abort_if(! $request->user()->hasSalesCreateAuthority(), 403, 'You are not authorised to create quotations.');
+        abort_if(! $request->user()->hasSalesCreateAuthority() && ! $request->user()->hasQuotationPrepareAuthority(), 403,
+            'You are not authorised to create quotations.');
 
         $data = $request->validate([
             'lead_id'                   => 'nullable|exists:sales_leads,id',
@@ -149,9 +154,44 @@ class QuotationController extends Controller
                 ]);
             }
 
+            // Prepared by someone who can't send it (an engineer): it lands
+            // with the people who issue quotations.
+            if (! $request->user()->hasSalesIssueQuotationAuthority()) {
+                $this->notifyIssuers($quotation, $request->user());
+            }
+
             return (new QuotationResource($quotation->load(['createdBy', 'items.inventoryItem'])))
                 ->response()->setStatusCode(201);
         });
+    }
+
+    /**
+     * Edit/delete: sales staff with sales.edit, or the person who prepared a
+     * quotation with sales.prepare_quotation (engineers), on their own only.
+     */
+    private function assertCanChange(Request $request, Quotation $quotation, string $verb): void
+    {
+        $user = $request->user();
+        abort_if(! $user->hasSalesEditAuthority()
+            && ! ($user->hasQuotationPrepareAuthority() && (int) $quotation->created_by === $user->id),
+            403, "You are not authorised to {$verb} this quotation.");
+    }
+
+    /** Active users who can send quotations and see everyone's (an engineer's draft is otherwise invisible to a plain rep). */
+    private function notifyIssuers(Quotation $quotation, User $preparer): void
+    {
+        $resolver = app(EffectivePermissionResolver::class);
+        $rendered = app(NotificationTemplateService::class)->render('quotation.prepared', [
+            'preparer' => $preparer->name,
+            'quotation_number' => $quotation->quotation_number,
+            'client_name' => $quotation->client_name,
+            'total' => 'TZS ' . number_format((int) $quotation->total_amount),
+        ]);
+        User::where('is_active', true)->whereKeyNot($preparer->id)->get()
+            ->filter(fn (User $u) => $resolver->can($u, 'sales.issue_quotation') && $resolver->can($u, 'sales.view_full_numbers'))
+            ->each(fn (User $u) => AppNotification::create($rendered + [
+                'user_id' => $u->id, 'entity_type' => 'quotation', 'entity_id' => $quotation->id, 'is_read' => false,
+            ]));
     }
 
     public function show(Quotation $quotation)
@@ -162,7 +202,7 @@ class QuotationController extends Controller
 
     public function update(Request $request, Quotation $quotation)
     {
-        abort_if(! $request->user()->hasSalesEditAuthority(), 403, 'You are not authorised to edit quotations.');
+        $this->assertCanChange($request, $quotation, 'edit');
         abort_if(!in_array($quotation->status, ['draft']), 422, 'Only draft quotations can be edited.');
 
         $data = $request->validate([
@@ -192,7 +232,7 @@ class QuotationController extends Controller
 
     public function destroy(Request $request, Quotation $quotation)
     {
-        abort_if(! $request->user()->hasSalesEditAuthority(), 403, 'You are not authorised to edit quotations.');
+        $this->assertCanChange($request, $quotation, 'delete');
         abort_if(!in_array($quotation->status, ['draft', 'rejected']), 422, 'Only draft or rejected quotations can be deleted.');
         $quotation->delete();
         return response()->noContent();

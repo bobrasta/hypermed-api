@@ -74,6 +74,8 @@ class PermissionSeeder extends Seeder
                 'sales.create'                 => ['Create Sales Records', 'Create quotations and sales orders'],
                 'sales.edit'                   => ['Edit Sales Records', 'Edit existing quotations and sales orders'],
                 'sales.issue_quotation'        => ['Issue Quotations', 'Send a quotation to a client'],
+                // 2026-10-23: engineers prepare quotations (credited to them) but don't raise orders or invoices.
+                'sales.prepare_quotation'      => ['Prepare Quotations', 'Create and edit their own draft quotations — no sales orders or invoices'],
                 'sales.approve_order'          => ['Approve Sales Orders', 'Approve a quotation/order that exceeds a discount or value threshold'],
                 'sales.view_full_numbers'      => ['View Full Sales Figures', 'See exact revenue numbers rather than masked/rounded ones'],
                 'sales.create_subordinate_user'=> ['Create Subordinate Sales Users', 'Add sales staff reporting to this user'],
@@ -221,12 +223,12 @@ class PermissionSeeder extends Seeder
             'finance'       => [], // scoped grant below — 'masked' revenue view only
             // No services.close_ticket — resolving a ticket is CTO/Director
             // work, not the assigned technician's; see hasServiceTicketResolveAuthority().
-            'technician'    => ['services.issue_ticket', 'equipment.schedule_maintenance'],
+            'technician'    => ['services.issue_ticket', 'equipment.schedule_maintenance', 'sales.prepare_quotation'],
             'cs'            => ['services.issue_ticket'],
             'storekeeper'   => ['inventory.adjust_stock', 'inventory.transfer_stock', 'inventory.view_valuation', 'inventory.manage_catalog', 'logistics.receive_order', 'machines.receive', 'machines.allocate'],
             'hr'            => ['hr.view_team_attendance', 'staff.manage', 'roles.manage'],
             'cto'           => ['services.assign_ticket', 'services.add_engineer', 'services.view_team_metrics', 'inventory.approve_writeoff', 'services.sign_off_installation', 'services.close_ticket', 'hospitals.manage'],
-            'team_leader'   => ['services.view_team_metrics', 'services.assign_ticket', 'services.sign_off_installation', 'services.close_ticket'],
+            'team_leader'   => ['services.view_team_metrics', 'services.assign_ticket', 'services.sign_off_installation', 'services.close_ticket', 'sales.prepare_quotation'],
             'procurement_manager' => ['procurement.create_po', 'procurement.approve_requisition', 'inventory.manage_catalog'],
             'accountant'    => ['procurement.initiate_payment'],
             'logistics'     => ['logistics.deliver_order', 'logistics.receive_order'],
@@ -269,6 +271,9 @@ class PermissionSeeder extends Seeder
             // Vendors registry, gated as one screen key like 'finance' or
             // 'inventory' already are).
             'vendor_fees',
+            // 2026-10-23: Quotations on its own (engineers, without the Sales
+            // menu) and Staff contributions (Director, CTO — not admin).
+            'quotations', 'contributions',
         ];
 
         $roles = Role::whereIn('name', User::ROLES)->get()->keyBy('name');
@@ -283,12 +288,12 @@ class PermissionSeeder extends Seeder
 
         $grants = [
             'super_admin'     => $screenKeys,
-            'admin'           => $screenKeys,
-            'cto'             => ['dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service', 'inventory', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'admin'           => array_values(array_diff($screenKeys, ['contributions'])),
+            'cto'             => ['dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service', 'inventory', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications', 'contributions'],
             // No 'staff' or 'inventory' — a technician does the repair work,
             // not staff task assignment or stock management.
-            'technician'      => ['dashboard', 'machines', 'detail', 'hospitals', 'service', 'my_leave', 'my_service_reports', 'my_travel_plans', 'reports', 'settings', 'notifications'],
-            'team_leader'     => ['dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'technician'      => ['dashboard', 'machines', 'detail', 'hospitals', 'service', 'quotations', 'my_leave', 'my_service_reports', 'my_travel_plans', 'reports', 'settings', 'notifications'],
+            'team_leader'     => ['dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service', 'quotations', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'sales_manager'   => ['dashboard', 'machines', 'detail', 'sales', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'sales'           => ['dashboard', 'machines', 'detail', 'sales', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'finance_manager' => ['dashboard', 'revenue', 'finance', 'vendor_fees', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
