@@ -31,6 +31,8 @@ class ExpenseResource extends JsonResource
             'escalated_at'                => $this->escalated_at?->toIso8601String(),
             'reviewed_by'                 => $this->reviewed_by,
             'reviewer_name'               => $this->reviewer?->name,
+            'approver_id'                 => $this->approver_id,
+            'approver_name'               => $this->approver?->name,
             'reviewed_at'                 => $this->reviewed_at?->toIso8601String(),
             'rejection_reason'            => $this->rejection_reason,
             'payment_initiated_by'        => $this->payment_initiated_by,

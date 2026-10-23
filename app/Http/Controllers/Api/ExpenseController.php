@@ -43,6 +43,28 @@ class ExpenseController extends Controller
             'You cannot action your own expense submission.');
     }
 
+    private function canReadAll(): bool
+    {
+        return app(\App\Services\EffectivePermissionResolver::class)->can(\Illuminate\Support\Facades\Auth::user(), 'screens.finance');
+    }
+
+    /** Finance sees every expense; anyone else their own and those waiting on them as manager. */
+    private function assertCanView(Expense $expense): void
+    {
+        $uid = \Illuminate\Support\Facades\Auth::id();
+        if ($expense->created_by === $uid || $expense->approver_id === $uid) {
+            return;
+        }
+        $this->assertFinanceReadAccess();
+    }
+
+    /** The submitter's line manager acts at pending_manager — or the Director over them. */
+    private function abortUnlessManagerStage(Expense $expense, User $user): void
+    {
+        abort_if($expense->approver_id !== $user->id && ! $user->hasFinalMoneyAuthority(), 403,
+            'Only the submitter\'s manager can review this expense.');
+    }
+
     private function categoryPayload(ExpenseCategory $c): array
     {
         return [
@@ -123,9 +145,15 @@ class ExpenseController extends Controller
 
     public function index(Request $request)
     {
-        $this->assertFinanceReadAccess();
-
-        $query = Expense::with(['category', 'createdBy', 'reviewer']);
+        $uid = $request->user()->id;
+        $query = Expense::with(['category', 'createdBy', 'reviewer', 'approver']);
+        // My Expenses (?mine=1), or anyone without Finance: their own plus
+        // the ones waiting on them as line manager (2026-10-24).
+        if ($request->boolean('mine')) {
+            $query->where('created_by', $uid);
+        } elseif (! $this->canReadAll()) {
+            $query->where(fn ($q) => $q->where('created_by', $uid)->orWhere('approver_id', $uid));
+        }
 
         if ($request->filled('category_id')) {
             $query->where('category_id', $request->category_id);
@@ -170,12 +198,12 @@ class ExpenseController extends Controller
 
     public function show(Expense $expense)
     {
-        $this->assertFinanceReadAccess();
+        $this->assertCanView($expense);
 
-        return response()->json(['data' => new ExpenseResource($expense->load(['category', 'createdBy', 'escalator', 'reviewer']))]);
+        return response()->json(['data' => new ExpenseResource($expense->load(['category', 'createdBy', 'escalator', 'reviewer', 'approver']))]);
     }
 
-    public function update(Request $request, Expense $expense, ExpenseApprovalService $approvalService)
+    public function update(Request $request, Expense $expense, ExpenseApprovalService $approvalService, ExpenseService $expenseService)
     {
         abort_if(
             in_array($expense->status, ['pending_payment', 'pending_release', 'paid'], true),
@@ -206,7 +234,8 @@ class ExpenseController extends Controller
         $evaluation = $approvalService->evaluate($category, $newAmount + $data['tax_amount']);
         $data['requires_director_approval'] = $evaluation['requires_director_approval'];
         $data['escalation_reason']          = $evaluation['escalation_reason'];
-        $data['status'] = $evaluation['requires_director_approval'] ? 'pending_director' : 'pending_cto';
+        // An edit sends it back to the start of the chain.
+        $data = $expenseService->route($expense->created_by, $evaluation['requires_director_approval']) + $data;
 
         $expense->update($data);
 
@@ -259,7 +288,22 @@ class ExpenseController extends Controller
     {
         $user = $request->user();
 
-        if ($expense->status === 'pending_cto') {
+        if ($expense->status === 'pending_manager') {
+            $this->abortUnlessManagerStage($expense, $user);
+            $this->abortIfSelfActioning($expense, $request);
+            // Director-only category or over the safety net: the manager's
+            // yes sends it on to the Director rather than to Finance.
+            if ($expense->requires_director_approval && ! $user->hasFinalMoneyAuthority()) {
+                $expense->update([
+                    'status' => 'pending_director', 'escalated_by' => $user->id, 'escalated_at' => now(),
+                    'escalation_reason' => $expense->escalation_reason ?? 'Requires Director approval.',
+                ]);
+                ApprovalLog::record($expense, 'approved', $user, 'Manager approved — on to the Director.');
+                $this->notifyDirector($expense);
+
+                return response()->json(['data' => new ExpenseResource($expense->fresh()->load(['category', 'createdBy', 'escalator', 'approver']))]);
+            }
+        } elseif ($expense->status === 'pending_cto') {
             abort_if(! $user->hasCtoApprovalAuthority(), 403, 'You are not authorised to approve expenses.');
             abort_if($expense->requires_director_approval, 422, 'This expense requires Director approval — escalate it instead.');
         } elseif ($expense->status === 'pending_director') {
@@ -341,8 +385,13 @@ class ExpenseController extends Controller
 
     public function escalate(Request $request, Expense $expense)
     {
-        abort_if(! $request->user()->hasCtoApprovalAuthority(), 403, 'You are not authorised to escalate expenses.');
-        abort_if($expense->status !== 'pending_cto', 422, 'Only expenses awaiting CTO review can be escalated.');
+        if ($expense->status === 'pending_manager') {
+            $this->abortUnlessManagerStage($expense, $request->user());
+        } else {
+            abort_if(! $request->user()->hasCtoApprovalAuthority(), 403, 'You are not authorised to escalate expenses.');
+            abort_if($expense->status !== 'pending_cto', 422, 'Only expenses awaiting review can be escalated.');
+        }
+        $this->abortIfSelfActioning($expense, $request);
 
         $data = $request->validate(['escalation_reason' => ['nullable', 'string']]);
 
@@ -363,7 +412,9 @@ class ExpenseController extends Controller
     {
         $user = $request->user();
 
-        if ($expense->status === 'pending_cto') {
+        if ($expense->status === 'pending_manager') {
+            $this->abortUnlessManagerStage($expense, $user);
+        } elseif ($expense->status === 'pending_cto') {
             abort_if(! $user->hasCtoApprovalAuthority(), 403, 'You are not authorised to review this expense.');
         } elseif ($expense->status === 'pending_director') {
             abort_if(! $user->hasFinalMoneyAuthority(), 403, 'Only the Director can reject this expense.');

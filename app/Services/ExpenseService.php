@@ -27,7 +27,7 @@ class ExpenseService
         $evaluation = $this->approvalService->evaluate($category, $data['amount'] + $data['tax_amount']);
         $data['requires_director_approval'] = $evaluation['requires_director_approval'];
         $data['escalation_reason']          = $evaluation['escalation_reason'];
-        $data['status'] = $evaluation['requires_director_approval'] ? 'pending_director' : 'pending_cto';
+        $data = $this->route((int) $data['created_by'], $evaluation['requires_director_approval']) + $data;
 
         $expense = Expense::create($data);
 
@@ -101,11 +101,47 @@ class ExpenseService
         return $generated;
     }
 
+    /**
+     * Where a new or edited expense waits first (2026-10-24): the submitter's
+     * own manager (pending_manager, approver_id). A manager who is the
+     * Director takes it at the Director stage. Nobody above them (the
+     * Director, unassigned staff): the old CTO stage, or the Director when
+     * the category/threshold demands it.
+     */
+    public function route(int $creatorId, bool $requiresDirector): array
+    {
+        $managerId = User::whereKey($creatorId)->value('manager_id');
+        $manager = $managerId ? User::where('is_active', true)->find($managerId) : null;
+
+        if ($manager && $manager->isDirector()) {
+            return ['status' => 'pending_director', 'approver_id' => $manager->id];
+        }
+        if ($manager) {
+            return ['status' => 'pending_manager', 'approver_id' => $manager->id];
+        }
+
+        return ['status' => $requiresDirector ? 'pending_director' : 'pending_cto', 'approver_id' => null];
+    }
+
     private function notifySubmitted(Expense $expense): void
     {
         $name = $expense->createdBy?->name ?? 'A staff member';
-        $permission = $expense->requires_director_approval ? 'authority.final_money_approval' : 'authority.cto_tier';
-        $templateKey = $expense->requires_director_approval ? 'expense.submitted_escalated' : 'expense.submitted_cto';
+        if ($expense->status === 'pending_manager' && $expense->approver_id) {
+            AppNotification::create([
+                'user_id'     => $expense->approver_id,
+                ...app(NotificationTemplateService::class)->render('expense.submitted_manager', [
+                    'name' => $name, 'expense_name' => $expense->name, 'gross_amount' => number_format($expense->gross_amount),
+                ]),
+                'entity_type' => 'expense',
+                'entity_id'   => $expense->id,
+                'is_read'     => false,
+            ]);
+
+            return;
+        }
+        $requiresDirector = $expense->requires_director_approval || $expense->status === 'pending_director';
+        $permission = $requiresDirector ? 'authority.final_money_approval' : 'authority.cto_tier';
+        $templateKey = $requiresDirector ? 'expense.submitted_escalated' : 'expense.submitted_cto';
 
         $vars = [
             'name'         => $name,

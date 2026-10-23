@@ -173,7 +173,7 @@ class AdminOverviewController extends Controller
 
         $pendingApprovals = StockOutRequest::where('status', 'pending')->count()
             + PerDiemRequest::whereIn('status', self::PENDING_PER_DIEM_STATUSES)->count()
-            + Expense::whereIn('status', ['pending_cto', 'pending_director'])->count()
+            + Expense::whereIn('status', ['pending_manager', 'pending_cto', 'pending_director'])->count()
             + PurchaseOrder::whereIn('status', self::PENDING_PO_STATUSES)->count()
             + LeaveRequest::where('status', 'pending')->count();
 

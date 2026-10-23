@@ -20,7 +20,7 @@ class Expense extends Model
 
     protected $fillable = [
         'name', 'category_id', 'amount', 'tax_rate', 'tax_amount', 'payment_mode',
-        'expense_date', 'reference', 'notes', 'created_by',
+        'expense_date', 'reference', 'notes', 'created_by', 'approver_id',
         'status', 'requires_director_approval', 'escalation_reason',
         'escalated_by', 'escalated_at', 'reviewed_by', 'reviewed_at', 'rejection_reason',
         'payment_initiated_by', 'payment_initiated_at', 'payment_method', 'payment_reference',
@@ -57,6 +57,12 @@ class Expense extends Model
     public function createdBy()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /** The line manager the expense waits on at pending_manager. */
+    public function approver()
+    {
+        return $this->belongsTo(User::class, 'approver_id');
     }
 
     public function escalator()

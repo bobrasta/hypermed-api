@@ -294,7 +294,7 @@ class PermissionSeeder extends Seeder
             // not staff task assignment or stock management.
             'technician'      => ['dashboard', 'machines', 'detail', 'hospitals', 'service', 'quotations', 'my_leave', 'my_service_reports', 'my_travel_plans', 'reports', 'settings', 'notifications'],
             'team_leader'     => ['dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service', 'quotations', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
-            'sales_manager'   => ['dashboard', 'machines', 'detail', 'sales', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'sales_manager'   => ['dashboard', 'approvals', 'machines', 'detail', 'sales', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'sales'           => ['dashboard', 'machines', 'detail', 'sales', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'finance_manager' => ['dashboard', 'revenue', 'finance', 'vendor_fees', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'finance'         => ['dashboard', 'revenue', 'finance', 'vendor_fees', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
