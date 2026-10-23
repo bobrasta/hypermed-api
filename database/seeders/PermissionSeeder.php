@@ -272,7 +272,7 @@ class PermissionSeeder extends Seeder
             // 'inventory' already are).
             'vendor_fees',
             // 2026-10-23: Quotations on its own (engineers, without the Sales
-            // menu) and Staff contributions (Director, CTO — not admin).
+            // menu) and Staff contributions (Director — an admin account — and CTO).
             'quotations', 'contributions',
         ];
 
@@ -288,7 +288,7 @@ class PermissionSeeder extends Seeder
 
         $grants = [
             'super_admin'     => $screenKeys,
-            'admin'           => array_values(array_diff($screenKeys, ['contributions'])),
+            'admin'           => $screenKeys,
             'cto'             => ['dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service', 'inventory', 'finance', 'staff', 'my_leave', 'reports', 'settings', 'notifications', 'contributions'],
             // No 'staff' or 'inventory' — a technician does the repair work,
             // not staff task assignment or stock management.
