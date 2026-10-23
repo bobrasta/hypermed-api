@@ -39,6 +39,9 @@ class ShipmentCoaCourierCostBearerTest extends TestCase
         if (! Schema::hasColumn('shipments', 'cost_note')) {
             (require database_path('migrations/2026_10_23_000002_add_cost_note_and_permit_sent_to_shipments.php'))->up();
         }
+        if (! Schema::hasTable('shipment_notify_users')) {
+            (require database_path('migrations/2026_10_23_000003_create_shipment_notify_users_table.php'))->up();
+        }
         Storage::fake('public');
         $this->officer = User::forceCreate([
             'name' => 'Test ship officer', 'email' => 'ship-officer@example.com',

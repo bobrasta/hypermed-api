@@ -65,6 +65,13 @@ class ShipmentController extends Controller
         if ($this->seesAll($r)) {
             return;
         }
+        // People picked to be notified can open that shipment.
+        if ($s && $s->notifyUsers()->whereKey($r->user()->id)->exists()) {
+            return;
+        }
+        if (! $s && Shipment::whereHas('notifyUsers', fn ($q) => $q->whereKey($r->user()->id))->exists()) {
+            return;
+        }
         $depts = $this->managedDepartmentIds($r);
         abort_if($depts === [], 403, 'You do not have access to shipments.');
         abort_if($s && ! in_array($s->department_id, $depts, true), 403, 'This shipment is not tagged to your department.');
@@ -84,7 +91,9 @@ class ShipmentController extends Controller
         $q = Shipment::with(['supplier:id,name', 'carrier:id,name,type', 'permitSentVendor:id,name', 'purchaseOrder:id,po_number', 'department:id,name', 'documents:id,shipment_id,type', 'vendorFee.receipts', 'vendorFee.vendor:id,name', 'vendorFee.deliveryJob'])
             ->latest('updated_at');
         if (! $this->seesAll($request)) {
-            $q->whereIn('department_id', $this->managedDepartmentIds($request));
+            $uid = $request->user()->id;
+            $q->where(fn ($w) => $w->whereIn('department_id', $this->managedDepartmentIds($request))
+                ->orWhereHas('notifyUsers', fn ($u) => $u->whereKey($uid)));
         }
         foreach (['direction', 'department_id'] as $f) {
             if ($request->filled($f)) {
@@ -134,7 +143,9 @@ class ShipmentController extends Controller
             }
         }
 
-        $shipment = DB::transaction(function () use ($request, $data, $files, $numbers) {
+        $notify = $data['notify_user_ids'] ?? [];
+        unset($data['notify_user_ids']);
+        $shipment = DB::transaction(function () use ($request, $data, $files, $numbers, $notify) {
             $shipment = Shipment::create($data + [
                 'reference' => $numbers->next('shipment'),
                 'step' => 1,
@@ -150,6 +161,7 @@ class ShipmentController extends Controller
             if (ShipmentFlow::manufacturerPaid($shipment)) {
                 $this->logNote($shipment, $this->costBearerNote($shipment), $request->user()->id);
             }
+            $this->syncNotifyUsers($request, $shipment, $notify);
 
             return $shipment;
         });
@@ -164,6 +176,8 @@ class ShipmentController extends Controller
     {
         $this->assertManage($request);
         $data = $this->validated($request, false);
+        $notify = array_key_exists('notify_user_ids', $data) ? $data['notify_user_ids'] : null;
+        unset($data['notify_user_ids']);
 
         // A shipment can't be edited into a state its current step forbids
         // (e.g. clearing the control number of a shipment already assessed).
@@ -185,10 +199,13 @@ class ShipmentController extends Controller
         if ($shipment->isDirty('coa_required')) {
             $notes[] = $shipment->coa_required ? 'COA marked required.' : 'COA marked not required for this shipment.';
         }
-        DB::transaction(function () use ($shipment, $notes, $request) {
+        DB::transaction(function () use ($shipment, $notes, $request, $notify) {
             $shipment->save();
             foreach ($notes as $note) {
                 $this->logNote($shipment, $note, $request->user()->id);
+            }
+            if ($notify !== null) {
+                $this->syncNotifyUsers($request, $shipment, $notify);
             }
         });
 
@@ -368,6 +385,7 @@ class ShipmentController extends Controller
                 ->map(fn ($po) => ['id' => $po->id, 'po_number' => $po->po_number, 'supplier_id' => $po->supplier_id,
                     'supplier_name' => $po->supplier?->name, 'status' => $po->status, 'total' => (int) $po->total_amount]),
             'departments' => $this->departmentRows(),
+            'staff' => User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'role']),
             'tenders' => Tender::latest('id')->limit(200)->get(['id', 'tender_number', 'title']),
             // Clearing agents and couriers (DHL, FedEx clear their own) first — the fee here is almost always theirs.
             'vendors' => Vendor::where('is_active', true)->orderByRaw("type in ('clearing','courier') desc")->orderBy('name')->get(['id', 'name', 'type']),
@@ -477,10 +495,16 @@ class ShipmentController extends Controller
             'carrier_vendor_id' => ['nullable', Rule::exists('vendors', 'id')->whereIn('type', ['courier', 'delivery'])],
             ...$this->costBearerRules(),
             'permit_sent_at' => ['nullable', 'date'],
+            // Sent as [] (or omitted on create) to notify nobody extra.
+            'notify_user_ids' => ['sometimes', 'nullable', 'array'],
+            'notify_user_ids.*' => ['integer', Rule::exists('users', 'id')->where('is_active', true)],
             'permit_sent_vendor_id' => ['nullable', Rule::exists('vendors', 'id')->whereIn('type', ['courier', 'delivery'])],
         ]);
         if (isset($data['cost_bearer'])) {
             $data = $this->costBearerFields($data) + $data;
+        }
+        if (array_key_exists('notify_user_ids', $data)) {
+            $data['notify_user_ids'] = array_values(array_unique(array_map('intval', $data['notify_user_ids'] ?? [])));
         }
 
         // A PO's own supplier wins, so the two can't disagree.
@@ -505,6 +529,16 @@ class ShipmentController extends Controller
         }
 
         return $files;
+    }
+
+    /** Who else hears about the shipment; changes go on the audit trail. */
+    private function syncNotifyUsers(Request $request, Shipment $shipment, array $ids): void
+    {
+        $changes = $shipment->notifyUsers()->sync($ids);
+        if ($changes['attached'] || $changes['detached']) {
+            activity()->performedOn($shipment)->causedBy($request->user())
+                ->withProperties(['notify_user_ids' => $ids])->log('people to notify updated');
+        }
     }
 
     /** Who pays: "We pay" (hypermed, the default) or manufacturer-paid, with who paid and an optional note. */
@@ -625,7 +659,7 @@ class ShipmentController extends Controller
 
     private function detail(Request $request, Shipment $s): array
     {
-        $s->load(['supplier:id,name', 'carrier:id,name,type', 'permitSentVendor:id,name', 'purchaseOrder:id,po_number,status,total_amount', 'department.manager:id,name', 'tender:id,tender_number,title',
+        $s->load(['supplier:id,name', 'carrier:id,name,type', 'permitSentVendor:id,name', 'notifyUsers:id,name', 'purchaseOrder:id,po_number,status,total_amount', 'department.manager:id,name', 'tender:id,tender_number,title',
             'documents.uploader:id,name', 'events.user:id,name', 'vendorFee.receipts', 'vendorFee.vendor:id,name',
             'vendorFee.deliveryJob', 'machines:id,serial_no,model,type', 'creator:id,name']);
 
@@ -643,6 +677,7 @@ class ShipmentController extends Controller
             'purchase_order' => $s->purchaseOrder ? ['id' => $s->purchaseOrder->id, 'po_number' => $s->purchaseOrder->po_number,
                 'status' => $s->purchaseOrder->status, 'total' => (int) $s->purchaseOrder->total_amount] : null,
             'department_manager' => $s->department?->manager?->name,
+            'notify_users' => $s->notifyUsers->map(fn ($u) => ['id' => $u->id, 'name' => $u->name])->values(),
             'documents' => collect(ShipmentFlow::allowedDocTypes($s->direction))
                 ->filter(fn ($t) => in_array($t, $required, true) || $docs->has($t) || in_array($t, ['tmda_permit', 'recipient_receipt', 'coa'], true))
                 ->map(fn ($t) => [

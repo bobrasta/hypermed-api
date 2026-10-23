@@ -11,8 +11,7 @@ use App\Services\NotificationTemplateService;
  * Section 18.3: every creation and status change notifies the same
  * role-based list — CTO, MD (super_admin), Sales Manager — plus the manager
  * of the shipment's department, or the procurement lead and admin when that
- * department has no manager set. In-app only: the notification engine has
- * no email channel yet (Section 11 email is deferred).
+ * department has no manager set, plus the people picked on the shipment.
  */
 class ShipmentNotifier
 {
@@ -29,7 +28,9 @@ class ShipmentNotifier
             ? [$manager]
             : User::where('is_active', true)->whereIn('role', self::FALLBACK_ROLES)->pluck('id')->all());
 
-        return array_values(array_unique($ids));
+        $picked = $s->notifyUsers()->where('is_active', true)->pluck('users.id')->all();
+
+        return array_values(array_unique(array_merge($ids, $picked)));
     }
 
     public function created(Shipment $s, User $actor): void

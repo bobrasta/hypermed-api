@@ -93,4 +93,10 @@ class Shipment extends Model
     {
         return $this->belongsToMany(Machine::class);
     }
+
+    /** People picked to be notified of this shipment; they can also open it. */
+    public function notifyUsers()
+    {
+        return $this->belongsToMany(User::class, 'shipment_notify_users');
+    }
 }

@@ -40,6 +40,9 @@ class ShipmentPaymentModeTest extends TestCase
                 (require database_path("migrations/{$migration}.php"))->up();
             }
         }
+        if (! Schema::hasTable('shipment_notify_users')) {
+            (require database_path('migrations/2026_10_23_000003_create_shipment_notify_users_table.php'))->up();
+        }
         Storage::fake('public');
         $this->officer = User::forceCreate([
             'name' => 'Test ship officer', 'email' => 'ship-officer-pay@example.com',
