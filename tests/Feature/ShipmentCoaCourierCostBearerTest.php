@@ -104,6 +104,15 @@ class ShipmentCoaCourierCostBearerTest extends TestCase
         $this->postJson("/api/v1/shipments/{$without['id']}/status", ['step' => 2])->assertOk();
     }
 
+    /** The desktop app posts the create form as multipart, so booleans arrive as "true"/"false". */
+    public function test_multipart_true_false_strings_are_accepted(): void
+    {
+        $off = $this->create(['coa_required' => 'false']);
+        $this->assertFalse($off['coa_required']);
+        $on = $this->create(['coa_required' => 'true']);
+        $this->assertTrue($on['coa_required']);
+    }
+
     public function test_manufacturer_paid_skips_payment_gates_and_logs_who_paid(): void
     {
         $s = $this->create(['coa_required' => false]);

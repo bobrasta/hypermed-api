@@ -451,6 +451,11 @@ class ShipmentController extends Controller
 
     private function validated(Request $request, bool $creating): array
     {
+        // The create form is multipart (it carries the documents), so the
+        // apps' booleans arrive as "true"/"false", which `boolean` rejects.
+        if (in_array($request->input('coa_required'), ['true', 'false'], true)) {
+            $request->merge(['coa_required' => $request->input('coa_required') === 'true']);
+        }
         $data = $request->validate([
             'direction' => [$creating ? 'required' : 'prohibited', Rule::in(['import', 'export'])],
             'freight_mode' => [$creating ? 'required' : 'sometimes', Rule::in(['air', 'sea', 'road'])],
