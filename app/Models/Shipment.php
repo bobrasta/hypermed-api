@@ -20,6 +20,7 @@ class Shipment extends Model
         'outbound_reason', 'department_id', 'tender_id', 'expected_arrival', 'port', 'location_notes',
         'step', 'tmda_application_ref', 'tmda_applied_at', 'tmda_issued_at', 'control_number',
         'vendor_fee_id', 'created_by', 'coa_required', 'carrier_vendor_id', 'cost_bearer', 'paid_by',
+        'goods_category',
     ];
 
     protected $casts = [

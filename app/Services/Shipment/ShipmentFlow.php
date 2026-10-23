@@ -102,9 +102,14 @@ class ShipmentFlow
     /**
      * Documents the shipment must carry before it can move past step 1. The
      * COA is per shipment: switched off, it is not applicable at all.
+     * Non-medical goods have no required documents: uploads are optional.
      */
-    public static function requiredDocTypes(string $direction, string $freightMode, bool $coaRequired = true): array
+    public static function requiredDocTypes(string $direction, string $freightMode, bool $coaRequired = true, string $goodsCategory = 'medical'): array
     {
+        if ($goodsCategory === 'non_medical') {
+            return [];
+        }
+
         return array_values(array_filter([
             $freightMode === 'air' ? 'air_waybill' : 'bill_of_lading',
             'packing_list',
@@ -115,7 +120,13 @@ class ShipmentFlow
 
     public static function requiredFor(Shipment $s): array
     {
-        return self::requiredDocTypes($s->direction, $s->freight_mode, $s->coa_required ?? true);
+        return self::requiredDocTypes($s->direction, $s->freight_mode, $s->coa_required ?? true, $s->goods_category ?? 'medical');
+    }
+
+    /** Non-medical goods: every document is optional and there is no TMDA permit to wait for. */
+    public static function nonMedical(Shipment $s): bool
+    {
+        return $s->goods_category === 'non_medical';
     }
 
     /** Paid by the manufacturer: no clearing cost to HyperMed, so no control number or payment to wait for. */
@@ -155,22 +166,25 @@ class ShipmentFlow
         }
 
         if ($s->direction === 'export') {
-            if ($target >= 4 && ! $s->documents->contains('type', 'recipient_receipt')) {
+            if ($target >= 4 && ! self::nonMedical($s) && ! $s->documents->contains('type', 'recipient_receipt')) {
                 return "Upload the signed receipt from the recipient before marking it {$name(4)}.";
             }
 
             return null;
         }
 
-        if ($target >= self::STEP_PERMIT_APPLIED && ! $s->tmda_application_ref) {
-            return "Enter the TMDA permit application reference before {$name(self::STEP_PERMIT_APPLIED)}.";
-        }
-        if ($target === self::STEP_PERMIT_ISSUED && ! $s->tmda_issued_at) {
-            return "Enter the date the TMDA permit was issued before {$name(self::STEP_PERMIT_ISSUED)}.";
-        }
-        if ($target >= self::STEP_TO_CLEARING_AGENT && $cfg['permit_gate'] && ! $s->tmda_issued_at) {
-            return "Documents can't go to the clearing agent until the TMDA permit is issued (step "
-                . self::STEP_PERMIT_ISSUED . '). This rule can be switched off in Shipments settings.';
+        // No TMDA permit for non-medical goods; the payment gates below still apply.
+        if (! self::nonMedical($s)) {
+            if ($target >= self::STEP_PERMIT_APPLIED && ! $s->tmda_application_ref) {
+                return "Enter the TMDA permit application reference before {$name(self::STEP_PERMIT_APPLIED)}.";
+            }
+            if ($target === self::STEP_PERMIT_ISSUED && ! $s->tmda_issued_at) {
+                return "Enter the date the TMDA permit was issued before {$name(self::STEP_PERMIT_ISSUED)}.";
+            }
+            if ($target >= self::STEP_TO_CLEARING_AGENT && $cfg['permit_gate'] && ! $s->tmda_issued_at) {
+                return "Documents can't go to the clearing agent until the TMDA permit is issued (step "
+                    . self::STEP_PERMIT_ISSUED . '). This rule can be switched off in Shipments settings.';
+            }
         }
         if (self::manufacturerPaid($s)) {
             return null;

@@ -105,7 +105,7 @@ class ShipmentController extends Controller
             'counts' => [
                 'active' => $rows->where('flag', '!=', 'done')->count(),
                 'needs_action' => $rows->whereIn('flag', ['action', 'blocked'])->count(),
-                'awaiting_permit' => $rows->filter(fn ($r) => $r['direction'] === 'import' && $r['step'] >= 3 && $r['step'] <= 5 && $r['flag'] !== 'done')->count(),
+                'awaiting_permit' => $rows->filter(fn ($r) => $r['direction'] === 'import' && $r['goods_category'] === 'medical' && $r['step'] >= 3 && $r['step'] <= 5 && $r['flag'] !== 'done')->count(),
                 'done' => $rows->where('flag', 'done')->count(),
             ],
             'can_manage' => $this->canManage($request),
@@ -127,7 +127,7 @@ class ShipmentController extends Controller
         $files = $this->validatedFiles($request, $data['direction']);
 
         if ($this->flow->settings()['docs_required_at_creation']) {
-            $missing = array_diff(ShipmentFlow::requiredDocTypes($data['direction'], $data['freight_mode'], $data['coa_required'] ?? true), array_keys($files));
+            $missing = array_diff(ShipmentFlow::requiredDocTypes($data['direction'], $data['freight_mode'], $data['coa_required'] ?? true, $data['goods_category'] ?? 'medical'), array_keys($files));
             if ($missing) {
                 throw ValidationException::withMessages(['documents' => 'All shipping documents are required at creation: '
                     . implode(', ', array_map(fn ($t) => ShipmentFlow::DOC_LABELS[$t], $missing)) . '.']);
@@ -176,6 +176,11 @@ class ShipmentController extends Controller
         $notes = [];
         if ($shipment->isDirty('cost_bearer') || ($shipment->cost_bearer === 'manufacturer' && $shipment->isDirty('paid_by'))) {
             $notes[] = $this->costBearerNote($shipment);
+        }
+        if ($shipment->isDirty('goods_category')) {
+            $notes[] = ShipmentFlow::nonMedical($shipment)
+                ? 'Marked non-medical goods — documents are optional and no TMDA permit is needed.'
+                : 'Marked medical devices / reagents — the document checklist and TMDA permit apply.';
         }
         if ($shipment->isDirty('coa_required')) {
             $notes[] = $shipment->coa_required ? 'COA marked required.' : 'COA marked not required for this shipment.';
@@ -447,6 +452,7 @@ class ShipmentController extends Controller
             'tmda_issued_at' => ['nullable', 'date'],
             'control_number' => ['nullable', 'string', 'max:120'],
             'coa_required' => ['sometimes', 'boolean'],
+            'goods_category' => ['sometimes', Rule::in(['medical', 'non_medical'])],
             'carrier_vendor_id' => ['nullable', Rule::exists('vendors', 'id')->whereIn('type', ['courier', 'delivery'])],
             'cost_bearer' => ['sometimes', Rule::in(['hypermed', 'manufacturer'])],
             'paid_by' => ['nullable', 'required_if:cost_bearer,manufacturer', 'string', 'max:120'],
@@ -543,12 +549,13 @@ class ShipmentController extends Controller
             'location_notes' => $s->location_notes,
             'fee_status' => $s->vendorFee?->status,
             'coa_required' => (bool) $s->coa_required,
+            'goods_category' => $s->goods_category ?? 'medical',
             'cost_bearer' => $s->cost_bearer,
             'paid_by' => $s->paid_by,
             'carrier_vendor_id' => $s->carrier_vendor_id,
             'carrier_name' => $s->carrier?->name,
-            // For the TMDA Permits and Clearing Fees lists.
-            'tmda' => $s->direction === 'import' ? [
+            // For the TMDA Permits and Clearing Fees lists. Non-medical goods need no permit.
+            'tmda' => $s->direction === 'import' && ! ShipmentFlow::nonMedical($s) ? [
                 'application_ref' => $s->tmda_application_ref,
                 'applied_at' => $s->tmda_applied_at?->toDateString(),
                 'issued_at' => $s->tmda_issued_at?->toDateString(),
@@ -586,8 +593,10 @@ class ShipmentController extends Controller
                     'type' => $t,
                     'label' => ShipmentFlow::DOC_LABELS[$t],
                     'required' => in_array($t, $required, true),
-                    // COA switched off for this shipment: shown, but not applicable.
-                    'not_applicable' => $t === 'coa' && ! $s->coa_required,
+                    // COA switched off for this shipment, or TMDA papers for
+                    // non-medical goods: shown, but not applicable.
+                    'not_applicable' => ($t === 'coa' && (! $s->coa_required || ShipmentFlow::nonMedical($s)))
+                        || ($t === 'tmda_permit' && ShipmentFlow::nonMedical($s)),
                     'file_name' => $docs->get($t)?->original_name,
                     'uploaded_by' => $docs->get($t)?->uploader?->name,
                     'uploaded_at' => $docs->get($t)?->updated_at?->toIso8601String(),
