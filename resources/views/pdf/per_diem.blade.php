@@ -45,6 +45,8 @@
 </head>
 <body>
 
+{{-- On the Hypermed letterhead (DocumentPdfService::fromView) the letterhead, title box and details strip replace this header. --}}
+@unless (! empty($letterhead))
 <table class="header-table">
     <tr>
         <td style="width: 60%;">
@@ -60,6 +62,7 @@
 </table>
 
 <div class="doc-title">Work Plan — Travel Plan #{{ $plan->id }}</div>
+@endunless
 <div class="doc-number">
     Generated {{ now()->format('d M Y, H:i') }}
     @if($plan->revisions->isNotEmpty())

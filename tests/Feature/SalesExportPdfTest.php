@@ -21,7 +21,7 @@ class SalesExportPdfTest extends TestCase
         $pdf = app(SalesExportService::class)->pdf($this->rows(120), 'test', ['total' => 1, 'paid' => 1, 'due' => 1]);
 
         $this->assertStringStartsWith('%PDF', $pdf);
-        // 120 rows = 4 chunks of 36; a chunk that overflowed its page would add pages.
+        // 120 rows = 26 on page 1 (it also carries the letterhead) + 36 + 36 + 22; a chunk that overflowed its page would add pages.
         $this->assertSame(4, preg_match_all('#/Type\s*/Page[^s]#', $pdf));
     }
 

@@ -99,7 +99,7 @@ class AuthController extends Controller
                 ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'])->deleteFileAfterSend();
         }
 
-        return $export->pdf($user)->download("my-data-{$slug}-{$date}.pdf");
+        return $export->pdf($user, "my-data-{$slug}-{$date}.pdf");
     }
 
     public function updateAvatar(Request $request)

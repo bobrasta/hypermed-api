@@ -30,6 +30,8 @@
 </head>
 <body>
 
+{{-- On the Hypermed letterhead (DocumentPdfService::fromView) the letterhead, title box and details strip replace this header. --}}
+@unless (! empty($letterhead))
 <table class="header-table">
     <tr>
         <td style="width: 60%;">
@@ -46,6 +48,7 @@
 
 <div class="doc-title">HR REPORT</div>
 <div class="doc-number">Generated {{ $generatedAt->format('d M Y, H:i') }} &nbsp;·&nbsp; {{ $year }}</div>
+@endunless
 
 <table class="kpi-table">
     <tr>

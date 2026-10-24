@@ -364,11 +364,45 @@ class DocumentPdfService
         return $html;
     }
 
-    public function hrReportPdf(array $data): PdfInstance
+    public function hrReportPdf(array $data, string $filename): Response
     {
-        return Pdf::loadView('pdf.hr_report', array_merge($data, [
-            'company' => config('company'),
-        ]))->setPaper('a4');
+        return $this->fromView('pdf.hr_report', $data, [
+            'title' => 'HR REPORT', 'docLabel' => 'Year', 'docNumber' => (string) $data['year'],
+            'date' => $data['generatedAt']->format('d M Y'), 'tag' => 'HEADCOUNT · LEAVE · CONTRACTS · ATTENDANCE · RECRUITMENT',
+            'metaCells' => [['PREPARED FOR', 'Management', true], ['GENERATED', $data['generatedAt']->format('d M Y, H:i')], ['YEAR', (string) $data['year']]],
+            'filename' => $filename,
+        ]);
+    }
+
+    /**
+     * Any document on the Hypermed letterhead (2026-10-24, user: "every
+     * export should have the standard or derivative of the Hypermed
+     * template used in invoices"): the invoice's navy band, lockup
+     * letterhead, title + number box, details strip, watermark and company
+     * footer around $d['bodyHtml'].
+     *
+     * @param array{title:string,docLabel:string,docNumber:string,date:string,tag:string,
+     *              metaCells:array<array{0:string,1:string,2?:bool}>,bodyHtml:string,
+     *              filename:string,extraCss?:string,signature?:string,download?:bool} $d
+     */
+    public function letterhead(array $d): Response
+    {
+        return $this->render($d + ['generic' => true, 'client' => [], 'currency' => '', 'currencyCode' => '']);
+    }
+
+    /**
+     * A Blade PDF view on the letterhead: renders it with $letterhead = true
+     * (its own header is skipped), keeps its styles minus page/body rules
+     * (the letterhead's fonts and margins win) and its body as the content.
+     */
+    public function fromView(string $view, array $data, array $d): Response
+    {
+        $html = view($view, $data + ['company' => config('company'), 'letterhead' => true])->render();
+        preg_match_all('#<style[^>]*>(.*?)</style>#si', $html, $styles);
+        $css = preg_replace(['#@page\s*\{[^}]*\}#i', '#(^|\})\s*(html\s*,\s*)?body\s*\{[^}]*\}#i'], ['', '$1'], implode("\n", $styles[1]));
+        $body = preg_match('#<body[^>]*>(.*)</body>#si', $html, $m) ? $m[1] : $html;
+
+        return $this->letterhead($d + ['bodyHtml' => "<div style='margin-top:14px'>{$body}</div>", 'extraCss' => $css]);
     }
 
     // Section 7: "the plan PDF always reflects the latest version, marks
@@ -376,7 +410,7 @@ class DocumentPdfService
     // directly (not a pre-shaped array like hrReportPdf) since there's no
     // separate report-building step — the plan's own current state and
     // relations are the whole document.
-    public function perDiemPdf(\App\Models\PerDiemRequest $perDiemRequest, bool $viewerCanSeeFullPayment = false): PdfInstance
+    public function perDiemPdf(\App\Models\PerDiemRequest $perDiemRequest, bool $viewerCanSeeFullPayment = false, ?string $filename = null): Response
     {
         $perDiemRequest->loadMissing([
             'user', 'lines', 'reviewer', 'teamLeadReviewer', 'paymentInitiatedBy', 'paidBy',
@@ -385,20 +419,30 @@ class DocumentPdfService
 
         // Section 15.4/15.5: same layout, order and computed numbers as
         // the XLSX export and in-app viewer, so the three never disagree.
-        return Pdf::loadView('pdf.per_diem', [
+        return $this->fromView('pdf.per_diem', [
             'plan'             => $perDiemRequest,
-            'company'          => config('company'),
             'summary'          => $perDiemRequest->summary(),
             'signatureBlock'   => app(PerDiemSignatureBlockService::class)->build($perDiemRequest),
             'canSeeFullPayment' => $viewerCanSeeFullPayment,
-        ])->setPaper('a4');
+        ], [
+            'title' => 'WORK PLAN', 'docLabel' => 'Travel plan', 'docNumber' => '#' . $perDiemRequest->id,
+            'date' => now()->format('d M Y'), 'tag' => 'TRAVEL PLAN · PER DIEM · ' . strtoupper(str_replace('_', ' ', (string) $perDiemRequest->status)),
+            'metaCells' => [['STAFF MEMBER', $perDiemRequest->user?->name ?? '—', true], ['GENERATED', now()->format('d M Y, H:i')],
+                ['STATUS', ucwords(str_replace('_', ' ', (string) $perDiemRequest->status))]],
+            'filename' => $filename ?? "travel-plan-{$perDiemRequest->id}.pdf",
+        ]);
     }
 
-    public function payslipPdf(array $data): PdfInstance
+    public function payslipPdf(array $data, string $filename): Response
     {
-        return Pdf::loadView('pdf.payslip', array_merge($data, [
-            'company' => config('company'),
-        ]))->setPaper('a4');
+        $u = $data['user'];
+
+        return $this->fromView('pdf.payslip', $data, [
+            'title' => 'PAYSLIP', 'docLabel' => 'Period', 'docNumber' => $data['periodLabel'],
+            'date' => $data['paidAt'] ?? now()->format('d M Y'), 'tag' => 'CONFIDENTIAL · ' . strtoupper($data['periodLabel']),
+            'metaCells' => [['EMPLOYEE', $u->name, true], ['POSITION', $u->position?->title ?? '—'], ['PAID', $data['paidAt'] ?? 'Not yet paid']],
+            'filename' => $filename,
+        ]);
     }
 
     // The items table's QTY column is narrow (design-matched to the
@@ -505,6 +549,7 @@ class DocumentPdfService
         $addr = $lh['display_lines'];
         $delivery = ! empty($d['delivery']);
         $statement = ! empty($d['statement']);
+        $generic = ! empty($d['generic']);
 
         // (A) STYLES
         $style = "
@@ -586,7 +631,7 @@ class DocumentPdfService
           .sigline-table { width:100%; border-collapse:collapse; }
           .sigline-table td.sigline-cell { border-bottom:1px solid #1d1f20; padding:40px 0 0; font-size:1px; line-height:1px; }
           .sigline-table td.sigcol-lbl { padding:5px 0 0; font-weight:700; font-size:7pt; letter-spacing:1px; color:#416180; white-space:nowrap; }
-        </style>";
+        </style>" . (! empty($d['extraCss']) ? '<style>' . $d['extraCss'] . '</style>' : '');
 
         // (B) HEADER — slim navy band, repeats on every page.
         $headerHtml = "<table style='width:100%; border-collapse:collapse; background:#1d2d3d;'><tr>"
@@ -644,6 +689,18 @@ class DocumentPdfService
         $tinLines = array_values(array_filter($client, fn ($l) => str_starts_with((string) $l, 'TIN')));
         $contact = array_values(array_diff($client, $tinLines));
         $addressLines = array_merge($d['clientAddress'] ?? [], $tinLines);
+        if ($generic) {
+            // Generic letterhead documents: their own details strip.
+            $cells = $d['metaCells'] ?? [];
+            $html .= "<table id='meta'><tr>";
+            foreach ($cells as $i => $cell) {
+                $w = $i === 0 ? 42 : round(58 / max(1, count($cells) - 1));
+                $html .= "<td style='width:{$w}%'><div class='meta-lbl'><strong>" . e($cell[0]) . '</strong></div><br>'
+                    . (! empty($cell[2]) ? "<div class='meta-bigval'><strong>" . e($cell[1]) . '</strong></div>' : "<div class='meta-val'>" . e($cell[1]) . '</div>')
+                    . '</td>';
+            }
+            $html .= '</tr></table>';
+        } else {
         $html .= "<table id='meta'><tr><td style='width:42%'>"
             . "<div class='meta-lbl'><strong>" . ($delivery ? 'DELIVER TO' : ($statement ? 'STATEMENT FOR' : 'BILLED TO')) . "</strong></div><br>"
             . "<div class='meta-bigval'><strong>" . e($clientName) . '</strong></div>'
@@ -661,8 +718,15 @@ class DocumentPdfService
                 ? ''
                 : "<td style='width:29%'><div class='meta-lbl'><strong>CURRENCY</strong></div><br><div class='meta-val'>" . e($d['currency']) . '</div></td>')
             . '</tr></table>';
+        }
 
-        if ($delivery) {
+        if ($generic) {
+            $html .= $d['bodyHtml'];
+            if (! empty($d['signature'])) {
+                $html .= "<table id='footrow'><tr><td class='bankcell'>&nbsp;</td><td class='sigcell'><table class='sigline-table'>"
+                    . "<tr><td class='sigline-cell'>&nbsp;</td></tr><tr><td class='sigcol-lbl'><strong>" . e($d['signature']) . '</strong></td></tr></table></td></tr></table>';
+            }
+        } elseif ($delivery) {
             $html .= $this->deliveryNoteBody($d);
         } elseif (! empty($d['creditorStatement'])) {
             $html .= $this->creditorStatementBody($d);
@@ -763,7 +827,7 @@ class DocumentPdfService
 
         return response($mpdf->Output($d['filename'], \Mpdf\Output\Destination::STRING_RETURN), 200, [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'inline; filename="' . $d['filename'] . '"',
+            'Content-Disposition' => (! empty($d['download']) ? 'attachment' : 'inline') . '; filename="' . $d['filename'] . '"',
         ]);
     }
 }

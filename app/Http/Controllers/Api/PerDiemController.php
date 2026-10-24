@@ -406,7 +406,7 @@ class PerDiemController extends Controller
 
         activity()->causedBy($user)->performedOn($perDiemRequest)->log('exported per-diem travel plan as PDF');
 
-        return $pdfService->perDiemPdf($perDiemRequest, $canSeeFullPayment)->stream("travel-plan-{$perDiemRequest->id}.pdf");
+        return $pdfService->perDiemPdf($perDiemRequest, $canSeeFullPayment, "travel-plan-{$perDiemRequest->id}.pdf");
     }
 
     // Section 15.5/15.8: same ownership/authority gate as show()/pdf() —

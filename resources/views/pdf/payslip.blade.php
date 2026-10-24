@@ -27,13 +27,15 @@
     .net-pay-table td { padding: 10px 12px; }
     .net-pay-table .lbl { font-size: 11px; text-transform: uppercase; color: #fff; opacity: 0.85; }
     .net-pay-table .val { font-size: 18px; font-weight: bold; color: #fff; text-align: right; }
-    .net-pay-box { background: {{ $company['brand_color'] }}; }
+    .net-pay-box { background: {{ ! empty($letterhead) ? '#1d2d3d' : $company['brand_color'] }}; }
     .muted { color: #999; font-size: 10px; }
     .footer { margin-top: 24px; padding-top: 10px; border-top: 1px solid #eee; font-size: 9px; color: #999; text-align: center; }
 </style>
 </head>
 <body>
 
+{{-- On the Hypermed letterhead (DocumentPdfService::fromView) the letterhead, title box and details strip replace this header. --}}
+@unless (! empty($letterhead))
 <table class="header-table">
     <tr>
         <td style="width: 60%;">
@@ -50,6 +52,7 @@
 
 <div class="doc-title">PAYSLIP</div>
 <div class="doc-number">{{ $periodLabel }}</div>
+@endunless
 
 <table class="employee-table">
     <tr>

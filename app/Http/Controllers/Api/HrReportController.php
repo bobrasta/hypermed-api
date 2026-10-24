@@ -369,7 +369,7 @@ class HrReportController extends Controller
 
         $ytdRuns = PayrollRun::whereYear('created_at', $year)->get();
 
-        $pdf = $pdfService->hrReportPdf([
+        return $pdfService->hrReportPdf([
             'generatedAt'      => now(),
             'year'             => $year,
             'headcount'        => $staff->count(),
@@ -387,8 +387,6 @@ class HrReportController extends Controller
             'openCases'        => $openCases,
             'payrollRunsYtd'   => $ytdRuns->count(),
             'payrollNetYtd'    => $ytdRuns->sum('net_total'),
-        ]);
-
-        return $pdf->stream('hr-report-' . now()->format('Y-m-d') . '.pdf');
+        ], 'hr-report-' . now()->format('Y-m-d') . '.pdf');
     }
 }

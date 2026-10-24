@@ -421,14 +421,12 @@ class PayrollController extends Controller
 
         $item = PayrollItem::where('payroll_run_id', $payrollRun->id)->where('user_id', $user->id)->firstOrFail();
 
-        $pdf = $pdfService->payslipPdf([
+        return $pdfService->payslipPdf([
             'user'        => $user->load('position'),
             'item'        => $item,
             'periodLabel' => self::MONTH_NAMES[$payrollRun->period_month] . ' ' . $payrollRun->period_year,
             'paidAt'      => $payrollRun->paid_at?->format('d M Y'),
-        ]);
-
-        return $pdf->stream("payslip-{$user->id}-{$payrollRun->period_year}-{$payrollRun->period_month}.pdf");
+        ], "payslip-{$user->id}-{$payrollRun->period_year}-{$payrollRun->period_month}.pdf");
     }
 
     // Signed, time-limited link to the payslip PDF — lets the Flutter app

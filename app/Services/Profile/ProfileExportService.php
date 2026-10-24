@@ -7,7 +7,6 @@ use App\Models\LeaveRequest;
 use App\Models\PayrollItem;
 use App\Models\SalaryAdjustment;
 use App\Models\User;
-use Barryvdh\DomPDF\Facade\Pdf;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
@@ -75,11 +74,46 @@ class ProfileExportService
         ];
     }
 
-    public function pdf(User $u)
+    /** On the Hypermed letterhead, like invoices and statements. */
+    public function pdf(User $u, string $filename)
     {
-        return Pdf::loadView('pdf.profile_export', [
-            'user' => $u, 'sections' => $this->sections($u), 'company' => config('company'), 'generated' => now(),
-        ])->setPaper('a4');
+        $e = fn ($v) => e((string) $v);
+        $th = "style='text-align:left; font-size:7pt; font-weight:700; letter-spacing:0.5px; padding:7px 6px; background:#e7e7ea; border-bottom:1px solid #1d1f20; white-space:nowrap;'";
+        $td = "style='padding:6px; font-size:8.5pt; border-bottom:1px solid #ddd; vertical-align:top;'";
+        $body = '';
+        foreach ($this->sections($u) as $s) {
+            $body .= "<div style='margin-top:18px'><div class='terms-h'><strong>" . $e(strtoupper($s['title'])) . '</strong></div>';
+            if (isset($s['pairs'])) {
+                $body .= "<table style='width:100%; border-collapse:collapse; margin-top:4px'>";
+                foreach ($s['pairs'] as $k => $v) {
+                    $body .= "<tr><td style='width:34%; padding:5px 0; font-size:8.5pt; color:#5d5d60; border-bottom:1px solid #eee; vertical-align:top'>" . $e($k)
+                        . "</td><td style='padding:5px 0; font-size:9pt; border-bottom:1px solid #eee; vertical-align:top'>" . $e($v) . '</td></tr>';
+                }
+                $body .= '</table>';
+            } elseif (empty($s['rows'])) {
+                $body .= "<div style='padding-top:8px; font-size:8.5pt; color:#7a7a7d'>None on record.</div>";
+            } else {
+                $body .= "<table style='width:100%; border-collapse:collapse; margin-top:6px'><tr>";
+                foreach ($s['columns'] as $c) {
+                    $body .= "<th {$th}>" . $e(strtoupper($c)) . '</th>';
+                }
+                $body .= '</tr>';
+                foreach ($s['rows'] as $row) {
+                    $body .= '<tr>' . implode('', array_map(fn ($c) => "<td {$td}>" . $e($c) . '</td>', $row)) . '</tr>';
+                }
+                $body .= '</table>';
+            }
+            $body .= '</div>';
+        }
+        $body .= "<div style='margin-top:20px; font-size:8pt; color:#7a7a7d'>Everything Hypermed's system holds about "
+            . $e($u->name) . ' as at ' . now()->format('d M Y, H:i') . '. Confidential — for the named person only.</div>';
+
+        return app(\App\Services\DocumentPdfService::class)->letterhead([
+            'title' => 'PERSONAL DATA', 'docLabel' => 'Staff', 'docNumber' => 'HM-' . str_pad((string) $u->id, 4, '0', STR_PAD_LEFT),
+            'date' => now()->format('d M Y'), 'tag' => 'CONFIDENTIAL · DATA EXPORT FOR ' . strtoupper($u->name),
+            'metaCells' => [['EXPORTED FOR', $u->name, true], ['ROLE', strtoupper(str_replace('_', ' ', (string) $u->role))], ['DATE', now()->format('d M Y, H:i')]],
+            'bodyHtml' => $body, 'filename' => $filename, 'download' => true,
+        ]);
     }
 
     /** One sheet per section. */

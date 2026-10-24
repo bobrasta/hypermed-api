@@ -16,7 +16,8 @@
     .facts .k { color: #888; width: 90px; text-transform: uppercase; font-size: 8.5px; letter-spacing: 0.3px; padding-top: 6px; }
     .section-title { font-size: 10.5px; text-transform: uppercase; color: #888; margin: 18px 0 6px; letter-spacing: 0.4px;
         border-bottom: 1px solid #ddd; padding-bottom: 4px; }
-    .prose { white-space: pre-wrap; line-height: 1.5; }
+    /* line breaks via nl2br — mPDF (the letterhead renderer) ignores pre-wrap */
+    .prose { line-height: 1.5; }
     table.data { width: 100%; border-collapse: collapse; margin-top: 4px; }
     table.data th { background: #f4f4f4; text-align: left; padding: 6px 8px; font-size: 9px;
         text-transform: uppercase; color: #555; border-bottom: 1px solid #ddd; }
@@ -34,6 +35,8 @@
     $itemLabel = ['done' => 'Done', 'in_progress' => 'In progress', 'open' => 'Open', 'overdue' => 'Overdue'];
 @endphp
 
+{{-- On the Hypermed letterhead (DocumentPdfService::fromView) the letterhead, title box and details strip replace this header. --}}
+@unless (! empty($letterhead))
 <table class="header-table">
     <tr>
         <td style="width: 60%;">
@@ -49,6 +52,7 @@
 </table>
 
 <div class="doc-title">MINUTES OF MEETING</div>
+@endunless
 <div class="doc-sub">{{ $meeting->title }}</div>
 
 <table class="facts">
@@ -83,15 +87,15 @@
 
 @if (filled($meeting->agenda))
 <div class="section-title">Agenda</div>
-<div class="prose">{{ $meeting->agenda }}</div>
+<div class="prose">{!! nl2br(e($meeting->agenda)) !!}</div>
 @endif
 
 <div class="section-title">Minutes</div>
-<div class="prose">{{ filled($meeting->minutes) ? $meeting->minutes : '—' }}</div>
+<div class="prose">{!! filled($meeting->minutes) ? nl2br(e($meeting->minutes)) : '—' !!}</div>
 
 @if (filled($meeting->decisions))
 <div class="section-title">Decisions</div>
-<div class="prose">{{ $meeting->decisions }}</div>
+<div class="prose">{!! nl2br(e($meeting->decisions)) !!}</div>
 @endif
 
 <div class="section-title">Action items</div>

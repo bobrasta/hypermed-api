@@ -187,11 +187,15 @@ class MeetingController extends Controller
 
         $meeting->load(['attendees.user:id,name', 'actionItems.owner:id,name', 'actionItems.task', 'chair:id,name', 'secretary:id,name', 'department:id,name']);
 
-        return Pdf::loadView('pdf.meeting_minutes', [
-            'meeting' => $meeting,
-            'company' => config('company'),
-            'generatedAt' => now(),
-        ])->setPaper('a4')->download('Minutes - ' . Str::slug($meeting->title) . ' - ' . $meeting->starts_at->format('Y-m-d') . '.pdf');
+        return app(\App\Services\DocumentPdfService::class)->fromView('pdf.meeting_minutes', [
+            'meeting' => $meeting, 'generatedAt' => now(),
+        ], [
+            'title' => 'MINUTES', 'docLabel' => 'Meeting date', 'docNumber' => $meeting->starts_at->format('d M Y'),
+            'date' => now()->format('d M Y'), 'tag' => strtoupper(str_replace('_', ' ', (string) $meeting->category)) . ' · ' . strtoupper(str_replace('_', ' ', (string) $meeting->status)),
+            'metaCells' => [['MEETING', $meeting->title, true], ['CHAIR', $meeting->chair?->name ?? '—'], ['SECRETARY', $meeting->secretary?->name ?? '—']],
+            'filename' => 'Minutes - ' . Str::slug($meeting->title) . ' - ' . $meeting->starts_at->format('Y-m-d') . '.pdf',
+            'download' => true,
+        ]);
     }
 
     // ── Action items (each is a task on the owner's board) ──────────────────
