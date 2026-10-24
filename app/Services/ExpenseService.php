@@ -123,6 +123,12 @@ class ExpenseService
         return ['status' => $requiresDirector ? 'pending_director' : 'pending_cto', 'approver_id' => null];
     }
 
+    /** Tells whoever it now waits on (manager stage, or the Director stage). */
+    public function notifyApprover(Expense $expense): void
+    {
+        $this->notifySubmitted($expense);
+    }
+
     private function notifySubmitted(Expense $expense): void
     {
         $name = $expense->createdBy?->name ?? 'A staff member';

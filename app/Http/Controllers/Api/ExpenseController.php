@@ -291,6 +291,22 @@ class ExpenseController extends Controller
         if ($expense->status === 'pending_manager') {
             $this->abortUnlessManagerStage($expense, $user);
             $this->abortIfSelfActioning($expense, $request);
+            // A team leader only filters (2026-10-24: "Yusuph only acts as a
+            // filter for any unnecessary requests"): passing it sends it to
+            // their own manager (Sharif), whose approval is the real one.
+            $filter = $expense->approver;
+            if ($filter && $filter->id === $user->id && $filter->role === 'team_leader' && ! $user->hasFinalMoneyAuthority()) {
+                $next = $filter->manager_id ? User::where('is_active', true)->find($filter->manager_id) : null;
+                if ($next && $next->id !== $expense->created_by) {
+                    $expense->update($next->isDirector()
+                        ? ['status' => 'pending_director', 'approver_id' => $next->id]
+                        : ['approver_id' => $next->id]);
+                    ApprovalLog::record($expense, 'approved', $user, "Passed by {$user->name} (team leader) — on to {$next->name}.");
+                    app(ExpenseService::class)->notifyApprover($expense->fresh());
+
+                    return response()->json(['data' => new ExpenseResource($expense->fresh()->load(['category', 'createdBy', 'approver']))]);
+                }
+            }
             // Director-only category or over the safety net: the manager's
             // yes sends it on to the Director rather than to Finance.
             if ($expense->requires_director_approval && ! $user->hasFinalMoneyAuthority()) {

@@ -106,6 +106,34 @@ class LineManagerExpenseApprovalTest extends TestCase
         $this->assertSame('pending_cto', $this->submit($loner)['status']);
     }
 
+    /** "Yusuph only acts as a filter": a team leader passes it on to their manager, who approves. */
+    public function test_team_leader_filters_then_their_manager_approves(): void
+    {
+        $sharif = $this->user('Sharif LM', 'cto', $this->director);
+        $yusuph = $this->user('Yusuph LM', 'team_leader', $sharif);
+        $tech = $this->user('Technician LM', 'technician', $yusuph);
+
+        $e = $this->submit($tech);
+        $this->assertSame(['pending_manager', $yusuph->id, true], [$e['status'], $e['approver_id'], $e['approver_is_filter']]);
+        $this->assertSame('Sharif LM', $e['next_approver_name']);
+
+        Sanctum::actingAs($yusuph);
+        $r = $this->postJson("/api/v1/expenses/{$e['id']}/approve")->assertOk()->json('data');
+        $this->assertSame(['pending_manager', $sharif->id, false], [$r['status'], $r['approver_id'], $r['approver_is_filter']]);
+        $this->assertTrue(AppNotification::where('user_id', $sharif->id)->where('entity_id', $e['id'])->exists());
+        $this->postJson("/api/v1/expenses/{$e['id']}/approve")->assertForbidden(); // passed on: no longer his
+
+        Sanctum::actingAs($sharif);
+        $this->assertSame('pending_payment', $this->postJson("/api/v1/expenses/{$e['id']}/approve")->assertOk()->json('data.status'));
+
+        // Yusuph's own expense goes straight to Sharif; a filter can also reject.
+        $own = $this->submit($yusuph);
+        $this->assertSame([$sharif->id, false], [$own['approver_id'], $own['approver_is_filter']]);
+        $junk = $this->submit($tech);
+        Sanctum::actingAs($yusuph);
+        $this->postJson("/api/v1/expenses/{$junk['id']}/reject", ['rejection_reason' => 'Not needed'])->assertOk();
+    }
+
     public function test_manager_can_reject_and_requester_is_told(): void
     {
         $e = $this->submit($this->florian);

@@ -440,7 +440,9 @@ class User extends Authenticatable
     // approval-log rows with which delegation an approval was made under.
     public function activeDelegationAsDelegate(): ?Delegation
     {
-        return Delegation::query()->active()->where('delegate_id', $this->id)->latest('starts_at')->first();
+        // A standby delegation (Gabriel for Sharif) only counts while that person is away.
+        return Delegation::query()->active()->where('delegate_id', $this->id)->latest('starts_at')->get()
+            ->first(fn (Delegation $d) => $d->standby_for_id === null || Delegation::isAway($d->standby_for_id));
     }
 
     public function leaveRequests()

@@ -16,7 +16,16 @@ class PermissionController extends Controller
     // future web frontend) syncs on login/resume to drive UI gating.
     public function me(Request $request, EffectivePermissionResolver $resolver)
     {
-        return response()->json(['data' => $resolver->resolve($request->user())->values()]);
+        $keys = $resolver->resolve($request->user())->values();
+        // Standing in for the Director (an effective delegation — for a
+        // standby one, only while the person it stands by for is away): the
+        // apps show the Director's approval actions and the Approvals screen.
+        // The API already honours it through hasFinalMoneyAuthority().
+        if ($request->user()->activeDelegationAsDelegate()) {
+            $keys = $keys->merge(['authority.final_money_approval', 'screens.approvals'])->unique()->values();
+        }
+
+        return response()->json(['data' => $keys]);
     }
 
     // Every permission override across every user, most recent first — the

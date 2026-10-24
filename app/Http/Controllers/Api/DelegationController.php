@@ -14,7 +14,7 @@ class DelegationController extends Controller
     {
         abort_if(! $request->user()->hasDirectorAuthority(), 403, 'Only the Director can view delegations.');
 
-        $delegations = Delegation::with(['delegator', 'delegate', 'revokedBy'])
+        $delegations = Delegation::with(['delegator', 'delegate', 'revokedBy', 'standbyFor'])
             ->orderByDesc('starts_at')->get();
 
         return response()->json(['data' => $delegations->map(fn (Delegation $d) => $this->payload($d))]);
@@ -26,6 +26,8 @@ class DelegationController extends Controller
 
         $data = $request->validate([
             'delegate_id' => ['required', 'exists:users,id', 'different:delegator_id'],
+            // Only while this person is not around (approved leave today).
+            'standby_for_id' => ['nullable', 'exists:users,id', 'different:delegate_id'],
             'reason'      => ['nullable', 'string'],
             'starts_at'   => ['required', 'date'],
             'ends_at'     => ['required', 'date', 'after:starts_at'],
@@ -36,12 +38,13 @@ class DelegationController extends Controller
         $delegation = Delegation::create([
             'delegator_id' => $request->user()->id,
             'delegate_id'  => $data['delegate_id'],
+            'standby_for_id' => $data['standby_for_id'] ?? null,
             'reason'       => $data['reason'] ?? null,
             'starts_at'    => $data['starts_at'],
             'ends_at'      => $data['ends_at'],
         ]);
 
-        return response()->json(['data' => $this->payload($delegation->load(['delegator', 'delegate']))], 201);
+        return response()->json(['data' => $this->payload($delegation->load(['delegator', 'delegate', 'standbyFor']))], 201);
     }
 
     public function revoke(Request $request, Delegation $delegation)
@@ -66,7 +69,11 @@ class DelegationController extends Controller
             'ends_at'        => $d->ends_at?->toIso8601String(),
             'revoked_at'     => $d->revoked_at?->toIso8601String(),
             'revoked_by_name' => $d->revokedBy?->name,
-            'is_active'      => $d->revoked_at === null && $d->starts_at <= now() && $d->ends_at >= now(),
+            'standby_for_id'   => $d->standby_for_id,
+            'standby_for_name' => $d->standbyFor?->name,
+            // In its dates; is_active also needs the standby person away.
+            'in_period'      => $d->revoked_at === null && $d->starts_at <= now() && $d->ends_at >= now(),
+            'is_active'      => $d->isEffective(),
         ];
     }
 }

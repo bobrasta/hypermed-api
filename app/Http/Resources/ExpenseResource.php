@@ -33,6 +33,9 @@ class ExpenseResource extends JsonResource
             'reviewer_name'               => $this->reviewer?->name,
             'approver_id'                 => $this->approver_id,
             'approver_name'               => $this->approver?->name,
+            // A team leader filters, then it goes on to their manager.
+            'approver_is_filter'          => $this->approver?->role === 'team_leader' && $this->status === 'pending_manager',
+            'next_approver_name'          => $this->approver?->role === 'team_leader' ? $this->approver?->manager?->name : null,
             'reviewed_at'                 => $this->reviewed_at?->toIso8601String(),
             'rejection_reason'            => $this->rejection_reason,
             'payment_initiated_by'        => $this->payment_initiated_by,
