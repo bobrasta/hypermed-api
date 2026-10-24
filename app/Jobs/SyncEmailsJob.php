@@ -23,9 +23,24 @@ class SyncEmailsJob
 
     public function __construct(
         public readonly int    $accountId,
-        public readonly string $folder,
+        public string $folder,
         public readonly int    $limit,
     ) {}
+
+    /** Stand-in folder name: the server's own Sent folder, whatever it's called (INBOX.Sent here). */
+    public const SENT = '@sent';
+
+    public static function sentFolderPath($client): ?string
+    {
+        foreach ($client->getFolders(false) as $f) {
+            $leaf = strtolower(trim((string) last(explode($f->delimiter ?: '.', $f->path))));
+            if (in_array($leaf, ['sent', 'sent items', 'sent messages', 'sent mail'], true)) {
+                return $f->path;
+            }
+        }
+
+        return null;
+    }
 
     /** Returns the count of newly-synced (non-duplicate) emails. */
     public function handle(): int
@@ -39,6 +54,9 @@ class SyncEmailsJob
         EmailAttachmentStore::raiseMemoryLimit();
 
         $client->connect();
+        if ($this->folder === self::SENT) {
+            $this->folder = self::sentFolderPath($client) ?? throw new \RuntimeException('No Sent folder on the mail server');
+        }
         $box = $client->getFolder($this->folder);
         if (! $box) {
             throw new \RuntimeException("Folder {$this->folder} not found on the mail server");

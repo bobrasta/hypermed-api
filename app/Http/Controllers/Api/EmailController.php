@@ -83,6 +83,16 @@ class EmailController extends Controller
         $folder  = $request->input('folder', 'INBOX');
         $limit   = $request->integer('limit', 50);
 
+        // The apps name their tabs: "sent" is the server's own Sent folder
+        // (INBOX.Sent here — a literal "SENT" doesn't exist and failed), and
+        // drafts live only in this system, so there's nothing to fetch.
+        if (strcasecmp($folder, 'drafts') === 0) {
+            return response()->json(['data' => ['synced' => 0, 'folder' => $folder, 'sent_synced' => 0]]);
+        }
+        if (strcasecmp($folder, 'sent') === 0) {
+            $folder = SyncEmailsJob::SENT;
+        }
+
         // Runs inline, not queued — see SyncEmailsJob's class doc comment for why.
         // Caught here (not left to bubble) because this used to fail silently inside a
         // queue worker that never ran; now that it's synchronous, an uncaught IMAP
@@ -95,12 +105,32 @@ class EmailController extends Controller
             ], 422);
         }
 
+        // Mail sent from a phone, webmail or Outlook sits in the server's Sent
+        // folder (INBOX.Sent here), which was never fetched — only what was
+        // sent from inside the app showed under Sent. An inbox sync also
+        // fetches it, at most every 2 minutes per account (the apps poll every
+        // 30 s). Reported apart, so sent mail never counts as new mail.
+        $sentSynced = 0;
+        if (strcasecmp($folder, 'INBOX') === 0 && \Illuminate\Support\Facades\Cache::add("email-sent-sync:{$account->id}", 1, 120)) {
+            try {
+                $sentSynced = (new SyncEmailsJob($account->id, SyncEmailsJob::SENT, min($limit, 50)))->handle();
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Sent folder sync failed for account {$account->id}: {$e->getMessage()}");
+            }
+        }
+
         return response()->json([
-            'data' => ['synced' => $synced, 'folder' => $folder],
+            'data' => ['synced' => $synced, 'folder' => $folder, 'sent_synced' => $sentSynced],
         ]);
     }
 
     // ── List views ────────────────────────────────────────────────────────────
+
+    /** 100 a page by default (the apps load the next page as you scroll); was a fixed 30 the apps never paged past. */
+    private function pageSize(Request $request): int
+    {
+        return max(1, min($request->integer('per_page', 100), 200));
+    }
 
     public function inbox(Request $request)
     {
@@ -123,7 +153,7 @@ class EmailController extends Controller
             );
         }
 
-        return SyncedEmailResource::collection($query->paginate(30));
+        return SyncedEmailResource::collection($query->paginate($this->pageSize($request)));
     }
 
     public function sent(Request $request)
@@ -135,7 +165,7 @@ class EmailController extends Controller
         $emails = SyncedEmail::where('email_account_id', $account->id)
             ->where('folder', 'ilike', "%sent%")
             ->orderByDesc('email_date')
-            ->paginate(30);
+            ->paginate($this->pageSize($request));
 
         return SyncedEmailResource::collection($emails);
     }
@@ -147,7 +177,7 @@ class EmailController extends Controller
         $emails = SyncedEmail::where('email_account_id', $account->id)
             ->where('is_draft', true)
             ->orderByDesc('updated_at')
-            ->paginate(30);
+            ->paginate($this->pageSize($request));
 
         return SyncedEmailResource::collection($emails);
     }
@@ -159,7 +189,7 @@ class EmailController extends Controller
         $emails = SyncedEmail::where('email_account_id', $account->id)
             ->where('folder', $folderName)
             ->orderByDesc('email_date')
-            ->paginate(30);
+            ->paginate($this->pageSize($request));
 
         return SyncedEmailResource::collection($emails);
     }
