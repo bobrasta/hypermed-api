@@ -126,6 +126,27 @@ class EmailController extends Controller
 
     // ── List views ────────────────────────────────────────────────────────────
 
+    /**
+     * ?search= on every folder (2026-10-24, "I need to be able to search my
+     * emails"): subject, sender, recipients and the message text.
+     */
+    private function applySearch($query, Request $request)
+    {
+        if ($request->filled('search')) {
+            $term = '%' . trim((string) $request->search) . '%';
+            $query->where(fn ($q) => $q
+                ->where('subject', 'ilike', $term)
+                ->orWhere('from_email', 'ilike', $term)
+                ->orWhere('from_name', 'ilike', $term)
+                ->orWhereRaw('CAST(to_addresses AS TEXT) ILIKE ?', [$term])
+                ->orWhereRaw('CAST(cc_addresses AS TEXT) ILIKE ?', [$term])
+                ->orWhere('body_text', 'ilike', $term)
+            );
+        }
+
+        return $query;
+    }
+
     /** 100 a page by default (the apps load the next page as you scroll); was a fixed 30 the apps never paged past. */
     private function pageSize(Request $request): int
     {
@@ -144,14 +165,7 @@ class EmailController extends Controller
         if ($request->filled('unread')) {
             $query->where('is_read', false);
         }
-        if ($request->filled('search')) {
-            $term = $request->search;
-            $query->where(fn ($q) => $q
-                ->where('subject', 'ilike', "%$term%")
-                ->orWhere('from_email', 'ilike', "%$term%")
-                ->orWhere('from_name', 'ilike', "%$term%")
-            );
-        }
+        $this->applySearch($query, $request);
 
         return SyncedEmailResource::collection($query->paginate($this->pageSize($request)));
     }
@@ -165,6 +179,7 @@ class EmailController extends Controller
         $emails = SyncedEmail::where('email_account_id', $account->id)
             ->where('folder', 'ilike', "%sent%")
             ->orderByDesc('email_date')
+            ->tap(fn ($q) => $this->applySearch($q, $request))
             ->paginate($this->pageSize($request));
 
         return SyncedEmailResource::collection($emails);
@@ -177,6 +192,7 @@ class EmailController extends Controller
         $emails = SyncedEmail::where('email_account_id', $account->id)
             ->where('is_draft', true)
             ->orderByDesc('updated_at')
+            ->tap(fn ($q) => $this->applySearch($q, $request))
             ->paginate($this->pageSize($request));
 
         return SyncedEmailResource::collection($emails);
@@ -189,6 +205,7 @@ class EmailController extends Controller
         $emails = SyncedEmail::where('email_account_id', $account->id)
             ->where('folder', $folderName)
             ->orderByDesc('email_date')
+            ->tap(fn ($q) => $this->applySearch($q, $request))
             ->paginate($this->pageSize($request));
 
         return SyncedEmailResource::collection($emails);

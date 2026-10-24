@@ -70,6 +70,15 @@ class AuthController extends Controller
             'bio'               => ['nullable', 'string', 'max:1000'],
             'qualifications'    => ['nullable', 'array', 'max:12'],
             'qualifications.*'  => ['string', 'max:80'],
+            // 2026-10-24: everyone keeps their own statutory IDs and next of
+            // kin up to date (HR could already set them on the staff record).
+            // Sent only when the form has them, so older apps don't blank them.
+            'nssf_number'              => ['sometimes', 'nullable', 'string', 'max:50'],
+            'nida_number'              => ['sometimes', 'nullable', 'string', 'max:50'],
+            'tin_number'               => ['sometimes', 'nullable', 'string', 'max:50'],
+            'next_of_kin_name'         => ['sometimes', 'nullable', 'string', 'max:255'],
+            'next_of_kin_phone'        => ['sometimes', 'nullable', 'string', 'max:50'],
+            'next_of_kin_relationship' => ['sometimes', 'nullable', 'string', 'max:100'],
         ]);
 
         $user->update($data);
