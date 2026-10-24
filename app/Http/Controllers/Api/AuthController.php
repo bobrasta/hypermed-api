@@ -86,6 +86,22 @@ class AuthController extends Controller
         return response()->json(['data' => new UserResource($user)]);
     }
 
+    /** Export my own data (?format=pdf|xlsx): only ever the caller's own. */
+    public function exportProfile(Request $request, \App\Services\Profile\ProfileExportService $export)
+    {
+        $user = $request->user();
+        $slug = \Illuminate\Support\Str::slug($user->name) ?: 'me';
+        $date = now()->toDateString();
+        activity()->performedOn($user)->causedBy($user)->withProperties(['format' => $request->input('format', 'pdf')])->log('exported own profile data');
+
+        if ($request->input('format') === 'xlsx') {
+            return response()->download($export->xlsx($user), "my-data-{$slug}-{$date}.xlsx",
+                ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'])->deleteFileAfterSend();
+        }
+
+        return $export->pdf($user)->download("my-data-{$slug}-{$date}.pdf");
+    }
+
     public function updateAvatar(Request $request)
     {
         $user = $request->user();

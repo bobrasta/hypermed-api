@@ -122,6 +122,7 @@ Route::prefix('v1')->group(function () {
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::get('auth/me', [AuthController::class, 'me']);
         Route::put('auth/profile', [AuthController::class, 'updateProfile']);
+        Route::get('auth/profile/export', [AuthController::class, 'exportProfile']);
         Route::post('auth/change-password', [AuthController::class, 'changePassword']);
         Route::put('auth/payment-profile', [AuthController::class, 'updatePaymentProfile']);
         Route::post('auth/avatar', [AuthController::class, 'updateAvatar']);
