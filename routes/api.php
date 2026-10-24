@@ -578,6 +578,9 @@ Route::prefix('v1')->group(function () {
         Route::post('payroll-runs/{payrollRun}/review', [PayrollController::class, 'review']);
         Route::post('payroll-runs/{payrollRun}/approve', [PayrollController::class, 'approve']);
         Route::post('payroll-runs/{payrollRun}/mark-paid', [PayrollController::class, 'markPaid']);
+        Route::post('payroll-runs/{payrollRun}/load-staff', [PayrollController::class, 'loadStaff']);
+        // Import staff pay — preview, then the same file with commit=1 saves.
+        Route::post('payroll/staff-import', \App\Http\Controllers\Api\StaffPayImportController::class);
         Route::get('staff/{user}/salary-adjustments', [SalaryAdjustmentController::class, 'index']);
         Route::post('staff/{user}/salary-adjustments', [SalaryAdjustmentController::class, 'store']);
         Route::post('staff/{user}/salary-adjustments/{salaryAdjustment}/approve', [SalaryAdjustmentController::class, 'approve']);

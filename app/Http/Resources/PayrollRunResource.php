@@ -24,6 +24,9 @@ class PayrollRunResource extends JsonResource
             'approved_at'       => $this->approved_at?->toIso8601String(),
             'paid_at'           => $this->paid_at?->toIso8601String(),
             'expense_id'        => $this->expense_id,
+            // Company-paid health insurance for the run (employer cost, posted on payment).
+            'health_insurance_total' => (int) ($this->health_insurance_total ?? 0),
+            'health_insurance_expense_id' => $this->health_insurance_expense_id,
             'created_at'        => $this->created_at?->toIso8601String(),
         ];
     }

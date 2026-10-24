@@ -16,6 +16,7 @@ use App\Services\DocumentPdfService;
 use App\Services\FinancePostingService;
 use App\Services\NotificationTemplateService;
 use App\Services\PayrollCalculator;
+use App\Services\PayrollStaffService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\URL;
@@ -115,15 +116,31 @@ class PayrollController extends Controller
             'net_total'        => 0,
             'created_by'       => $request->user()->id,
         ]);
+        // Everyone with pay on record is on the run from the start (2026-10-24).
+        app(PayrollStaffService::class)->load($run);
 
-        return (new PayrollRunResource($run))->response()->setStatusCode(201);
+        return (new PayrollRunResource($run->load(['items.user', 'createdBy'])))
+            ->additional(['staff_without_salary' => PayrollStaffService::withoutSalary()])
+            ->response()->setStatusCode(201);
     }
 
     public function show(Request $request, PayrollRun $payrollRun)
     {
         $this->authorize($request);
 
-        return new PayrollRunResource($payrollRun->load(['items.user', 'createdBy', 'approvedBy']));
+        return (new PayrollRunResource($payrollRun->load(['items.user', 'createdBy', 'approvedBy'])))
+            ->additional(['staff_without_salary' => PayrollStaffService::withoutSalary()]);
+    }
+
+    /** Adds anyone with pay on record who isn't on this draft run yet (e.g. pay imported since). */
+    public function loadStaff(Request $request, PayrollRun $payrollRun)
+    {
+        $this->authorize($request);
+        abort_if($payrollRun->status !== 'draft', 422, 'Only a draft run can be loaded.');
+        $added = app(PayrollStaffService::class)->load($payrollRun);
+
+        return (new PayrollRunResource($payrollRun->load(['items.user', 'createdBy', 'approvedBy'])))
+            ->additional(['staff_without_salary' => PayrollStaffService::withoutSalary(), 'added' => $added]);
     }
 
     // Upserts one staff member's line for the run — one call per row saved
@@ -149,7 +166,13 @@ class PayrollController extends Controller
             'heslb_amount'      => ['nullable', 'integer', 'min:0'],
             'other_deductions'  => ['nullable', 'integer', 'min:0'],
             'notes'             => ['nullable', 'string'],
+            // Company-paid premium (employer cost) — kept unless given.
+            'health_insurance_employer' => ['nullable', 'integer', 'min:0'],
         ]);
+        $healthEmployer = array_key_exists('health_insurance_employer', $data)
+            ? (int) $data['health_insurance_employer']
+            : (int) (PayrollItem::where('payroll_run_id', $payrollRun->id)->where('user_id', $data['user_id'])->value('health_insurance_employer')
+                ?? User::with('activeContract')->find($data['user_id'])?->activeContract?->health_insurance_amount ?? 0);
 
         $existing = PayrollItem::where('payroll_run_id', $payrollRun->id)->where('user_id', $data['user_id'])->first();
 
@@ -173,6 +196,7 @@ class PayrollController extends Controller
                 'paye_amount'       => $paye,
                 'nssf_amount'       => $nssf,
                 'nssf_employer_amount' => $nssfEmployer,
+                'health_insurance_employer' => $healthEmployer,
                 'heslb_amount'      => $heslb,
                 'other_deductions'  => $otherDed,
                 'gross_pay'         => $gross,
@@ -219,7 +243,7 @@ class PayrollController extends Controller
         abort_if($payrollRun->created_by === $request->user()->id, 403, 'You cannot approve a payroll run you created.');
 
         $totals = $payrollRun->items()->selectRaw(
-            'SUM(gross_pay) as gross, SUM(gross_pay - net_pay) as deductions, SUM(net_pay) as net'
+            'SUM(gross_pay) as gross, SUM(gross_pay - net_pay) as deductions, SUM(net_pay) as net, SUM(health_insurance_employer) as health'
         )->first();
 
         $payrollRun->update([
@@ -227,6 +251,7 @@ class PayrollController extends Controller
             'gross_total'      => (int) ($totals->gross ?? 0),
             'deductions_total' => (int) ($totals->deductions ?? 0),
             'net_total'        => (int) ($totals->net ?? 0),
+            'health_insurance_total' => (int) ($totals->health ?? 0),
             'approved_by'      => $request->user()->id,
             'approved_at'      => now(),
         ]);
@@ -282,7 +307,31 @@ class PayrollController extends Controller
             ]);
             $financePosting->postExpense($expense);
 
-            $payrollRun->update(['status' => 'paid', 'paid_at' => now(), 'expense_id' => $expense->id]);
+            // The company-paid health insurance premiums for the month, as
+            // their own expense under Insurance — not part of anyone's pay.
+            $healthExpenseId = null;
+            if ((int) $payrollRun->health_insurance_total > 0) {
+                $insurance = ExpenseCategory::where('name', 'Insurance')->first() ?? $category;
+                $health = Expense::create([
+                    'name'         => "Staff health insurance — {$months[$payrollRun->period_month]} {$payrollRun->period_year}",
+                    'category_id'  => $insurance->id,
+                    'amount'       => (int) $payrollRun->health_insurance_total,
+                    'tax_rate'     => 0, 'tax_amount' => 0,
+                    'payment_mode' => 'bank',
+                    'expense_date' => now()->toDateString(),
+                    'reference'    => "Payroll Run #{$payrollRun->id}",
+                    'created_by'   => $request->user()->id,
+                    'status'       => 'paid',
+                    'requires_director_approval' => false,
+                    'reviewed_by'  => $request->user()->id, 'reviewed_at' => now(),
+                    'paid_by'      => $request->user()->id, 'paid_at' => now(),
+                ]);
+                $financePosting->postExpense($health);
+                $healthExpenseId = $health->id;
+            }
+
+            $payrollRun->update(['status' => 'paid', 'paid_at' => now(), 'expense_id' => $expense->id,
+                'health_insurance_expense_id' => $healthExpenseId]);
             ApprovalLog::record($payrollRun, 'paid', $request->user());
 
             return $payrollRun;

@@ -10,6 +10,7 @@ class PayrollRun extends Model
         'period_month', 'period_year', 'status',
         'gross_total', 'deductions_total', 'net_total',
         'created_by', 'approved_by', 'approved_at', 'paid_at', 'expense_id',
+        'health_insurance_total', 'health_insurance_expense_id',
     ];
 
     protected $casts = [

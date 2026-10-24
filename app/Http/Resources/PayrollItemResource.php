@@ -20,6 +20,8 @@ class PayrollItemResource extends JsonResource
             'paye_amount'       => $this->paye_amount,
             'nssf_amount'       => $this->nssf_amount,
             'nssf_employer_amount' => $this->nssf_employer_amount,
+            // Company-paid health insurance premium — an employer cost, not deducted.
+            'health_insurance_employer' => (int) ($this->health_insurance_employer ?? 0),
             'heslb_amount'      => $this->heslb_amount,
             'other_deductions'  => $this->other_deductions,
             'gross_pay'         => $this->gross_pay,
