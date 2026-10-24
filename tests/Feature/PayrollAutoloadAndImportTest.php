@@ -32,6 +32,9 @@ class PayrollAutoloadAndImportTest extends TestCase
         if (! Schema::hasColumn('contracts', 'health_insurance_amount')) {
             (require database_path('migrations/2026_10_24_000004_health_insurance_and_payroll_autoload.php'))->up();
         }
+        if (! Schema::hasColumn('contracts', 'salary_placeholder')) {
+            (require database_path('migrations/2026_10_24_000005_add_salary_placeholder_to_contracts.php'))->up();
+        }
         // Only these people are "active staff" for the test.
         User::query()->update(['is_active' => false]);
         $this->accountant = $this->user('Accountant PI', 'accountant');
@@ -110,6 +113,36 @@ class PayrollAutoloadAndImportTest extends TestCase
         $this->import($rows, true);
         $this->assertSame(1_200_000, (int) $tito->fresh()->activeContract->base_salary);
         $this->assertTrue(SalaryAdjustment::where('user_id', $tito->id)->where('new_salary', 1_350_000)->where('status', 'pending')->exists());
+    }
+
+    /** "A flat 1,000,000 for all — HR or the Accountant edits it later": the first real salary skips the Director. */
+    public function test_placeholder_salary_is_replaced_directly_then_the_normal_rule_applies(): void
+    {
+        $tech = $this->user('Placeholder Tech', 'technician');
+        $other = $this->user('Placeholder Two', 'technician');
+        foreach ([$tech, $other] as $u) {
+            \App\Models\Contract::create(['user_id' => $u->id, 'contract_type' => 'permanent', 'start_date' => now()->toDateString(),
+                'base_salary' => 1_000_000, 'salary_placeholder' => true, 'status' => 'active']);
+        }
+        Sanctum::actingAs($this->accountant);
+
+        $run = $this->postJson('/api/v1/payroll-runs', ['period_month' => 11, 'period_year' => 2026])->assertCreated()->json();
+        $this->assertSame(2, $run['placeholder_salaries']);
+        $this->assertStringContainsString('Placeholder', collect($run['data']['items'])->firstWhere('user_id', $tech->id)['notes']);
+
+        // Salary adjustment on a placeholder: applied at once, no Director.
+        $this->postJson("/api/v1/staff/{$tech->id}/salary-adjustments", ['new_salary' => 1_450_000, 'effective_date' => now()->toDateString()])
+            ->assertCreated()->assertJsonPath('data.status', 'approved');
+        $c = $tech->fresh()->activeContract;
+        $this->assertSame([1_450_000, false], [(int) $c->base_salary, (bool) $c->salary_placeholder]);
+        // The next change is a normal one: pending for the Director.
+        $this->postJson("/api/v1/staff/{$tech->id}/salary-adjustments", ['new_salary' => 1_500_000, 'effective_date' => now()->toDateString()])
+            ->assertCreated()->assertJsonPath('data.status', 'pending');
+
+        // Import on a placeholder: set directly too.
+        $this->import([['Name', 'Basic Salary'], ['Placeholder Two', '980,000']], true);
+        $this->assertSame([980_000, false], [(int) $other->fresh()->activeContract->base_salary, (bool) $other->fresh()->activeContract->salary_placeholder]);
+        $this->assertFalse(SalaryAdjustment::where('user_id', $other->id)->where('status', 'pending')->exists());
     }
 
     public function test_only_payroll_authority_can_import(): void

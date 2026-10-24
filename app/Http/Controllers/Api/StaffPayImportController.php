@@ -130,11 +130,11 @@ class StaffPayImportController extends Controller
         $fmt = fn ($n) => 'TSh ' . number_format((int) $n);
 
         if ($salary !== null) {
-            if (! $contract || $contract->base_salary === null) {
-                $actions[] = "Salary set: {$fmt($salary)}" . ($contract ? '' : ' (new contract)');
+            if (! $contract || $contract->base_salary === null || $contract->salary_placeholder) {
+                $actions[] = "Salary set: {$fmt($salary)}" . ($contract ? ($contract->salary_placeholder ? ' (replaces the placeholder)' : '') : ' (new contract)');
                 if ($save) {
                     if ($contract) {
-                        $contract->update(['base_salary' => $salary]);
+                        $contract->update(['base_salary' => $salary, 'salary_placeholder' => false]);
                     } else {
                         $start = $this->date($v('start_date')) ?? $user->hire_date ?? now()->toDateString();
                         $contract = Contract::create(['user_id' => $user->id, 'contract_type' => 'permanent', 'start_date' => $start,

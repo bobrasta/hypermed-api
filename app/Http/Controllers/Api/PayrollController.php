@@ -120,7 +120,7 @@ class PayrollController extends Controller
         app(PayrollStaffService::class)->load($run);
 
         return (new PayrollRunResource($run->load(['items.user', 'createdBy'])))
-            ->additional(['staff_without_salary' => PayrollStaffService::withoutSalary()])
+            ->additional(['placeholder_salaries' => PayrollStaffService::placeholderCount($payrollRun ?? $run), 'staff_without_salary' => PayrollStaffService::withoutSalary()])
             ->response()->setStatusCode(201);
     }
 
@@ -129,7 +129,7 @@ class PayrollController extends Controller
         $this->authorize($request);
 
         return (new PayrollRunResource($payrollRun->load(['items.user', 'createdBy', 'approvedBy'])))
-            ->additional(['staff_without_salary' => PayrollStaffService::withoutSalary()]);
+            ->additional(['placeholder_salaries' => PayrollStaffService::placeholderCount($payrollRun ?? $run), 'staff_without_salary' => PayrollStaffService::withoutSalary()]);
     }
 
     /** Adds anyone with pay on record who isn't on this draft run yet (e.g. pay imported since). */
@@ -140,7 +140,7 @@ class PayrollController extends Controller
         $added = app(PayrollStaffService::class)->load($payrollRun);
 
         return (new PayrollRunResource($payrollRun->load(['items.user', 'createdBy', 'approvedBy'])))
-            ->additional(['staff_without_salary' => PayrollStaffService::withoutSalary(), 'added' => $added]);
+            ->additional(['placeholder_salaries' => PayrollStaffService::placeholderCount($payrollRun ?? $run), 'staff_without_salary' => PayrollStaffService::withoutSalary(), 'added' => $added]);
     }
 
     // Upserts one staff member's line for the run — one call per row saved

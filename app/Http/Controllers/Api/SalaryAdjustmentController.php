@@ -39,6 +39,24 @@ class SalaryAdjustmentController extends Controller
 
         $activeContract = $user->activeContract;
 
+        // Replacing a placeholder (the flat 1,000,000 loaded before real pay
+        // was known): the first real salary is set directly, recorded as
+        // approved by whoever set it — the Director's approval is for
+        // changing agreed pay, and a placeholder never was.
+        if ($activeContract?->salary_placeholder) {
+            $adjustment = SalaryAdjustment::create([
+                'user_id' => $user->id, 'contract_id' => $activeContract->id,
+                'previous_salary' => $activeContract->base_salary, 'new_salary' => $data['new_salary'],
+                'reason' => trim('First salary (replaces the placeholder). ' . ($data['reason'] ?? '')),
+                'effective_date' => $data['effective_date'], 'status' => 'approved',
+                'approved_by' => $request->user()->id, 'approved_at' => now(), 'created_by' => $request->user()->id,
+            ]);
+            $activeContract->update(['base_salary' => $data['new_salary'], 'salary_placeholder' => false]);
+            ApprovalLog::record($adjustment, 'approved', $request->user(), 'Replaced a placeholder salary');
+
+            return (new SalaryAdjustmentResource($adjustment->load(['approvedBy', 'createdBy'])))->response()->setStatusCode(201);
+        }
+
         $adjustment = SalaryAdjustment::create([
             'user_id'         => $user->id,
             'contract_id'     => $activeContract?->id,

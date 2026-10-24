@@ -55,7 +55,14 @@ class PayrollStaffService
             'health_insurance_employer' => (int) ($contract->health_insurance_amount ?? 0),
             'heslb_amount' => 0, 'other_deductions' => 0,
             'gross_pay' => $gross, 'net_pay' => $gross - $paye - $nssf,
+            'notes' => $contract->salary_placeholder ? 'Placeholder salary — set the real salary before paying' : null,
         ];
+    }
+
+    /** Lines on the run whose salary is still a placeholder. */
+    public static function placeholderCount(PayrollRun $run): int
+    {
+        return $run->items()->whereHas('user.activeContract', fn ($q) => $q->where('salary_placeholder', true))->count();
     }
 
     /** Active staff with no salary on record — shown, so the gap is visible. */
