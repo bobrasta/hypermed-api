@@ -57,7 +57,9 @@ class SyncEmailsJob
         if ($this->folder === self::SENT) {
             $this->folder = self::sentFolderPath($client) ?? throw new \RuntimeException('No Sent folder on the mail server');
         }
-        $box = $client->getFolder($this->folder);
+        // By full path first: this server's separator is "." (INBOX.Sent),
+        // which getFolder() — assuming "/" — treats as a plain name and misses.
+        $box = $client->getFolderByPath($this->folder) ?? $client->getFolder($this->folder);
         if (! $box) {
             throw new \RuntimeException("Folder {$this->folder} not found on the mail server");
         }
