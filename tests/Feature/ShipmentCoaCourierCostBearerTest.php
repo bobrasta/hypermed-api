@@ -138,6 +138,9 @@ class ShipmentCoaCourierCostBearerTest extends TestCase
     {
         $s = $this->create(['coa_required' => false]);
         Shipment::whereKey($s['id'])->update(['tmda_application_ref' => 'TMDA/1', 'tmda_issued_at' => now()->toDateString(), 'control_number' => 'CN1']);
-        $this->postJson("/api/v1/shipments/{$s['id']}/status", ['step' => 8])->assertStatus(422);
+        // Held at "Assessment received" (2026-10-26), never "Payment made" while unpaid.
+        $r = $this->postJson("/api/v1/shipments/{$s['id']}/status", ['step' => 8])->assertOk();
+        $this->assertSame(7, $r->json('data.step'));
+        $this->assertStringContainsString('fee and receipt', $r->json('notice'));
     }
 }

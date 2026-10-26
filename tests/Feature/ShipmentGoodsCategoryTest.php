@@ -73,8 +73,10 @@ class ShipmentGoodsCategoryTest extends TestCase
         $s = $this->create(['goods_category' => 'non_medical']);
         // No documents, no TMDA: straight to the clearing agent.
         $this->postJson("/api/v1/shipments/{$s['id']}/status", ['step' => 6])->assertOk();
-        $this->postJson("/api/v1/shipments/{$s['id']}/status", ['step' => 8, 'control_number' => 'CN1'])
-            ->assertStatus(422)->assertJsonPath('errors.step.0', fn ($m) => str_contains($m, 'vendor fee'));
+        // The control number is saved; the shipment waits at "Assessment received" for the fee.
+        $r = $this->postJson("/api/v1/shipments/{$s['id']}/status", ['step' => 8, 'control_number' => 'CN1'])->assertOk();
+        $this->assertSame(7, $r->json('data.step'));
+        $this->assertStringContainsString('fee and receipt', $r->json('notice'));
     }
 
     public function test_medical_is_the_default_and_keeps_the_checklist(): void

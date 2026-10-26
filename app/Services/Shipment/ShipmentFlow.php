@@ -193,16 +193,46 @@ class ShipmentFlow
             return "Enter the clearing agent's control number before {$name(self::STEP_ASSESSMENT)}.";
         }
         if ($target >= self::STEP_PAYMENT) {
-            $fee = $s->vendorFee;
-            if (! $fee) {
-                return "Link the clearing agent's Section 16 vendor fee before {$name(self::STEP_PAYMENT)}.";
-            }
-            if ($fee->status !== 'paid') {
-                // Section 16 owns the payment rule — report its own reason.
-                $why = $fee->status === 'rejected' ? 'the vendor fee was rejected' : ($fee->paymentBlockReason() ?? 'it is awaiting the Director\'s approval');
+            return $this->paymentWait($s);
+        }
 
-                return "The clearing fee isn't paid yet: {$why}";
-            }
+        return null;
+    }
+
+    /**
+     * What a "We pay" import waits for before "Payment made", or null once
+     * the clearing fee is paid. Section 16 owns the payment rule (receipt,
+     * Finance check, Director), so its own reason is reported.
+     */
+    public function paymentWait(Shipment $s): ?string
+    {
+        $fee = $s->vendorFee;
+        if (! $fee) {
+            return "Awaiting the clearing agent's fee and receipt — record the fee, then attach the receipt.";
+        }
+
+        return match ($fee->status) {
+            'paid' => null,
+            'rejected' => 'The clearing fee was rejected — record it again.',
+            'pending_receipt' => "Awaiting the clearing agent's receipt — " . lcfirst(rtrim($fee->paymentBlockReason() ?? 'submit the fee for payment', '.')) . '.',
+            default => "Awaiting the Director's approval of the clearing fee.",
+        };
+    }
+
+    /**
+     * The step a forward move to $target actually lands on: the target when
+     * nothing blocks it; "Assessment received" when only the clearing-fee
+     * payment holds it up (the control number and payment mode are still
+     * saved, and the shipment waits there for the receipt); null otherwise.
+     */
+    public function reachableStep(Shipment $s, int $from, int $target): ?int
+    {
+        if (! $this->blockReason($s, $target)) {
+            return $target;
+        }
+        if ($s->direction === 'import' && $target >= self::STEP_PAYMENT && $from < self::STEP_PAYMENT
+            && ! $this->blockReason($s, self::STEP_ASSESSMENT)) {
+            return max($from, self::STEP_ASSESSMENT);
         }
 
         return null;

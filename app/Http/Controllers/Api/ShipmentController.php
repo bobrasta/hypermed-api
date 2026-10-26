@@ -234,8 +234,12 @@ class ShipmentController extends Controller
             throw ValidationException::withMessages(['cost_bearer' => 'Only import shipments have clearing costs.']);
         }
         $from = $shipment->step;
+        $detailKeys = ['tmda_application_ref', 'tmda_applied_at', 'tmda_issued_at', 'control_number', 'cost_bearer', 'paid_by', 'cost_note'];
+        $hasDetails = array_filter(array_intersect_key($data, array_flip($detailKeys)), fn ($v) => $v !== null) !== [];
 
-        if ($target === $from) {
+        // The current status again: save what was entered with it (e.g. the
+        // clearing agent's control number) without moving the shipment.
+        if ($target === $from && ! $hasDetails) {
             throw ValidationException::withMessages(['step' => 'The shipment is already at that status.']);
         }
         // 18.2: going backward is a correction and needs a logged reason.
@@ -254,30 +258,55 @@ class ShipmentController extends Controller
         $shipment->load(['documents', 'vendorFee.receipts', 'vendorFee.deliveryJob']);
         $costNote = $this->costBearerChanged($shipment) ? $this->costBearerNote($shipment) : null;
 
-        if ($target > $from && ($why = $this->flow->blockReason($shipment, $target))) {
+        // Moving on: a "We pay" import asked to go to "Payment made" before
+        // its clearing fee is paid still saves the control number and lands
+        // on "Assessment received", waiting there for the receipt.
+        $notice = null;
+        if ($target > $from) {
+            $why = $this->flow->blockReason($shipment, $target);
+            $reached = $this->flow->reachableStep($shipment, $from, $target);
+            // Nothing entered and nowhere further to go: say what it waits for.
+            if ($reached === null || ($reached === $from && ! $hasDetails)) {
+                throw ValidationException::withMessages(['step' => $why]);
+            }
+            if ($reached !== $target) {
+                $target = $reached;
+                $shipment->step = $target;
+                $notice = 'Saved at "' . $this->flow->label($shipment, $target) . '". ' . $this->flow->paymentWait($shipment);
+            }
+        } elseif ($target === $from && ($why = $this->flow->blockReason($shipment, $from))) {
             throw ValidationException::withMessages(['step' => $why]);
         }
+        $controlNote = $shipment->isDirty('control_number') && $shipment->control_number
+            ? "Clearing agent's control number: {$shipment->control_number}." : null;
 
-        DB::transaction(function () use ($shipment, $from, $target, $data, $request, $costNote) {
+        DB::transaction(function () use ($shipment, $from, $target, $data, $request, $costNote, $controlNote) {
             $shipment->save();
-            if ($costNote) {
+            foreach (array_filter([$costNote, $target === $from ? $controlNote : null]) as $note) {
                 ShipmentEvent::create([
                     'shipment_id' => $shipment->id, 'from_step' => $from, 'to_step' => $from,
-                    'note' => $costNote, 'user_id' => $request->user()->id, 'created_at' => now(),
+                    'note' => $note, 'user_id' => $request->user()->id, 'created_at' => now(),
                 ]);
             }
-            ShipmentEvent::create([
-                'shipment_id' => $shipment->id, 'from_step' => $from, 'to_step' => $target,
-                'note' => $data['note'] ?? null,
-                'reason' => $target < $from ? trim($data['reason']) : null,
-                'user_id' => $request->user()->id, 'created_at' => now(),
-            ]);
+            if ($target !== $from) {
+                ShipmentEvent::create([
+                    'shipment_id' => $shipment->id, 'from_step' => $from, 'to_step' => $target,
+                    'note' => trim(implode(' ', array_filter([$data['note'] ?? null, $controlNote]))) ?: null,
+                    'reason' => $target < $from ? trim($data['reason']) : null,
+                    'user_id' => $request->user()->id, 'created_at' => now(),
+                ]);
+            }
         });
 
         $shipment->load('department');
-        $this->notifier->statusChanged($shipment, $request->user(), $data['note'] ?? ($target < $from ? 'Corrected: ' . trim($data['reason']) : null));
+        if ($target !== $from) {
+            $this->notifier->statusChanged($shipment, $request->user(), $data['note'] ?? ($target < $from ? 'Corrected: ' . trim($data['reason']) : null));
+        }
 
-        return response()->json(['data' => $this->detail($request, $shipment)]);
+        return response()->json([
+            'data' => $this->detail($request, $shipment),
+            'notice' => $notice ?? ($target === $from ? 'Saved — the shipment stays at "' . $this->flow->label($shipment) . '".' : null),
+        ]);
     }
 
     // ------------------------------------------------------------ documents

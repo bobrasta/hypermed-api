@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ApprovalLog;
 use App\Models\Receipt;
+use App\Models\Shipment;
+use App\Services\EffectivePermissionResolver;
 use App\Models\VendorFee;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -30,10 +32,22 @@ class ReceiptController extends Controller
                 && ! $user->hasLogisticsReceiveAuthority()
                 && ! $user->hasAccountantAuthority()
                 && ! $user->hasFinanceApprovalAuthority()
-                && ! $user->hasDirectorAuthority(),
+                && ! $user->hasDirectorAuthority()
+                && ! self::shipmentStaffOnClearingFee($user, $fee),
             403,
             'You are not authorised to upload receipts.'
         );
+    }
+
+    /**
+     * Whoever runs shipments (shipments.manage — Diana and the rest of
+     * Tender & Procurement) attaches the clearing agent's receipt to a
+     * shipment's clearing fee (user, 2026-10-26).
+     */
+    public static function shipmentStaffOnClearingFee($user, VendorFee $fee): bool
+    {
+        return ($user->isAdminTier() || app(EffectivePermissionResolver::class)->can($user, 'shipments.manage'))
+            && Shipment::where('vendor_fee_id', $fee->id)->exists();
     }
 
     public function store(Request $request, VendorFee $vendorFee)
@@ -111,7 +125,8 @@ class ReceiptController extends Controller
         $isOwnUpload = $receipt->uploaded_by === $user->id;
         $isOpsStaff = $user->hasProcurementCreateAuthority() || $user->hasProcurementApprovalAuthority()
             || $user->hasLogisticsDeliverAuthority() || $user->hasLogisticsReceiveAuthority()
-            || $user->hasAccountantAuthority() || $user->hasFinanceApprovalAuthority() || $user->hasDirectorAuthority();
+            || $user->hasAccountantAuthority() || $user->hasFinanceApprovalAuthority() || $user->hasDirectorAuthority()
+            || self::shipmentStaffOnClearingFee($user, $vendorFee);
         abort_if(! $isOwnUpload && ! $isOpsStaff, 403, 'Not authorised.');
 
         Storage::disk('public')->delete('vendor-receipts/' . $vendorFee->id . '/' . $receipt->file_stored_name);
