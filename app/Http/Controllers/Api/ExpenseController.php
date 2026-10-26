@@ -164,7 +164,14 @@ class ExpenseController extends Controller
         if ($request->filled('status')) {
             $query->where('status', $request->status);
         }
-        $this->applyPeriod($query, $request, 'expense_date');
+        // Approvals queue: only what still waits on someone, from any date —
+        // Finance reads every expense, so filtering page 1 client-side lost
+        // pending ones behind already-paid ones (2026-10-26).
+        if ($request->boolean('pending')) {
+            $query->whereIn('status', ['pending_manager', 'pending_cto', 'pending_director', 'pending_payment', 'pending_release']);
+        } else {
+            $this->applyPeriod($query, $request, 'expense_date');
+        }
         if ($request->filled('search')) {
             $query->where('name', 'like', "%{$request->search}%");
         }

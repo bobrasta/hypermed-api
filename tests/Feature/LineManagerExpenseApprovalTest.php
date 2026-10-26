@@ -84,6 +84,18 @@ class LineManagerExpenseApprovalTest extends TestCase
         $this->assertSame('pending_payment', $r['status']);
     }
 
+    public function test_pending_filter_returns_only_open_expenses_from_any_date(): void
+    {
+        $open = $this->submit($this->florian, ['expense_date' => now()->subYears(2)->toDateString()]);
+        $paid = $this->submit($this->florian);
+        Expense::whereKey($paid['id'])->update(['status' => 'paid']);
+
+        Sanctum::actingAs($this->director);
+        $ids = collect($this->getJson('/api/v1/expenses?pending=1&per_page=2000')->assertOk()->json('data'))->pluck('id')->all();
+        $this->assertContains($open['id'], $ids);
+        $this->assertNotContains($paid['id'], $ids);
+    }
+
     public function test_director_only_category_goes_on_to_the_director(): void
     {
         $category = ExpenseCategory::where('requires_director_approval', false)->firstOrFail();
