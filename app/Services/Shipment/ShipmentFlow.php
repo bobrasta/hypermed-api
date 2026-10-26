@@ -221,9 +221,10 @@ class ShipmentFlow
 
         return match ($fee->status) {
             'paid' => null,
+            'pending_manager' => 'Awaiting ' . ($fee->approver?->name ?? 'the manager') . '\'s approval of the clearing fee (TZS ' . number_format($fee->billed_amount) . ').',
             'rejected' => 'The clearing fee was rejected — record it again.',
             'pending_receipt' => $fee->receipt_after_payment
-                ? 'Awaiting the accountant to request payment of the clearing fee (TZS ' . number_format($fee->billed_amount) . ') — the receipt follows after payment.'
+                ? 'Awaiting Finance to request payment of the clearing fee (TZS ' . number_format($fee->billed_amount) . ') — the receipt follows after payment.'
                 : "Awaiting the clearing agent's receipt — " . lcfirst(rtrim($fee->paymentBlockReason() ?? 'submit the fee for payment', '.')) . '.',
             default => "Awaiting the Director's approval of the clearing fee.",
         };

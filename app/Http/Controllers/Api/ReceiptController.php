@@ -99,6 +99,8 @@ class ReceiptController extends Controller
             'uploaded_by' => $request->user()->id,
         ]);
         ApprovalLog::record($receipt, 'uploaded', $request->user());
+        // Finance verifies it — tell them (they were told nothing before).
+        app(\App\Services\VendorFeeFlow::class)->receiptAttached($vendorFee->loadMissing('vendor'), $receipt);
 
         return response()->json(['data' => ['id' => $receipt->id]], 201);
     }

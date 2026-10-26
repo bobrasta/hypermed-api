@@ -21,6 +21,7 @@ use App\Services\DocumentNumberService;
 use App\Services\EffectivePermissionResolver;
 use App\Services\Shipment\ShipmentFlow;
 use App\Services\Shipment\ShipmentNotifier;
+use App\Services\VendorFeeFlow;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -316,9 +317,6 @@ class ShipmentController extends Controller
             }
         });
 
-        if ($feeChanged) {
-            $this->notifyAccountants($shipment->fresh(['vendorFee.vendor']));
-        }
         if ($notice === true) {
             $shipment->load('vendorFee.receipts');
             $notice = 'Saved at "' . $this->flow->label($shipment, $target) . '". ' . $this->flow->paymentWait($shipment);
@@ -404,8 +402,8 @@ class ShipmentController extends Controller
         $fee->update(['receipt_after_payment' => true]);
 
         $shipment->update(['vendor_fee_id' => $fee->id]);
-        if ($fee->status === 'pending_receipt') {
-            $this->notifyAccountants($shipment->fresh(['vendorFee.vendor']));
+        if (empty($data['vendor_fee_id'])) {
+            app(VendorFeeFlow::class)->start($fee); // Patrick first, then Finance
         }
 
         return response()->json(['data' => $this->detail($request, $shipment)]);
@@ -691,41 +689,26 @@ class ShipmentController extends Controller
                 throw ValidationException::withMessages(['clearing_vendor_id' => 'Choose the clearing agent the cost is owed to.']);
             }
             $fee = $this->newClearingFee($shipment, $vendorId, $amount, $request);
+            app(VendorFeeFlow::class)->start($fee);
             $shipment->vendor_fee_id = $fee->id;
-            $shipment->setRelation('vendorFee', $fee->load('receipts'));
+            $shipment->setRelation('vendorFee', $fee->fresh()->load('receipts'));
 
             return true;
         }
         if ($fee->billed_amount === $amount && (! $vendorId || $fee->vendor_id === $vendorId)) {
             return false;
         }
-        if ($fee->status !== 'pending_receipt') {
+        if (! in_array($fee->status, ['pending_manager', 'pending_receipt'], true)) {
             throw ValidationException::withMessages(['clearing_cost' => 'The clearing fee is already with the Director or paid — it can\'t be changed here.']);
         }
-        $fee->update(['billed_amount' => $amount, 'vendor_id' => $vendorId ?: $fee->vendor_id, 'receipt_after_payment' => true]);
+        $fee->update(['billed_amount' => $amount, 'vendor_id' => $vendorId ?: $fee->vendor_id, 'receipt_after_payment' => true,
+            'manager_approved_by' => null, 'manager_approved_at' => null]);
+        // A changed amount goes back through approval.
+        app(VendorFeeFlow::class)->start($fee);
+        $shipment->setRelation('vendorFee', $fee->fresh()->load('receipts'));
         $this->logNote($shipment, 'Clearing cost set to TZS ' . number_format($amount) . '.', $request->user()->id);
 
         return true;
-    }
-
-    /** The accountant pays the clearing agent; the receipt follows after. */
-    private function notifyAccountants(Shipment $s): void
-    {
-        $fee = $s->vendorFee;
-        if (! $fee) {
-            return;
-        }
-        $ids = User::where('role', 'accountant')->where('is_active', true)->pluck('id');
-        if ($ids->isEmpty()) {
-            $ids = User::holdingPermission('procurement.initiate_payment')->pluck('id');
-        }
-        $msg = app(NotificationTemplateService::class)->render('vendor_fee.clearing_to_pay', [
-            'reference' => $s->reference, 'vendor_name' => $fee->vendor?->name ?? 'the clearing agent',
-            'billed_amount' => number_format($fee->billed_amount), 'control_number' => $s->control_number ?: '—',
-        ]);
-        foreach ($ids as $id) {
-            AppNotification::create(['user_id' => $id, ...$msg, 'entity_type' => 'vendor_fee', 'entity_id' => $fee->id, 'is_read' => false]);
-        }
     }
 
     private function feePayload(?VendorFee $fee): ?array

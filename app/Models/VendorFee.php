@@ -9,6 +9,7 @@ class VendorFee extends Model
     protected $fillable = [
         'vendor_id', 'delivery_job_id', 'description', 'billed_amount', 'currency',
         'status', 'receipt_after_payment', 'created_by',
+        'approver_id', 'manager_approved_by', 'manager_approved_at',
         'submitted_by', 'submitted_at',
         'paid_by', 'paid_at', 'payment_reference', 'paid_from_account_id',
         'rejected_by', 'rejected_at', 'rejection_reason',
@@ -19,6 +20,7 @@ class VendorFee extends Model
         'receipt_after_payment' => 'boolean',
         'submitted_at' => 'datetime',
         'paid_at' => 'datetime',
+        'manager_approved_at' => 'datetime',
         'rejected_at' => 'datetime',
     ];
 
@@ -40,6 +42,17 @@ class VendorFee extends Model
     public function createdBy()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /** The recorder's manager, who approves first (pending_manager). */
+    public function approver()
+    {
+        return $this->belongsTo(User::class, 'approver_id');
+    }
+
+    public function managerApprovedBy()
+    {
+        return $this->belongsTo(User::class, 'manager_approved_by');
     }
 
     public function submittedBy()
@@ -87,8 +100,9 @@ class VendorFee extends Model
         return match ($this->status) {
             'paid' => $this->receiptFollowUp() ? 'Paid · receipt to follow' : 'Paid',
             'rejected' => 'Rejected',
+            'pending_manager' => 'Awaiting ' . ($this->approver?->name ?? 'manager') . '\'s approval',
             'ready_for_payment' => 'Awaiting Director approval',
-            default => $this->receipt_after_payment ? 'Awaiting payment request' : 'Awaiting receipt',
+            default => $this->receipt_after_payment ? 'Awaiting Finance (payment request)' : 'Awaiting receipt',
         };
     }
 

@@ -9,6 +9,7 @@ use App\Models\DeliveryJob;
 use App\Models\User;
 use App\Models\VendorFee;
 use App\Services\Creditors\CreditorService;
+use App\Services\VendorFeeFlow;
 use App\Services\NotificationTemplateService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -48,7 +49,7 @@ class VendorFeeController extends Controller
 
     private function fmt(VendorFee $fee): array
     {
-        $fee->loadMissing(['vendor', 'deliveryJob', 'receipts', 'createdBy', 'submittedBy', 'paidBy', 'rejectedBy']);
+        $fee->loadMissing(['vendor', 'deliveryJob', 'receipts', 'createdBy', 'submittedBy', 'paidBy', 'rejectedBy', 'approver', 'managerApprovedBy']);
 
         return [
             'id' => $fee->id,
@@ -63,6 +64,9 @@ class VendorFeeController extends Controller
             'billed_amount' => $fee->billed_amount,
             'currency' => $fee->currency,
             'status' => $fee->status,
+            'approver_id' => $fee->approver_id,
+            'approver' => $fee->approver?->name,
+            'manager_approved_by' => $fee->managerApprovedBy?->name,
             'receipts_total' => (int) $fee->receipts->sum('amount'),
             'outstanding_gap' => $fee->billed_amount - (int) $fee->receipts->sum('amount'),
             'unverified_receipt_count' => $fee->receipts->whereNull('verified_at')->count(),
@@ -110,6 +114,19 @@ class VendorFeeController extends Controller
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);
+        }
+        // Approvals: the fees waiting on this person — as the recorder's
+        // manager, as Finance (payment request) or as the Director.
+        if ($request->boolean('waiting_on_me')) {
+            $query->where(function ($q) use ($user) {
+                $q->where(fn ($m) => $m->where('status', 'pending_manager')->where('approver_id', $user->id));
+                if ($user->hasAccountantAuthority()) {
+                    $q->orWhere(fn ($f) => $f->where('status', 'pending_receipt')->where('created_by', '!=', $user->id));
+                }
+                if ($user->hasFinalMoneyAuthority()) {
+                    $q->orWhere(fn ($d) => $d->where('status', 'ready_for_payment')->where('created_by', '!=', $user->id));
+                }
+            });
         }
 
         // Returning the paginator directly (not wrapped in another
@@ -166,12 +183,46 @@ class VendorFeeController extends Controller
             return $fee;
         });
         ApprovalLog::record($fee, 'created', $request->user());
+        // The recorder's manager first, else Finance — and tell them.
+        app(VendorFeeFlow::class)->start($fee);
 
         if (! empty($data['delivery_job_id'])) {
             DeliveryJob::where('id', $data['delivery_job_id'])->update(['status' => 'billed']);
         }
 
         return response()->json(['data' => $this->fmt($fee)], 201);
+    }
+
+    // The recorder's manager (Patrick for Tender & Procurement) approves
+    // first; then it's Finance's to request payment (2026-10-26).
+    public function managerApprove(Request $request, VendorFee $vendorFee)
+    {
+        $this->assertManagerStage($request, $vendorFee);
+        $vendorFee->update(['status' => 'pending_receipt', 'manager_approved_by' => $request->user()->id, 'manager_approved_at' => now()]);
+        ApprovalLog::record($vendorFee, 'manager_approved', $request->user());
+        app(VendorFeeFlow::class)->notifyStage($vendorFee->fresh(['vendor', 'createdBy', 'approver', 'managerApprovedBy']));
+
+        return response()->json(['data' => $this->fmt($vendorFee->fresh())]);
+    }
+
+    public function managerReject(Request $request, VendorFee $vendorFee)
+    {
+        $this->assertManagerStage($request, $vendorFee);
+        $data = $request->validate(['rejection_reason' => ['required', 'string', 'min:10']]);
+        $vendorFee->update(['status' => 'rejected', 'rejected_by' => $request->user()->id, 'rejected_at' => now(), 'rejection_reason' => $data['rejection_reason']]);
+        app(CreditorService::class)->reverseVendorFee($vendorFee);
+        ApprovalLog::record($vendorFee, 'rejected', $request->user(), $data['rejection_reason']);
+        $this->notifyCreator($vendorFee, 'vendor_fee.rejected', approved: false);
+
+        return response()->json(['data' => $this->fmt($vendorFee->fresh())]);
+    }
+
+    private function assertManagerStage(Request $request, VendorFee $fee): void
+    {
+        abort_if($fee->status !== 'pending_manager', 422, 'This fee isn\'t waiting on a manager\'s approval.');
+        abort_if($fee->approver_id !== $request->user()->id && ! $request->user()->isAdminTier(), 403,
+            'Only ' . ($fee->approver?->name ?? 'the recorder\'s manager') . ' can approve this fee.');
+        $this->abortIfSelfActioning($fee, $request);
     }
 
     // Accountant's move in the Accountant -> Director chain (16.2/16.6 #2's
