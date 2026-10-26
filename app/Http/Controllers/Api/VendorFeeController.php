@@ -67,6 +67,9 @@ class VendorFeeController extends Controller
             'outstanding_gap' => $fee->billed_amount - (int) $fee->receipts->sum('amount'),
             'unverified_receipt_count' => $fee->receipts->whereNull('verified_at')->count(),
             'payment_block_reason' => $fee->paymentBlockReason(),
+            'receipt_after_payment' => (bool) $fee->receipt_after_payment,
+            'receipt_follow_up' => $fee->receiptFollowUp(),
+            'status_label' => $fee->statusLabel(),
             'is_payable' => $fee->isPayable(),
             'receipts' => $fee->receipts->map(fn ($r) => [
                 'id' => $r->id, 'receipt_type' => $r->receipt_type, 'receipt_number' => $r->receipt_number,

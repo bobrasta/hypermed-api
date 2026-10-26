@@ -43,6 +43,9 @@ class ShipmentClearingReceiptTest extends TestCase
         if (! Schema::hasTable('shipment_notify_users')) {
             (require database_path('migrations/2026_10_23_000003_create_shipment_notify_users_table.php'))->up();
         }
+        if (! Schema::hasColumn('vendor_fees', 'receipt_after_payment')) {
+            (require database_path('migrations/2026_10_26_000002_clearing_fee_paid_before_receipt.php'))->up();
+        }
         Storage::fake('public');
         $this->officer = $this->user('procurement_manager', 'clr-officer');
         Sanctum::actingAs($this->officer);
@@ -80,7 +83,7 @@ class ShipmentClearingReceiptTest extends TestCase
             ->assertOk();
         $this->assertSame(7, $r->json('data.step'));
         $this->assertSame('CN-501', $r->json('data.control_number'));
-        $this->assertStringContainsString("Awaiting the clearing agent's fee and receipt", $r->json('notice'));
+        $this->assertStringContainsString("Awaiting the clearing agent's assessed cost", $r->json('notice'));
         $this->assertSame('blocked', $r->json('data.flag'));
 
         // Correcting the control number on the current status saves too.
@@ -93,8 +96,9 @@ class ShipmentClearingReceiptTest extends TestCase
         // Fee recorded: now it waits for the receipt itself.
         $vendor = Vendor::create(['name' => 'ZZ Clearing Co', 'type' => 'clearing', 'is_active' => true]);
         $this->postJson("/api/v1/shipments/{$s['id']}/clearing-fee", ['vendor_id' => $vendor->id, 'billed_amount' => 350000])->assertOk();
+        // Paid first, receipt after: it now waits for the accountant, not the receipt.
         $this->postJson("/api/v1/shipments/{$s['id']}/status", ['step' => 8])->assertStatus(422)
-            ->assertJsonPath('errors.step.0', fn ($m) => str_contains($m, "Awaiting the clearing agent's receipt — no receipt attached"));
+            ->assertJsonPath('errors.step.0', fn ($m) => str_contains($m, 'Awaiting the accountant to request payment'));
     }
 
     public function test_shipment_staff_attach_the_clearing_receipt(): void
@@ -124,7 +128,8 @@ class ShipmentClearingReceiptTest extends TestCase
         Sanctum::actingAs($this->officer);
         $detail = $this->getJson("/api/v1/shipments/{$s['id']}")->assertOk()->json('data');
         $this->assertTrue($detail['clearing_fee']['receipt_uploaded']);
-        $this->assertStringContainsString('awaiting verification', $detail['flag_reason'] ?? $detail['clearing_fee']['block_reason']);
+        // The receipt doesn't hold up payment: next is the accountant's request.
+        $this->assertStringContainsString('Awaiting the accountant', $detail['flag_reason']);
     }
 
     public function test_assessment_documents_kept_for_the_record(): void
@@ -144,6 +149,51 @@ class ShipmentClearingReceiptTest extends TestCase
             'file' => UploadedFile::fake()->create('assessment.pdf', 30, 'application/pdf')], ['Accept' => 'application/json'])->assertOk()->json('data');
         $this->assertSame('assessment.pdf', collect($up['documents'])->firstWhere('type', 'assessment_notice')['file_name']);
         // Records gate nothing: the shipment still only waits for the clearing fee.
-        $this->assertStringContainsString('fee and receipt', $up['next_block_reason']);
+        $this->assertStringContainsString('assessed cost', $up['next_block_reason']);
+    }
+
+    public function test_cost_on_assessment_is_paid_first_and_the_receipt_follows(): void
+    {
+        $s = $this->atClearingAgent();
+        $vendor = Vendor::create(['name' => 'ZZ Clearing Co', 'type' => 'clearing', 'is_active' => true]);
+        $accountant = $this->user('accountant', 'clr-acct');
+        $director = $this->user('super_admin', 'clr-dir');
+
+        // The agent is needed with the cost.
+        $this->postJson("/api/v1/shipments/{$s['id']}/status", ['step' => 7, 'control_number' => 'CN-1', 'clearing_cost' => 420000])
+            ->assertStatus(422)->assertJsonValidationErrors('clearing_vendor_id');
+        $r = $this->postJson("/api/v1/shipments/{$s['id']}/status", ['step' => 7, 'control_number' => 'CN-1',
+            'clearing_cost' => 420000, 'clearing_vendor_id' => $vendor->id])->assertOk()->json('data');
+        $fee = $r['clearing_fee'];
+        $this->assertSame(420000, $fee['billed']);
+        $this->assertSame('Awaiting payment request', $fee['status_label']);
+        $this->assertNull($fee['block_reason']);
+        $this->assertTrue(\App\Models\AppNotification::where('user_id', $accountant->id)->where('entity_id', $fee['id'])
+            ->where('title', 'like', 'Clearing fee to pay%')->exists());
+
+        // Corrected before payment is requested.
+        $this->postJson("/api/v1/shipments/{$s['id']}/status", ['step' => 7, 'clearing_cost' => 450000])->assertOk();
+        $this->assertSame(450000, VendorFee::find($fee['id'])->billed_amount);
+
+        // Accountant requests payment with no receipt; the Director pays it.
+        Sanctum::actingAs($accountant);
+        $this->postJson("/api/v1/vendor-fees/{$fee['id']}/submit-for-payment")->assertOk();
+        Sanctum::actingAs($director);
+        $bank = \App\Models\ChartOfAccount::where('code', '1002')->value('id');
+        $clearingBefore = (int) \App\Models\ChartOfAccount::where('code', '5016')->value('balance');
+        $paid = $this->postJson("/api/v1/vendor-fees/{$fee['id']}/approve", ['payment_reference' => 'TT-1', 'paid_from_account_id' => $bank])
+            ->assertOk()->json('data');
+        $this->assertSame('Paid · receipt to follow', $paid['status_label']);
+        // On the books as a clearing expense.
+        $this->assertSame(450000, (int) \App\Models\ChartOfAccount::where('code', '5016')->value('balance') - $clearingBefore);
+
+        // The shipment moves on to "Payment made"; the receipt comes after.
+        Sanctum::actingAs($this->officer);
+        $this->postJson("/api/v1/shipments/{$s['id']}/status", ['step' => 8])->assertOk()->assertJsonPath('data.step', 8);
+        $this->post("/api/v1/vendor-fees/{$fee['id']}/receipts", ['receipt_type' => 'efd', 'receipt_number' => 'R-' . uniqid(),
+            'issuer_name' => 'ZZ Clearing Co', 'receipt_date' => now()->toDateString(), 'amount' => 450000,
+            'file' => UploadedFile::fake()->create('r.pdf', 20, 'application/pdf')], ['Accept' => 'application/json'])->assertCreated();
+        $d = $this->getJson("/api/v1/shipments/{$s['id']}")->json('data');
+        $this->assertStringContainsString('awaiting verification', $d['clearing_fee']['receipt_follow_up']);
     }
 }

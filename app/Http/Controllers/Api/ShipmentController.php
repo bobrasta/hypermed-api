@@ -8,6 +8,8 @@ use App\Models\Department;
 use App\Models\Machine;
 use App\Models\PurchaseOrder;
 use App\Models\Shipment;
+use App\Services\NotificationTemplateService;
+use App\Models\AppNotification;
 use App\Models\ShipmentDocument;
 use App\Models\ShipmentEvent;
 use App\Models\Supplier;
@@ -225,6 +227,10 @@ class ShipmentController extends Controller
             'tmda_applied_at' => ['nullable', 'date'],
             'tmda_issued_at' => ['nullable', 'date'],
             'control_number' => ['nullable', 'string', 'max:120'],
+            // "Assessment received": the clearing agent and the assessed cost,
+            // recorded as the clearing fee for the accountant to pay.
+            'clearing_cost' => ['nullable', 'integer', 'min:1'],
+            'clearing_vendor_id' => ['nullable', 'exists:vendors,id'],
             // The payment mode can be chosen on the step itself: "Manufacturer
             // paid shipping / payment not required" lifts the payment gates.
             ...$this->costBearerRules(),
@@ -234,7 +240,7 @@ class ShipmentController extends Controller
             throw ValidationException::withMessages(['cost_bearer' => 'Only import shipments have clearing costs.']);
         }
         $from = $shipment->step;
-        $detailKeys = ['tmda_application_ref', 'tmda_applied_at', 'tmda_issued_at', 'control_number', 'cost_bearer', 'paid_by', 'cost_note'];
+        $detailKeys = ['tmda_application_ref', 'tmda_applied_at', 'tmda_issued_at', 'control_number', 'cost_bearer', 'paid_by', 'cost_note', 'clearing_cost'];
         $hasDetails = array_filter(array_intersect_key($data, array_flip($detailKeys)), fn ($v) => $v !== null) !== [];
 
         // The current status again: save what was entered with it (e.g. the
@@ -256,6 +262,7 @@ class ShipmentController extends Controller
         }
         $shipment->fill($details + ['step' => $target]);
         $shipment->load(['documents', 'vendorFee.receipts', 'vendorFee.deliveryJob']);
+
         $costNote = $this->costBearerChanged($shipment) ? $this->costBearerNote($shipment) : null;
 
         // Moving on: a "We pay" import asked to go to "Payment made" before
@@ -272,7 +279,7 @@ class ShipmentController extends Controller
             if ($reached !== $target) {
                 $target = $reached;
                 $shipment->step = $target;
-                $notice = 'Saved at "' . $this->flow->label($shipment, $target) . '". ' . $this->flow->paymentWait($shipment);
+                $notice = true;
             }
         } elseif ($target === $from && ($why = $this->flow->blockReason($shipment, $from))) {
             throw ValidationException::withMessages(['step' => $why]);
@@ -280,7 +287,11 @@ class ShipmentController extends Controller
         $controlNote = $shipment->isDirty('control_number') && $shipment->control_number
             ? "Clearing agent's control number: {$shipment->control_number}." : null;
 
-        DB::transaction(function () use ($shipment, $from, $target, $data, $request, $costNote, $controlNote) {
+        $feeChanged = false;
+        DB::transaction(function () use ($shipment, $from, $target, $data, $request, $costNote, $controlNote, &$feeChanged) {
+            if (! empty($data['clearing_cost'])) {
+                $feeChanged = $this->assessClearingFee($shipment, (int) $data['clearing_cost'], $data['clearing_vendor_id'] ?? null, $request);
+            }
             $shipment->save();
             foreach (array_filter([$costNote, $target === $from ? $controlNote : null]) as $note) {
                 ShipmentEvent::create([
@@ -298,6 +309,13 @@ class ShipmentController extends Controller
             }
         });
 
+        if ($feeChanged) {
+            $this->notifyAccountants($shipment->fresh(['vendorFee.vendor']));
+        }
+        if ($notice === true) {
+            $shipment->load('vendorFee.receipts');
+            $notice = 'Saved at "' . $this->flow->label($shipment, $target) . '". ' . $this->flow->paymentWait($shipment);
+        }
         $shipment->load('department');
         if ($target !== $from) {
             $this->notifier->statusChanged($shipment, $request->user(), $data['note'] ?? ($target < $from ? 'Corrected: ' . trim($data['reason']) : null));
@@ -373,18 +391,15 @@ class ShipmentController extends Controller
             abort_if(Shipment::where('vendor_fee_id', $fee->id)->where('id', '!=', $shipment->id)->exists(), 422, 'That vendor fee is already linked to another shipment.');
             abort_if($fee->status === 'rejected', 422, 'That vendor fee was rejected.');
         } else {
-            $fee = VendorFee::create([
-                'vendor_id' => $data['vendor_id'],
-                'description' => ($data['description'] ?? null) ?: "Clearing — {$shipment->reference}",
-                'billed_amount' => $data['billed_amount'],
-                'currency' => 'TZS',
-                'status' => 'pending_receipt',
-                'created_by' => $request->user()->id,
-            ]);
-            ApprovalLog::record($fee, 'created', $request->user());
+            $fee = $this->newClearingFee($shipment, (int) $data['vendor_id'], (int) $data['billed_amount'], $request, $data['description'] ?? null);
         }
+        // Paid first, receipt after (2026-10-26).
+        $fee->update(['receipt_after_payment' => true]);
 
         $shipment->update(['vendor_fee_id' => $fee->id]);
+        if ($fee->status === 'pending_receipt') {
+            $this->notifyAccountants($shipment->fresh(['vendorFee.vendor']));
+        }
 
         return response()->json(['data' => $this->detail($request, $shipment)]);
     }
@@ -614,6 +629,75 @@ class ShipmentController extends Controller
         ]);
     }
 
+    private function newClearingFee(Shipment $shipment, int $vendorId, int $amount, Request $request, ?string $description = null): VendorFee
+    {
+        $fee = VendorFee::create([
+            'vendor_id' => $vendorId,
+            'description' => $description ?: "Clearing — {$shipment->reference}",
+            'billed_amount' => $amount,
+            'currency' => 'TZS',
+            'status' => 'pending_receipt',
+            'receipt_after_payment' => true,
+            'created_by' => $request->user()->id,
+        ]);
+        ApprovalLog::record($fee, 'created', $request->user());
+
+        return $fee;
+    }
+
+    /**
+     * The assessed cost entered with the status: records the clearing fee,
+     * or corrects it while the accountant hasn't requested payment yet.
+     * True when the fee was created or its amount/agent changed.
+     */
+    private function assessClearingFee(Shipment $shipment, int $amount, ?int $vendorId, Request $request): bool
+    {
+        if ($shipment->direction !== 'import' || ShipmentFlow::manufacturerPaid($shipment)) {
+            throw ValidationException::withMessages(['clearing_cost' => 'Only imports HyperMed pays for have a clearing cost.']);
+        }
+        $fee = $shipment->vendorFee;
+        if (! $fee || $fee->status === 'rejected') {
+            if (! $vendorId) {
+                throw ValidationException::withMessages(['clearing_vendor_id' => 'Choose the clearing agent the cost is owed to.']);
+            }
+            $fee = $this->newClearingFee($shipment, $vendorId, $amount, $request);
+            $shipment->vendor_fee_id = $fee->id;
+            $shipment->setRelation('vendorFee', $fee->load('receipts'));
+
+            return true;
+        }
+        if ($fee->billed_amount === $amount && (! $vendorId || $fee->vendor_id === $vendorId)) {
+            return false;
+        }
+        if ($fee->status !== 'pending_receipt') {
+            throw ValidationException::withMessages(['clearing_cost' => 'The clearing fee is already with the Director or paid — it can\'t be changed here.']);
+        }
+        $fee->update(['billed_amount' => $amount, 'vendor_id' => $vendorId ?: $fee->vendor_id, 'receipt_after_payment' => true]);
+        $this->logNote($shipment, 'Clearing cost set to TZS ' . number_format($amount) . '.', $request->user()->id);
+
+        return true;
+    }
+
+    /** The accountant pays the clearing agent; the receipt follows after. */
+    private function notifyAccountants(Shipment $s): void
+    {
+        $fee = $s->vendorFee;
+        if (! $fee) {
+            return;
+        }
+        $ids = User::where('role', 'accountant')->where('is_active', true)->pluck('id');
+        if ($ids->isEmpty()) {
+            $ids = User::holdingPermission('procurement.initiate_payment')->pluck('id');
+        }
+        $msg = app(NotificationTemplateService::class)->render('vendor_fee.clearing_to_pay', [
+            'reference' => $s->reference, 'vendor_name' => $fee->vendor?->name ?? 'the clearing agent',
+            'billed_amount' => number_format($fee->billed_amount), 'control_number' => $s->control_number ?: '—',
+        ]);
+        foreach ($ids as $id) {
+            AppNotification::create(['user_id' => $id, ...$msg, 'entity_type' => 'vendor_fee', 'entity_id' => $fee->id, 'is_read' => false]);
+        }
+    }
+
     private function feePayload(?VendorFee $fee): ?array
     {
         if (! $fee) {
@@ -623,6 +707,7 @@ class ShipmentController extends Controller
 
         return [
             'id' => $fee->id,
+            'vendor_id' => $fee->vendor_id,
             'vendor_name' => $fee->vendor?->name,
             'description' => $fee->description,
             'billed' => (int) $fee->billed_amount,
@@ -632,6 +717,9 @@ class ShipmentController extends Controller
             'status' => $fee->status,
             'paid' => $fee->status === 'paid',
             'block_reason' => in_array($fee->status, ['paid', 'rejected'], true) ? null : $fee->paymentBlockReason(),
+            'status_label' => $fee->statusLabel(),
+            'receipt_after_payment' => (bool) $fee->receipt_after_payment,
+            'receipt_follow_up' => $fee->receiptFollowUp(),
         ];
     }
 

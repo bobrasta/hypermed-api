@@ -8,7 +8,7 @@ class VendorFee extends Model
 {
     protected $fillable = [
         'vendor_id', 'delivery_job_id', 'description', 'billed_amount', 'currency',
-        'status', 'created_by',
+        'status', 'receipt_after_payment', 'created_by',
         'submitted_by', 'submitted_at',
         'paid_by', 'paid_at', 'payment_reference', 'paid_from_account_id',
         'rejected_by', 'rejected_at', 'rejection_reason',
@@ -16,6 +16,7 @@ class VendorFee extends Model
 
     protected $casts = [
         'billed_amount' => 'integer',
+        'receipt_after_payment' => 'boolean',
         'submitted_at' => 'datetime',
         'paid_at' => 'datetime',
         'rejected_at' => 'datetime',
@@ -65,6 +66,34 @@ class VendorFee extends Model
      * matches 16.4's "reason shown in plain text" UI requirement directly.
      */
     public function paymentBlockReason(): ?string
+    {
+        // A shipment's clearing fee is paid first; its receipt follows (2026-10-26).
+        return $this->receipt_after_payment ? null : $this->receiptGap();
+    }
+
+    /** Paid clearing fee whose receipt hasn't fully come in yet: what's missing, or null. */
+    public function receiptFollowUp(): ?string
+    {
+        if (! $this->receipt_after_payment || $this->status !== 'paid') {
+            return null;
+        }
+        $gap = $this->receiptGap();
+
+        return $gap === 'No receipt attached.' ? 'Receipt to follow — attach the clearing agent\'s receipt.' : $gap;
+    }
+
+    public function statusLabel(): string
+    {
+        return match ($this->status) {
+            'paid' => $this->receiptFollowUp() ? 'Paid · receipt to follow' : 'Paid',
+            'rejected' => 'Rejected',
+            'ready_for_payment' => 'Awaiting Director approval',
+            default => $this->receipt_after_payment ? 'Awaiting payment request' : 'Awaiting receipt',
+        };
+    }
+
+    /** Receipts against the billed amount: what's missing, or null when they cover it. */
+    private function receiptGap(): ?string
     {
         $receipts = $this->relationLoaded('receipts') ? $this->receipts : $this->receipts()->get();
 

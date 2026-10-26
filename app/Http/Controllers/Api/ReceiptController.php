@@ -53,7 +53,9 @@ class ReceiptController extends Controller
     public function store(Request $request, VendorFee $vendorFee)
     {
         $this->assertUploadAccess($request, $vendorFee);
-        abort_if($vendorFee->status !== 'pending_receipt', 422, 'Receipts can only be attached while the fee is awaiting receipts.');
+        // A clearing fee's receipt follows its payment, so it can come in at any point.
+        $open = $vendorFee->receipt_after_payment ? $vendorFee->status !== 'rejected' : $vendorFee->status === 'pending_receipt';
+        abort_if(! $open, 422, 'Receipts can only be attached while the fee is awaiting receipts.');
 
         $data = $request->validate([
             'receipt_type' => ['required', 'in:efd,other'],

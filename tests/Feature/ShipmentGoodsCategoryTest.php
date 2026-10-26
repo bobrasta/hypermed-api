@@ -76,7 +76,7 @@ class ShipmentGoodsCategoryTest extends TestCase
         // The control number is saved; the shipment waits at "Assessment received" for the fee.
         $r = $this->postJson("/api/v1/shipments/{$s['id']}/status", ['step' => 8, 'control_number' => 'CN1'])->assertOk();
         $this->assertSame(7, $r->json('data.step'));
-        $this->assertStringContainsString('fee and receipt', $r->json('notice'));
+        $this->assertStringContainsString('assessed cost', $r->json('notice'));
     }
 
     public function test_medical_is_the_default_and_keeps_the_checklist(): void

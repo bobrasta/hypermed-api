@@ -141,6 +141,6 @@ class ShipmentCoaCourierCostBearerTest extends TestCase
         // Held at "Assessment received" (2026-10-26), never "Payment made" while unpaid.
         $r = $this->postJson("/api/v1/shipments/{$s['id']}/status", ['step' => 8])->assertOk();
         $this->assertSame(7, $r->json('data.step'));
-        $this->assertStringContainsString('fee and receipt', $r->json('notice'));
+        $this->assertStringContainsString('assessed cost', $r->json('notice'));
     }
 }

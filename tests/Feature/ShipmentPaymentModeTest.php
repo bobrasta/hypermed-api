@@ -78,7 +78,7 @@ class ShipmentPaymentModeTest extends TestCase
             ->assertJsonPath('errors.step.0', fn ($m) => str_contains($m, 'control number'));
         $this->postJson("/api/v1/shipments/{$s['id']}/status", ['step' => 7, 'control_number' => 'CN-77'])->assertOk();
         $this->postJson("/api/v1/shipments/{$s['id']}/status", ['step' => 8])->assertStatus(422)
-            ->assertJsonPath('errors.step.0', fn ($m) => str_contains($m, 'vendor fee'));
+            ->assertJsonPath('errors.step.0', fn ($m) => str_contains($m, 'assessed cost'));
     }
 
     public function test_manufacturer_paid_chosen_on_the_step_lets_it_through(): void
