@@ -3,6 +3,7 @@
 namespace App\Services\Creditors;
 
 use App\Models\CreditorOpeningBalance;
+use App\Models\PurchaseReturn;
 use App\Models\Supplier;
 use App\Models\SupplierPayment;
 use App\Models\Vendor;
@@ -109,6 +110,16 @@ class CreditorLedgerService
                     'source' => ['type' => 'vendor_bill', 'id' => $b->id],
                 ]);
             }
+            // Goods sent back against an invoiced order (posted returns only).
+            foreach (PurchaseReturn::with('purchaseOrder:id,po_number')->where('supplier_id', $id)->where('posted', true)->get() as $r) {
+                $add([
+                    'date' => $r->return_date->toDateString(), 'seq' => 2,
+                    'narration' => 'PURCHASE RETURN — ' . $r->purchaseOrder?->po_number . ($r->reason ? ' — ' . $r->reason : ''),
+                    'ref' => $r->return_number, 'debit' => (float) $r->total_amount, 'rate' => $r->exchange_rate,
+                    'debit_tzs' => (int) $r->total_tzs,
+                    'source' => ['type' => 'purchase_return', 'id' => $r->id],
+                ]);
+            }
         } else {
             foreach (VendorFee::where('vendor_id', $id)->where('status', '!=', 'rejected')->get() as $f) {
                 $add([
@@ -193,6 +204,7 @@ class CreditorLedgerService
             $currency = strtoupper(Supplier::whereKey($id)->value('currency') ?: 'TZS');
             $sum += (int) VendorBill::where('supplier_id', $id)->where('status', '!=', 'cancelled')->where('currency', $currency)
                 ->whereDate('issue_date', '<=', $to)->sum('total_tzs');
+            $sum -= (int) PurchaseReturn::where('supplier_id', $id)->where('posted', true)->whereDate('return_date', '<=', $to)->sum('total_tzs');
         } else {
             $fees = VendorFee::where('vendor_id', $id)->where('status', '!=', 'rejected');
             $sum += (int) (clone $fees)->whereDate('created_at', '<=', $to)->sum('billed_amount');

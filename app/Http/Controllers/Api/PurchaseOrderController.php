@@ -13,6 +13,7 @@ use App\Models\SupplierPayment;
 use App\Services\Creditors\CreditorService;
 use App\Models\User;
 use App\Services\DocumentNumberService;
+use App\Services\DocumentPdfService;
 use App\Services\NotificationTemplateService;
 use App\Services\StockService;
 use Illuminate\Http\Request;
@@ -29,7 +30,7 @@ class PurchaseOrderController extends Controller
         'supplier', 'location', 'orderedBy', 'items.inventoryItem',
         'salesApprovedBy', 'directorReviewedBy', 'paymentInitiatedBy',
         'directorApprovedBy', 'rejectedBy',
-        'supplierPayments.paidFrom', 'vendorBills',
+        'supplierPayments.paidFrom', 'vendorBills', 'returns',
     ];
 
     // No self-approval for anyone, at any stage — even the sales manager,
@@ -49,6 +50,7 @@ class PurchaseOrderController extends Controller
             ->when($request->status,      fn ($q, $s) => $q->where('status', $s))
             ->when($request->supplier_id, fn ($q, $id) => $q->where('supplier_id', $id))
             ->when($request->location_id, fn ($q, $id) => $q->where('location_id', $id))
+            ->withSum('returns as returned_amount', 'total_amount')
             ->tap(fn ($q) => $this->applyPeriod($q, $request, 'created_at'))
             ->latest()
             ->paginate($this->perPage($request, 25));
@@ -65,7 +67,7 @@ class PurchaseOrderController extends Controller
 
     public function store(Request $request, DocumentNumberService $documentNumbers)
     {
-        abort_if(! $request->user()->hasProcurementCreateAuthority(), 403, 'You are not authorised to create purchase orders.');
+        abort_if(! $request->user()->hasPurchaseCreateAuthority(), 403, 'You are not authorised to create purchase orders.');
 
         $data = $request->validate([
             'supplier_id'               => 'required|exists:suppliers,id',
@@ -124,13 +126,22 @@ class PurchaseOrderController extends Controller
         abort_if(! $request->user()->hasPurchaseOrderReadAuthority(), 403, 'Not authorised.');
 
         $purchaseOrder->load([...self::RELATIONS, 'requisition']);
+        $purchaseOrder->items->loadSum('returnItems as quantity_returned', 'quantity');
 
         return response()->json(['data' => $purchaseOrder]);
     }
 
+    /** Print (Clickhuduma's purchase "Print"): the order on the letterhead. */
+    public function pdf(Request $request, PurchaseOrder $purchaseOrder, DocumentPdfService $pdf)
+    {
+        abort_if(! $request->user()->hasPurchaseOrderReadAuthority(), 403, 'Not authorised.');
+
+        return $pdf->purchaseOrderPdf($purchaseOrder);
+    }
+
     public function update(Request $request, PurchaseOrder $purchaseOrder)
     {
-        abort_if(! $request->user()->hasProcurementCreateAuthority(), 403, 'You are not authorised to edit purchase orders.');
+        abort_if(! $request->user()->hasPurchaseCreateAuthority(), 403, 'You are not authorised to edit purchase orders.');
         abort_if($purchaseOrder->status !== 'draft', 422, 'Only draft purchase orders can be edited.');
 
         $data = $request->validate([
@@ -156,7 +167,7 @@ class PurchaseOrderController extends Controller
 
     public function submitForApproval(Request $request, PurchaseOrder $purchaseOrder)
     {
-        abort_if(! $request->user()->hasProcurementCreateAuthority(), 403, 'You are not authorised to submit purchase orders.');
+        abort_if(! $request->user()->hasPurchaseCreateAuthority(), 403, 'You are not authorised to submit purchase orders.');
         abort_if($purchaseOrder->status !== 'draft', 422, 'Only draft orders can be submitted for approval.');
 
         $purchaseOrder->update(['status' => 'pending_sales_manager']);
@@ -370,7 +381,7 @@ class PurchaseOrderController extends Controller
     // Mark PO as sent to supplier
     public function send(Request $request, PurchaseOrder $purchaseOrder)
     {
-        abort_if(! $request->user()->hasProcurementCreateAuthority(), 403, 'You are not authorised to send purchase orders.');
+        abort_if(! $request->user()->hasPurchaseCreateAuthority(), 403, 'You are not authorised to send purchase orders.');
         abort_if($purchaseOrder->status !== 'approved', 422, 'Only fully-approved orders can be sent.');
 
         $purchaseOrder->update([
@@ -453,7 +464,7 @@ class PurchaseOrderController extends Controller
 
     public function cancel(Request $request, PurchaseOrder $purchaseOrder)
     {
-        abort_if(! $request->user()->hasProcurementCreateAuthority(), 403, 'You are not authorised to cancel purchase orders.');
+        abort_if(! $request->user()->hasPurchaseCreateAuthority(), 403, 'You are not authorised to cancel purchase orders.');
         abort_if(in_array($purchaseOrder->status, ['received']), 422, 'Fully received orders cannot be cancelled.');
 
         $purchaseOrder->update(['status' => 'cancelled']);

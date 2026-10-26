@@ -445,6 +445,69 @@ class DocumentPdfService
         ]);
     }
 
+    /** Purchases menu → Print: the purchase order on the letterhead. */
+    public function purchaseOrderPdf(\App\Models\PurchaseOrder $po): Response
+    {
+        $po->loadMissing(['supplier', 'location', 'orderedBy', 'items.inventoryItem', 'returns']);
+        $cur = $this->currencyPrefix($po->currency);
+        $n = fn ($v) => number_format((float) $v);
+        $rows = '';
+        foreach ($po->items as $i => $it) {
+            $rows .= '<tr><td class=\'dim\'>' . ($i + 1) . '</td><td>' . e($it->inventoryItem?->name ?? '—')
+                . ($it->inventoryItem?->sku ? "<div style='font-size:7.5pt;color:#7a7a7d'>" . e($it->inventoryItem->sku) . '</div>' : '') . '</td>'
+                . "<td class='num'>" . e($it->quantity_ordered) . "</td><td class='num'>" . e($it->quantity_received) . '</td>'
+                . "<td class='num'>" . e($n($it->unit_cost)) . "</td><td class='num'>" . e($n($it->quantity_ordered * $it->unit_cost)) . '</td></tr>';
+        }
+        $returned = (int) $po->returns->sum('total_amount');
+        $due = max((int) $po->total_amount - $returned - (int) $po->amount_paid, 0);
+        $totals = "<tr class='muted'><td class='lbl'>Paid</td><td class='val'>{$cur} " . e($n($po->amount_paid)) . '</td></tr>'
+            . ($returned > 0 ? "<tr class='muted'><td class='lbl'>Returned</td><td class='val'>{$cur} " . e($n($returned)) . '</td></tr>' : '')
+            . "<tr class='muted'><td class='lbl'>Payment due</td><td class='val'>{$cur} " . e($n($due)) . '</td></tr>'
+            . "<tr class='grand'><td class='lbl'><span class='grand-lbl'>GRAND TOTAL</span></td><td class='val'><span class='grand-val'>{$cur} " . e($n($po->total_amount)) . '</span></td></tr>';
+        $body = "<table id='items'><tr><th style='width:5%'>#</th><th>ITEM</th><th class='num' style='width:10%'>ORDERED</th><th class='num' style='width:10%'>RECEIVED</th>"
+            . "<th class='num' style='width:15%'>UNIT COST</th><th class='num' style='width:17%'>TOTAL</th></tr>{$rows}</table>"
+            . "<table style='width:100%'><tr><td style='width:52%;vertical-align:top;padding-top:14px;font-size:8.5pt;color:#5d5d60'>"
+            . ($po->notes ? nl2br(e($po->notes)) : '') . "</td><td style='vertical-align:top'><table id='totals' style='width:100%'>{$totals}</table></td></tr></table>";
+        $status = ucwords(str_replace('_', ' ', (string) $po->status));
+
+        return $this->letterhead([
+            'title' => 'PURCHASE ORDER', 'docLabel' => 'Purchase', 'docNumber' => $po->po_number,
+            'date' => $po->created_at?->format('d M Y') ?? now()->format('d M Y'),
+            'tag' => 'PURCHASE · ' . strtoupper($status) . ' · ' . strtoupper((string) $po->payment_status),
+            'metaCells' => [['SUPPLIER', $po->supplier?->name ?? '—', true], ['RECEIVE AT', $po->location?->name ?? '—'],
+                ['ADDED BY', $po->orderedBy?->name ?? '—']],
+            'bodyHtml' => $body, 'filename' => "{$po->po_number}.pdf", 'signature' => 'AUTHORISED SIGNATURE',
+        ]);
+    }
+
+    /** Purchase returns → Print: the return note on the letterhead. */
+    public function purchaseReturnPdf(\App\Models\PurchaseReturn $r): Response
+    {
+        $r->loadMissing(['supplier', 'location', 'purchaseOrder', 'createdBy', 'items.inventoryItem']);
+        $cur = $this->currencyPrefix($r->currency);
+        $n = fn ($v) => number_format((float) $v);
+        $rows = '';
+        foreach ($r->items as $i => $it) {
+            $rows .= '<tr><td class=\'dim\'>' . ($i + 1) . '</td><td>' . e($it->inventoryItem?->name ?? '—') . '</td>'
+                . "<td class='num'>" . e($it->quantity) . "</td><td class='num'>" . e($n($it->unit_cost)) . "</td><td class='num'>" . e($n($it->total)) . '</td></tr>';
+        }
+        $body = "<table id='items'><tr><th style='width:5%'>#</th><th>ITEM RETURNED</th><th class='num' style='width:10%'>QTY</th>"
+            . "<th class='num' style='width:17%'>UNIT COST</th><th class='num' style='width:18%'>TOTAL</th></tr>{$rows}</table>"
+            . "<table style='width:100%'><tr><td style='width:52%;vertical-align:top;padding-top:14px;font-size:8.5pt;color:#5d5d60'>"
+            . ($r->reason ? '<strong>Reason:</strong> ' . nl2br(e($r->reason)) : '') . "</td><td style='vertical-align:top'><table id='totals' style='width:100%'>"
+            . "<tr class='grand'><td class='lbl'><span class='grand-lbl'>TOTAL RETURNED</span></td><td class='val'><span class='grand-val'>{$cur} " . e($n($r->total_amount)) . '</span></td></tr>'
+            . '</table></td></tr></table>';
+
+        return $this->letterhead([
+            'title' => 'PURCHASE RETURN', 'docLabel' => 'Return', 'docNumber' => $r->return_number,
+            'date' => $r->return_date?->format('d M Y') ?? now()->format('d M Y'),
+            'tag' => 'GOODS RETURNED TO SUPPLIER · ' . ($r->purchaseOrder?->po_number ?? ''),
+            'metaCells' => [['SUPPLIER', $r->supplier?->name ?? '—', true], ['PURCHASE', $r->purchaseOrder?->po_number ?? '—'],
+                ['FROM STORE', $r->location?->name ?? '—']],
+            'bodyHtml' => $body, 'filename' => "{$r->return_number}.pdf", 'signature' => 'RECEIVED BY (SUPPLIER)',
+        ]);
+    }
+
     // The items table's QTY column is narrow (design-matched to the
     // prototype's whole-number sample data), so a flat 2-decimal format
     // wraps onto two lines for common whole quantities — drop trailing

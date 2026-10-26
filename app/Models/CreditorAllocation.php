@@ -9,11 +9,11 @@ use Illuminate\Database\Eloquent\Model;
  * invoice, or an opening balance owed), in the supplier's currency.
  * kind 'payment': the payment settled something already owed (its FX
  * difference posted with the payment); kind 'advance': an invoice used up
- * money paid before it.
+ * money paid before it; kind 'return': goods sent back settled an invoice.
  */
 class CreditorAllocation extends Model
 {
-    protected $fillable = ['supplier_payment_id', 'opening_balance_id', 'vendor_bill_id', 'opening_owed_id', 'amount', 'kind'];
+    protected $fillable = ['supplier_payment_id', 'opening_balance_id', 'vendor_bill_id', 'opening_owed_id', 'purchase_return_id', 'amount', 'kind'];
 
     protected $casts = ['amount' => 'decimal:2'];
 

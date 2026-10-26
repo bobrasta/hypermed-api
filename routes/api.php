@@ -37,6 +37,7 @@ use App\Http\Controllers\Api\MachineController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\PurchaseOrderController;
 use App\Http\Controllers\Api\PurchaseRequisitionController;
+use App\Http\Controllers\Api\PurchaseReturnController;
 use App\Http\Controllers\Api\QuotationController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RevenueController;
@@ -491,7 +492,12 @@ Route::prefix('v1')->group(function () {
         Route::post('purchase-orders/{purchaseOrder}/send',    [PurchaseOrderController::class, 'send']);
         Route::post('purchase-orders/{purchaseOrder}/receive', [PurchaseOrderController::class, 'receive']);
         Route::post('purchase-orders/{purchaseOrder}/cancel',  [PurchaseOrderController::class, 'cancel']);
+        Route::get('purchase-orders/{purchaseOrder}/pdf',      [PurchaseOrderController::class, 'pdf']);
         Route::apiResource('purchase-orders', PurchaseOrderController::class);
+
+        // Purchase returns — goods sent back to the supplier (Purchases menu)
+        Route::get('purchase-returns/{purchaseReturn}/pdf', [PurchaseReturnController::class, 'pdf']);
+        Route::apiResource('purchase-returns', PurchaseReturnController::class)->only(['index', 'store', 'show']);
 
         // Customers = client facilities we do business with; contacts are the people there
         Route::get('customers',            [\App\Http\Controllers\Api\CustomerController::class, 'index']);

@@ -34,6 +34,9 @@ class ConnectionsTest extends TestCase
         if (! Schema::hasTable('supplier_payments')) {
             (require database_path('migrations/2026_10_20_120000_creditors_supplier_payments_and_fx.php'))->up();
         }
+        if (! Schema::hasTable('purchase_returns')) {
+            (require database_path('migrations/2026_10_26_000001_create_purchases_section.php'))->up();
+        }
         Cache::flush();
     }
 

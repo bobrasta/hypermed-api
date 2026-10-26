@@ -104,6 +104,11 @@ class PurchaseOrder extends Model
         return $this->hasMany(VendorBill::class);
     }
 
+    public function returns()
+    {
+        return $this->hasMany(PurchaseReturn::class);
+    }
+
     public function purchaseRequisition()
     {
         return $this->belongsTo(PurchaseRequisition::class);

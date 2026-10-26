@@ -228,6 +228,13 @@ class User extends Authenticatable
         return app(EffectivePermissionResolver::class)->can($this, 'procurement.create_po');
     }
 
+    /** Purchases menu: add a purchase (a PO) and record returns — procurement or purchases.create. */
+    public function hasPurchaseCreateAuthority(): bool
+    {
+        return $this->hasProcurementCreateAuthority()
+            || app(EffectivePermissionResolver::class)->can($this, 'purchases.create');
+    }
+
     public function hasProcurementSalesStageAuthority(): bool
     {
         return app(EffectivePermissionResolver::class)->can($this, 'procurement.approve_po_sales_stage');
@@ -342,7 +349,8 @@ class User extends Authenticatable
             || $this->hasLogisticsReceiveAuthority()
             || $this->hasDirectorAuthority()
             || app(EffectivePermissionResolver::class)->can($this, 'screens.inventory')
-            || app(EffectivePermissionResolver::class)->can($this, 'screens.approvals');
+            || app(EffectivePermissionResolver::class)->can($this, 'screens.approvals')
+            || app(EffectivePermissionResolver::class)->can($this, 'screens.purchases');
     }
 
     public function hasMachineAllocateAuthority(): bool

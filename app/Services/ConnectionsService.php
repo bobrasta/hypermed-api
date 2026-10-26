@@ -14,6 +14,7 @@ use App\Models\Machine;
 use App\Models\Payment;
 use App\Models\PerDiemRequest;
 use App\Models\PurchaseOrder;
+use App\Models\PurchaseReturn;
 use App\Models\PurchaseRequisition;
 use App\Models\SalesOrder;
 use App\Models\SerialNumber;
@@ -49,6 +50,7 @@ class ConnectionsService
     public const TYPES = [
         'purchase_requisition' => PurchaseRequisition::class,
         'purchase_order' => PurchaseOrder::class,
+        'purchase_return' => PurchaseReturn::class,
         'supplier_payment' => SupplierPayment::class,
         'vendor_bill' => VendorBill::class,
         'supplier' => Supplier::class,
@@ -152,6 +154,7 @@ class ConnectionsService
         return match (true) {
             $m instanceof PurchaseRequisition => ['title' => $m->pr_number, 'subtitle' => 'Requisition' . ($m->department ? ' · ' . $m->department : ''), 'status' => $m->status, 'date' => self::d($m->submitted_at ?? $m->created_at)] + $money(null, null),
             $m instanceof PurchaseOrder => ['title' => $m->po_number, 'subtitle' => 'LPO · ' . ($m->supplier?->name ?? '') . ($m->on_credit ? ' · on credit' : ''), 'status' => $m->status . ' · ' . $m->payment_status, 'date' => self::d($m->created_at)] + $money($m->total_amount, $m->currency),
+            $m instanceof PurchaseReturn => ['title' => $m->return_number, 'subtitle' => 'Purchase return · ' . ($m->supplier?->name ?? ''), 'status' => $m->posted ? 'on supplier account' : 'stock only', 'date' => self::d($m->return_date)] + $money($m->total_amount, $m->currency),
             $m instanceof SupplierPayment => ['title' => $m->payment_number, 'subtitle' => 'Payment from ' . ($m->paidFrom?->name ?? 'bank') . ($m->reference ? " · {$m->reference}" : ''), 'status' => $m->status, 'date' => self::d($m->payment_date)] + $money($m->amount, $m->currency),
             $m instanceof VendorBill => ['title' => $m->supplier_reference ?: $m->bill_number, 'subtitle' => 'Supplier invoice · ' . ($m->supplier?->name ?? ''), 'status' => $m->status, 'date' => self::d($m->issue_date)] + $money($m->total, $m->currency),
             $m instanceof Supplier => ['title' => $m->name, 'subtitle' => 'Supplier · ' . ($m->type ?? '') . ' · ' . ($m->currency ?? ''), 'status' => $m->is_active ? 'active' : 'inactive', 'date' => null] + $money(null, $m->currency),
@@ -202,6 +205,13 @@ class ConnectionsService
                 $add(VendorBill::where('purchase_order_id', $m->id)->get(), 'supplier invoice');
                 $add(Shipment::where('purchase_order_id', $m->id)->get(), 'shipment');
                 $add($movementsFor($m), 'received into store');
+                $add(PurchaseReturn::where('purchase_order_id', $m->id)->get(), 'returned');
+                break;
+            case 'purchase_return':
+                $add($m->purchaseOrder, 'returned from');
+                $add($m->supplier, 'returned to');
+                $add($movementsFor($m), 'taken out of store');
+                $add(VendorBill::whereIn('id', CreditorAllocation::where('purchase_return_id', $m->id)->pluck('vendor_bill_id')->filter())->get(), 'credits');
                 break;
             case 'supplier_payment':
                 $add($m->supplier ?? $m->vendor, 'paid to');
@@ -348,6 +358,7 @@ class ConnectionsService
             match ($n['type']) {
                 'vendor_bill' => $refs[] = "BILL-{$id}",
                 'supplier_payment' => $refs[] = "SPAY-{$id}",
+                'purchase_return' => $refs[] = "PRET-{$id}",
                 'vendor_fee' => array_push($refs, "VFEE-{$id}", "VFEE-{$id}-PAY"),
                 'per_diem_request' => $refs[] = "PDM-{$id}",
                 'creditor_opening' => $refs[] = "CROB-{$id}",

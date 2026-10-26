@@ -7,6 +7,7 @@ use App\Models\CreditorAllocation;
 use App\Models\CreditorOpeningBalance;
 use App\Models\PerDiemRequest;
 use App\Models\PurchaseOrder;
+use App\Models\PurchaseReturn;
 use App\Models\Supplier;
 use App\Models\SupplierPayment;
 use App\Models\User;
@@ -161,6 +162,14 @@ class CreditorService
                 $items->push(['kind' => 'payment', 'model' => $p, 'date' => $p->payment_date, 'open' => $open, 'rate' => (float) $p->exchange_rate]);
             }
         }
+        // Goods sent back: what their invoice didn't absorb is owed back to us.
+        $returns = $type === 'supplier' ? PurchaseReturn::where('supplier_id', $creditorId)->where('posted', true)->get() : collect();
+        foreach ($returns as $r) {
+            $open = self::cents($r->total_amount) - self::cents(CreditorAllocation::where('purchase_return_id', $r->id)->sum('amount'));
+            if ($open > 0) {
+                $items->push(['kind' => 'return', 'model' => $r, 'date' => $r->return_date, 'open' => $open, 'rate' => (float) $r->exchange_rate]);
+            }
+        }
 
         return $items->sortBy(fn ($i) => $i['date']->format('Y-m-d') . sprintf('%012d', $i['model']->id))->values();
     }
@@ -184,9 +193,11 @@ class CreditorService
             ? $paid->sum(fn ($p) => strtoupper($p->currency) === 'TZS' ? self::cents($p->amount) / 100 : $p->amount_tzs)
             : $paid->sum(fn ($p) => (float) $p->amount);
         $amount = (int) round($amount);
+        // Goods sent back aren't paid for.
+        $payable = (int) $po->total_amount - (int) PurchaseReturn::where('purchase_order_id', $po->id)->sum('total_amount');
         $po->update([
             'amount_paid' => $amount,
-            'payment_status' => $amount <= 0 ? 'unpaid' : ($amount >= (int) $po->total_amount ? 'paid' : 'partial'),
+            'payment_status' => $amount <= 0 && $payable > 0 ? 'unpaid' : ($amount >= $payable ? 'paid' : 'partial'),
         ]);
     }
 
@@ -205,7 +216,7 @@ class CreditorService
                 }
                 $take = min($remaining, $adv['open']);
                 CreditorAllocation::create([
-                    $adv['kind'] === 'payment' ? 'supplier_payment_id' : 'opening_balance_id' => $adv['model']->id,
+                    match ($adv['kind']) { 'payment' => 'supplier_payment_id', 'return' => 'purchase_return_id', default => 'opening_balance_id' } => $adv['model']->id,
                     'vendor_bill_id' => $bill->id, 'amount' => $take / 100, 'kind' => 'advance',
                 ]);
                 $tzs += self::tzs($take, $adv['rate']);
@@ -238,6 +249,52 @@ class CreditorService
         DB::transaction(function () use ($bill) {
             CreditorAllocation::where('vendor_bill_id', $bill->id)->delete(); // advances it used become free again
             $this->books->reverseByReference("BILL-{$bill->id}");
+        });
+    }
+
+    // ───────────────────────────────────────────────── purchase returns
+
+    /**
+     * Goods sent back to the supplier. Only an order with a supplier invoice
+     * on the books carries the goods in Trade Creditors and Inventory, so
+     * only then does the return post (Dr Trade Creditors / Cr Inventory, at
+     * the invoice's rate) and settle that invoice like a credit note; any
+     * excess is owed back to us and used against their next invoice. An
+     * order with no invoice yet just returns the stock — the supplier's
+     * invoice then comes in for what was kept.
+     */
+    public function postPurchaseReturn(PurchaseReturn $return): void
+    {
+        $po = $return->purchaseOrder;
+        $currency = strtoupper($po->supplier?->currency ?: 'TZS');
+        $bills = VendorBill::where('purchase_order_id', $po->id)->where('status', '!=', 'cancelled')
+            ->get()->filter(fn ($b) => strtoupper($b->currency) === $currency)->sortBy('issue_date')->values();
+        if ($bills->isEmpty() || strtoupper((string) $po->currency) !== $currency || $return->total_amount <= 0) {
+            return;
+        }
+
+        DB::transaction(function () use ($return, $bills, $currency, $po) {
+            $rate = (float) $bills->first()->exchange_rate;
+            $remaining = self::cents($return->total_amount);
+            foreach ($bills as $bill) {
+                $open = self::cents($bill->total) - self::cents(CreditorAllocation::where('vendor_bill_id', $bill->id)->sum('amount'));
+                $take = min($remaining, max($open, 0));
+                if ($take > 0) {
+                    CreditorAllocation::create([
+                        'purchase_return_id' => $return->id, 'vendor_bill_id' => $bill->id,
+                        'amount' => $take / 100, 'kind' => 'return',
+                    ]);
+                    $remaining -= $take;
+                    $this->refreshBill($bill);
+                }
+            }
+            $tzs = self::tzs(self::cents($return->total_amount), $rate);
+            $this->post([
+                $this->leg(self::apCode($currency), 'debit', $tzs),
+                $this->leg(self::INVENTORY, 'credit', $tzs),
+            ], "Purchase return {$return->return_number} — {$po->supplier->name} ({$po->po_number})",
+                "PRET-{$return->id}", $return->return_date?->toDateString());
+            $return->update(['posted' => true, 'exchange_rate' => $rate, 'total_tzs' => $tzs]);
         });
     }
 

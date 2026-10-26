@@ -146,6 +146,9 @@ class PermissionSeeder extends Seeder
                 'procurement.approve_po_director_stage' => ['Approve PO — Director Stage', 'Second-stage purchase-order approval (director review)'],
                 'procurement.initiate_payment'      => ['Initiate PO Payment', 'Mark a purchase order as ready for/undergoing payment'],
                 'procurement.approve_payment_final'=> ['Final PO Payment Approval', 'Final director sign-off after payment has been initiated'],
+                // Purchases menu (2026-10-26): add a purchase (a PO, through the
+                // same approval chain) and record returns to the supplier.
+                'purchases.create'                  => ['Add Purchases', 'Add a purchase (starts the purchase-order approval chain) and record purchase returns'],
             ],
             'logistics' => [
                 'logistics.deliver_order' => ['Deliver Sales Orders', 'Mark a sales order delivered to the customer'],
@@ -217,8 +220,8 @@ class PermissionSeeder extends Seeder
         }
 
         $grants = [
-            'sales_manager' => ['sales.create', 'sales.edit', 'sales.issue_quotation', 'sales.view_full_numbers', 'sales.create_subordinate_user', 'procurement.approve_po_sales_stage', 'machines.receive', 'machines.allocate'],
-            'sales'         => ['sales.create', 'sales.edit', 'sales.issue_quotation'],
+            'sales_manager' => ['sales.create', 'sales.edit', 'sales.issue_quotation', 'sales.view_full_numbers', 'sales.create_subordinate_user', 'procurement.approve_po_sales_stage', 'machines.receive', 'machines.allocate', 'purchases.create'],
+            'sales'         => ['sales.create', 'sales.edit', 'sales.issue_quotation', 'purchases.create'],
             'finance_manager'=> ['finance.view_revenue', 'finance.approve_step2', 'finance.export_reports'],
             'finance'       => [], // scoped grant below — 'masked' revenue view only
             // No services.close_ticket — resolving a ticket is CTO/Director
@@ -274,6 +277,8 @@ class PermissionSeeder extends Seeder
             // 2026-10-23: Quotations on its own (engineers, without the Sales
             // menu) and Staff contributions (Director — an admin account — and CTO).
             'quotations', 'contributions',
+            // 2026-10-26: Purchases menu (Clickhuduma's), above Sales.
+            'purchases',
         ];
 
         $roles = Role::whereIn('name', User::ROLES)->get()->keyBy('name');
@@ -294,8 +299,8 @@ class PermissionSeeder extends Seeder
             // not staff task assignment or stock management.
             'technician'      => ['dashboard', 'machines', 'detail', 'hospitals', 'service', 'quotations', 'my_leave', 'my_service_reports', 'my_travel_plans', 'reports', 'settings', 'notifications'],
             'team_leader'     => ['dashboard', 'approvals', 'machines', 'detail', 'hospitals', 'service', 'quotations', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
-            'sales_manager'   => ['dashboard', 'approvals', 'machines', 'detail', 'sales', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
-            'sales'           => ['dashboard', 'machines', 'detail', 'sales', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'sales_manager'   => ['dashboard', 'approvals', 'machines', 'detail', 'sales', 'purchases', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
+            'sales'           => ['dashboard', 'machines', 'detail', 'sales', 'purchases', 'customers', 'revenue', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'finance_manager' => ['dashboard', 'revenue', 'finance', 'vendor_fees', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'finance'         => ['dashboard', 'revenue', 'finance', 'vendor_fees', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
             'cs'              => ['dashboard', 'customers', 'service', 'email', 'staff', 'my_leave', 'reports', 'settings', 'notifications'],
