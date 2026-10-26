@@ -41,7 +41,15 @@ class ShipmentFlow
         'coa' => 'Certificate of Analysis',
         'tmda_permit' => 'TMDA permit',
         'recipient_receipt' => 'Signed receipt from recipient',
+        // From "Assessment received" on, kept for the record and later review
+        // (user, 2026-10-26) — optional, they gate nothing.
+        'assessment_notice' => 'Assessment notice',
+        'customs_release' => 'Customs release order',
+        'clearing_other' => 'Other clearing documents',
     ];
+
+    /** Optional record-keeping documents offered from "Assessment received" on. */
+    public const RECORD_DOCS = ['assessment_notice', 'customs_release', 'clearing_other'];
 
     /** 18.7 — shown in settings so each can be marked confirmed once Procurement checks it. */
     public const ASSUMPTIONS = [
@@ -138,7 +146,7 @@ class ShipmentFlow
     public static function allowedDocTypes(string $direction): array
     {
         return $direction === 'import'
-            ? ['air_waybill', 'bill_of_lading', 'packing_list', 'commercial_invoice', 'coa', 'tmda_permit']
+            ? ['air_waybill', 'bill_of_lading', 'packing_list', 'commercial_invoice', 'coa', 'tmda_permit', ...self::RECORD_DOCS]
             : ['air_waybill', 'bill_of_lading', 'packing_list', 'commercial_invoice', 'recipient_receipt'];
     }
 

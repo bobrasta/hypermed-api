@@ -708,11 +708,13 @@ class ShipmentController extends Controller
             'department_manager' => $s->department?->manager?->name,
             'notify_users' => $s->notifyUsers->map(fn ($u) => ['id' => $u->id, 'name' => $u->name])->values(),
             'documents' => collect(ShipmentFlow::allowedDocTypes($s->direction))
-                ->filter(fn ($t) => in_array($t, $required, true) || $docs->has($t) || in_array($t, ['tmda_permit', 'recipient_receipt', 'coa'], true))
+                ->filter(fn ($t) => in_array($t, $required, true) || $docs->has($t) || in_array($t, ['tmda_permit', 'recipient_receipt', 'coa'], true)
+                    || (in_array($t, ShipmentFlow::RECORD_DOCS, true) && $s->step >= ShipmentFlow::STEP_ASSESSMENT))
                 ->map(fn ($t) => [
                     'type' => $t,
                     'label' => ShipmentFlow::DOC_LABELS[$t],
                     'required' => in_array($t, $required, true),
+                    'for_records' => in_array($t, ShipmentFlow::RECORD_DOCS, true),
                     // COA switched off for this shipment, or TMDA papers for
                     // non-medical goods: shown, but not applicable.
                     'not_applicable' => ($t === 'coa' && (! $s->coa_required || ShipmentFlow::nonMedical($s)))

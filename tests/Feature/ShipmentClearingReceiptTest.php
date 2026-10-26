@@ -126,4 +126,24 @@ class ShipmentClearingReceiptTest extends TestCase
         $this->assertTrue($detail['clearing_fee']['receipt_uploaded']);
         $this->assertStringContainsString('awaiting verification', $detail['flag_reason'] ?? $detail['clearing_fee']['block_reason']);
     }
+
+    public function test_assessment_documents_kept_for_the_record(): void
+    {
+        $s = $this->atClearingAgent();
+        $types = fn ($d) => collect($d['documents'])->pluck('type')->all();
+        $this->assertNotContains('assessment_notice', $types($this->getJson("/api/v1/shipments/{$s['id']}")->json('data')));
+
+        $d = $this->postJson("/api/v1/shipments/{$s['id']}/status", ['step' => 7, 'control_number' => 'CN-7'])->assertOk()->json('data');
+        foreach (['assessment_notice', 'customs_release', 'clearing_other'] as $t) {
+            $doc = collect($d['documents'])->firstWhere('type', $t);
+            $this->assertNotNull($doc, $t);
+            $this->assertTrue($doc['for_records']);
+            $this->assertFalse($doc['required']);
+        }
+        $up = $this->post("/api/v1/shipments/{$s['id']}/documents", ['type' => 'assessment_notice',
+            'file' => UploadedFile::fake()->create('assessment.pdf', 30, 'application/pdf')], ['Accept' => 'application/json'])->assertOk()->json('data');
+        $this->assertSame('assessment.pdf', collect($up['documents'])->firstWhere('type', 'assessment_notice')['file_name']);
+        // Records gate nothing: the shipment still only waits for the clearing fee.
+        $this->assertStringContainsString('fee and receipt', $up['next_block_reason']);
+    }
 }
