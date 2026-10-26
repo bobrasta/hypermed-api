@@ -117,7 +117,10 @@ class VendorFeeController extends Controller
         }
         // Approvals: the fees waiting on this person — as the recorder's
         // manager, as Finance (payment request) or as the Director.
-        if ($request->boolean('waiting_on_me')) {
+        if ($request->boolean('waiting_on_me') && $user->isAdminTier()) {
+            // Admins see every open fee, whoever it waits on, and can act on it.
+            $query->whereIn('status', ['pending_manager', 'pending_receipt', 'ready_for_payment']);
+        } elseif ($request->boolean('waiting_on_me')) {
             $query->where(function ($q) use ($user) {
                 $q->where(fn ($m) => $m->where('status', 'pending_manager')->where('approver_id', $user->id));
                 if ($user->hasAccountantAuthority()) {

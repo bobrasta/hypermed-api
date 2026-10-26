@@ -172,6 +172,9 @@ Route::prefix('v1')->group(function () {
         Route::post('vendor-fees/{vendorFee}/receipts', [ReceiptController::class, 'store']);
         Route::post('vendor-fees/{vendorFee}/receipts/{receipt}/verify', [ReceiptController::class, 'verify']);
         Route::delete('vendor-fees/{vendorFee}/receipts/{receipt}', [ReceiptController::class, 'destroy']);
+        Route::get('vendor-fees/{vendorFee}/receipts/{receipt}/file', [ReceiptController::class, 'file']);
+        // POST (multipart, so a replacement file can come with it).
+        Route::post('vendor-fees/{vendorFee}/receipts/{receipt}', [ReceiptController::class, 'update']);
         Route::post('vendor-fees/{vendorFee}/manager-approve', [VendorFeeController::class, 'managerApprove']);
         Route::post('vendor-fees/{vendorFee}/manager-reject', [VendorFeeController::class, 'managerReject']);
         Route::post('vendor-fees/{vendorFee}/submit-for-payment', [VendorFeeController::class, 'submitForPayment']);

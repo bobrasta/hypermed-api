@@ -57,6 +57,9 @@ class ReceiptController extends Controller
         $open = $vendorFee->receipt_after_payment ? $vendorFee->status !== 'rejected' : $vendorFee->status === 'pending_receipt';
         abort_if(! $open, 422, 'Receipts can only be attached while the fee is awaiting receipts.');
 
+        if ($request->filled('amount')) {
+            $request->merge(['amount' => preg_replace('/[^0-9.\-]/', '', (string) $request->input('amount'))]); // "9,000"
+        }
         $data = $request->validate([
             'receipt_type' => ['required', 'in:efd,other'],
             'receipt_number' => ['required', 'string', 'max:100'],
@@ -121,10 +124,81 @@ class ReceiptController extends Controller
         return response()->json(['data' => ['id' => $receipt->id, 'verified' => true]]);
     }
 
+    /** The attached receipt file — anyone who can see the fee can open it. */
+    public function file(Request $request, VendorFee $vendorFee, Receipt $receipt)
+    {
+        abort_if($receipt->vendor_fee_id !== $vendorFee->id, 404);
+        $user = $request->user();
+        if ($user->isVendorStaff()) {
+            abort_if($user->vendor_id !== $vendorFee->vendor_id, 403, 'Not authorised.');
+        } else {
+            $this->assertUploadAccess($request, $vendorFee);
+        }
+        $path = 'vendor-receipts/' . $vendorFee->id . '/' . $receipt->file_stored_name;
+        abort_unless(Storage::disk('public')->exists($path), 404, 'The receipt file is missing.');
+
+        return Storage::disk('public')->response($path, $receipt->file_original_name, ['Content-Type' => $receipt->file_mime ?: 'application/octet-stream']);
+    }
+
+    /**
+     * Correct a receipt — its details and/or the file (user, 2026-10-26: "as
+     * an admin I want to edit everything"). Admin tier any time; whoever
+     * uploaded it while it's unverified. Changing the number, amount or file
+     * of a verified receipt sends it back to Finance to verify again.
+     */
+    public function update(Request $request, VendorFee $vendorFee, Receipt $receipt)
+    {
+        abort_if($receipt->vendor_fee_id !== $vendorFee->id, 404);
+        $user = $request->user();
+        $admin = $user->isAdminTier();
+        abort_if(! $admin && ! ($receipt->uploaded_by === $user->id && ! $receipt->isVerified()), 403,
+            'Only an administrator can change this receipt' . ($receipt->isVerified() ? ' — it is already verified.' : '.'));
+        if ($request->filled('amount')) {
+            $request->merge(['amount' => preg_replace('/[^0-9.\-]/', '', (string) $request->input('amount'))]); // "8,500"
+        }
+
+        $data = $request->validate([
+            'receipt_type' => ['sometimes', 'in:efd,other'],
+            'receipt_number' => ['sometimes', 'string', 'max:100'],
+            'issuer_name' => ['sometimes', 'string', 'max:255'],
+            'issuer_tin' => ['nullable', 'string', 'max:50'],
+            'receipt_date' => ['sometimes', 'date'],
+            'amount' => ['sometimes', 'numeric', 'min:1'],
+            'file' => ['sometimes', 'file', 'mimes:pdf,png,jpg,jpeg', 'max:10240'],
+        ]);
+        if (isset($data['amount'])) {
+            $data['amount'] = (int) round((float) $data['amount']);
+        }
+        unset($data['file']);
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+            $path = $file->store('vendor-receipts/' . $vendorFee->id, 'public');
+            Storage::disk('public')->delete('vendor-receipts/' . $vendorFee->id . '/' . $receipt->file_stored_name);
+            $data += ['file_original_name' => $file->getClientOriginalName(), 'file_stored_name' => basename($path),
+                'file_mime' => $file->getClientMimeType(), 'file_size' => $file->getSize()];
+        }
+        $receipt->fill($data);
+        // A changed number, amount or file has to be checked again.
+        if ($receipt->isVerified() && $receipt->isDirty(['receipt_number', 'amount', 'file_stored_name'])) {
+            $receipt->verified_by = null;
+            $receipt->verified_at = null;
+        }
+        $changed = array_keys($receipt->getDirty());
+        $receipt->save();
+        ApprovalLog::record($receipt, 'edited', $user, $changed ? 'Changed: ' . implode(', ', $changed) : null);
+        if (in_array('verified_at', $changed, true)) {
+            app(\App\Services\VendorFeeFlow::class)->receiptAttached($vendorFee->loadMissing('vendor'), $receipt);
+        }
+
+        return response()->json(['data' => ['id' => $receipt->id, 'verified' => $receipt->isVerified()]]);
+    }
+
     public function destroy(Request $request, VendorFee $vendorFee, Receipt $receipt)
     {
         abort_if($receipt->vendor_fee_id !== $vendorFee->id, 404);
-        abort_if($receipt->isVerified(), 422, 'A verified receipt cannot be removed — reject the fee instead if it was attached in error.');
+        // An administrator can remove any receipt (e.g. one uploaded twice).
+        abort_if($receipt->isVerified() && ! $request->user()->isAdminTier(), 422,
+            'A verified receipt can only be removed by an administrator — or reject the fee if it was attached in error.');
 
         $user = $request->user();
         $isOwnUpload = $receipt->uploaded_by === $user->id;

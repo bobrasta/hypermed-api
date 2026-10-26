@@ -314,4 +314,49 @@ class ShipmentClearingReceiptTest extends TestCase
             ->where('title', 'like', 'Receipt to verify%')->exists());
         $this->assertSame('ready_for_payment', $withReceipt->fresh()->status); // left with the Director
     }
+
+    public function test_admin_views_edits_replaces_and_removes_receipts(): void
+    {
+        $vendor = Vendor::create(['name' => 'ZZ Clearing Co', 'type' => 'clearing', 'is_active' => true]);
+        $fee = VendorFee::create(['vendor_id' => $vendor->id, 'description' => 'iChroma CRP Reagents', 'billed_amount' => 9000,
+            'currency' => 'TZS', 'status' => 'pending_receipt', 'created_by' => $this->officer->id]);
+        $upload = fn () => $this->post("/api/v1/vendor-fees/{$fee->id}/receipts", ['receipt_type' => 'efd', 'receipt_number' => 'R-' . uniqid(),
+            'issuer_name' => 'ZZ', 'receipt_date' => now()->toDateString(), 'amount' => 9000,
+            'file' => UploadedFile::fake()->create('r.pdf', 20, 'application/pdf')], ['Accept' => 'application/json'])->assertCreated()->json('data.id');
+        $first = $upload();
+        $dup = $upload(); // uploaded twice
+        \App\Models\Receipt::whereKey([$first, $dup])->update(['verified_by' => $this->officer->id, 'verified_at' => now()]);
+
+        // Anyone working the fee can open the file.
+        $this->get("/api/v1/vendor-fees/{$fee->id}/receipts/{$first}/file")->assertOk();
+        // Non-admins can't change or remove a verified receipt.
+        $this->post("/api/v1/vendor-fees/{$fee->id}/receipts/{$first}", ['amount' => 8000], ['Accept' => 'application/json'])->assertForbidden();
+        $this->deleteJson("/api/v1/vendor-fees/{$fee->id}/receipts/{$dup}")->assertStatus(422);
+
+        $admin = $this->user('admin', 'clr-admin');
+        Sanctum::actingAs($admin);
+        $this->deleteJson("/api/v1/vendor-fees/{$fee->id}/receipts/{$dup}")->assertNoContent();
+        $r = $this->post("/api/v1/vendor-fees/{$fee->id}/receipts/{$first}", ['amount' => '8,500', 'issuer_name' => 'ZZ Clearing Co',
+            'file' => UploadedFile::fake()->create('fixed.pdf', 20, 'application/pdf')], ['Accept' => 'application/json'])->assertOk()->json('data');
+        $this->assertFalse($r['verified']); // amount + file changed: Finance checks it again
+        $receipt = \App\Models\Receipt::find($first);
+        $this->assertSame(8500, (int) $receipt->amount);
+        $this->assertSame('fixed.pdf', $receipt->file_original_name);
+        $this->assertSame(1, $fee->receipts()->count());
+    }
+
+    public function test_admins_see_every_open_fee_in_approvals(): void
+    {
+        $patrick = $this->user('procurement_manager', 'clr-patrick4');
+        $this->officer->update(['manager_id' => $patrick->id]);
+        $vendor = Vendor::create(['name' => 'ZZ Clearing Co', 'type' => 'clearing', 'is_active' => true]);
+        $fee = VendorFee::create(['vendor_id' => $vendor->id, 'description' => 'Clearing — waits on Patrick', 'billed_amount' => 5000,
+            'currency' => 'TZS', 'status' => 'pending_manager', 'approver_id' => $patrick->id, 'created_by' => $this->officer->id]);
+        Sanctum::actingAs($this->user('admin', 'clr-admin2'));
+        $rows = collect($this->getJson('/api/v1/vendor-fees?waiting_on_me=1')->assertOk()->json('data'));
+        $this->assertTrue($rows->contains('id', $fee->id));
+        $this->assertStringContainsString('Test clr-patrick4', $rows->firstWhere('id', $fee->id)['status_label']);
+        // …and can approve in Patrick's place.
+        $this->postJson("/api/v1/vendor-fees/{$fee->id}/manager-approve")->assertOk()->assertJsonPath('data.status', 'pending_receipt');
+    }
 }
