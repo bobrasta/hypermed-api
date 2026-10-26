@@ -63,7 +63,8 @@ class ReceiptController extends Controller
             'issuer_name' => ['required', 'string', 'max:255'],
             'issuer_tin' => ['nullable', 'string', 'max:50'],
             'receipt_date' => ['required', 'date'],
-            'amount' => ['required', 'integer', 'min:1'],
+            // Decimals accepted ("350000.50"); kept in whole shillings like the books.
+            'amount' => ['required', 'numeric', 'min:1'],
             'file' => ['required', 'file', 'mimes:pdf,png,jpg,jpeg', 'max:10240'],
         ]);
 
@@ -90,7 +91,7 @@ class ReceiptController extends Controller
             'issuer_name' => $data['issuer_name'],
             'issuer_tin' => $data['issuer_tin'] ?? null,
             'receipt_date' => $data['receipt_date'],
-            'amount' => $data['amount'],
+            'amount' => (int) round((float) $data['amount']),
             'file_original_name' => $file->getClientOriginalName(),
             'file_stored_name' => basename($path),
             'file_mime' => $file->getClientMimeType(),

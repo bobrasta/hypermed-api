@@ -196,4 +196,34 @@ class ShipmentClearingReceiptTest extends TestCase
         $d = $this->getJson("/api/v1/shipments/{$s['id']}")->json('data');
         $this->assertStringContainsString('awaiting verification', $d['clearing_fee']['receipt_follow_up']);
     }
+
+    public function test_new_supplier_is_saved_with_the_shipment_and_amounts_take_decimals(): void
+    {
+        $files = [];
+        foreach (['air_waybill', 'packing_list', 'commercial_invoice'] as $t) {
+            $files[$t] = UploadedFile::fake()->create("{$t}.pdf", 10, 'application/pdf');
+        }
+        $name = 'ZZ Brand New Labs ' . uniqid();
+        $s = $this->post('/api/v1/shipments', ['direction' => 'import', 'freight_mode' => 'air', 'description' => 'Reagents',
+            'coa_required' => false, 'supplier_name' => "  {$name} ", 'documents' => $files], ['Accept' => 'application/json'])
+            ->assertCreated()->json('data');
+        $supplier = \App\Models\Supplier::where('name', $name)->first();
+        $this->assertNotNull($supplier);
+        $this->assertSame($supplier->id, Shipment::find($s['id'])->supplier_id);
+
+        // The same name again (any case) reuses it rather than duplicating.
+        $this->putJson("/api/v1/shipments/{$s['id']}", ['supplier_name' => strtoupper($name)])->assertOk();
+        $this->assertSame(1, \App\Models\Supplier::whereRaw('lower(name) = ?', [mb_strtolower($name)])->count());
+
+        // Decimal amounts are accepted and kept in whole shillings.
+        Shipment::whereKey($s['id'])->update(['tmda_application_ref' => 'T/1', 'tmda_issued_at' => now()->toDateString(), 'step' => 6]);
+        $vendor = Vendor::create(['name' => 'ZZ Clearing Co', 'type' => 'clearing', 'is_active' => true]);
+        $d = $this->postJson("/api/v1/shipments/{$s['id']}/status", ['step' => 7, 'control_number' => 'CN-D',
+            'clearing_cost' => '350000.60', 'clearing_vendor_id' => $vendor->id])->assertOk()->json('data');
+        $this->assertSame(350001, $d['clearing_fee']['billed']);
+        $this->post("/api/v1/vendor-fees/{$d['clearing_fee']['id']}/receipts", ['receipt_type' => 'efd', 'receipt_number' => 'R-' . uniqid(),
+            'issuer_name' => 'ZZ Clearing Co', 'receipt_date' => now()->toDateString(), 'amount' => '350000.60',
+            'file' => UploadedFile::fake()->create('r.pdf', 20, 'application/pdf')], ['Accept' => 'application/json'])->assertCreated();
+        $this->assertSame(350001, (int) VendorFee::find($d['clearing_fee']['id'])->receipts()->sum('amount'));
+    }
 }

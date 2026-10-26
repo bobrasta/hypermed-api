@@ -140,7 +140,7 @@ class VendorFeeController extends Controller
             'vendor_id' => ['required', 'exists:vendors,id'],
             'delivery_job_id' => ['nullable', 'exists:delivery_jobs,id'],
             'description' => ['required', 'string', 'max:255'],
-            'billed_amount' => ['required', 'integer', 'min:1'],
+            'billed_amount' => ['required', 'numeric', 'min:1'],
             // Vendors (clearing, transport, couriers) bill in shillings.
             'currency' => ['nullable', 'in:TZS'],
         ]);
@@ -154,6 +154,7 @@ class VendorFeeController extends Controller
         }
 
         $data['created_by'] = $request->user()->id;
+        $data['billed_amount'] = (int) round((float) $data['billed_amount']); // whole shillings
         $data['currency'] = $data['currency'] ?? 'TZS';
         $data['status'] = 'pending_receipt';
 

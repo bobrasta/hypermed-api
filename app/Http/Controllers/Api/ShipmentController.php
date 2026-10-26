@@ -148,6 +148,7 @@ class ShipmentController extends Controller
         $notify = $data['notify_user_ids'] ?? [];
         unset($data['notify_user_ids']);
         $shipment = DB::transaction(function () use ($request, $data, $files, $numbers, $notify) {
+            $data = $this->resolveSupplier($data);
             $shipment = Shipment::create($data + [
                 'reference' => $numbers->next('shipment'),
                 'step' => 1,
@@ -183,6 +184,9 @@ class ShipmentController extends Controller
 
         // A shipment can't be edited into a state its current step forbids
         // (e.g. clearing the control number of a shipment already assessed).
+        $newSupplier = ! empty($data['supplier_name']) && empty($data['supplier_id']);
+        $supplierName = $data['supplier_name'] ?? null;
+        unset($data['supplier_name']);
         $shipment->fill($data);
         if ($why = $this->flow->blockReason($shipment->load('documents'), $shipment->step)) {
             throw ValidationException::withMessages(['shipment' => $why]);
@@ -201,7 +205,10 @@ class ShipmentController extends Controller
         if ($shipment->isDirty('coa_required')) {
             $notes[] = $shipment->coa_required ? 'COA marked required.' : 'COA marked not required for this shipment.';
         }
-        DB::transaction(function () use ($shipment, $notes, $request, $notify) {
+        DB::transaction(function () use ($shipment, $notes, $request, $notify, $newSupplier, $supplierName) {
+            if ($newSupplier) {
+                $shipment->supplier_id = $this->resolveSupplier(['supplier_name' => $supplierName])['supplier_id'];
+            }
             $shipment->save();
             foreach ($notes as $note) {
                 $this->logNote($shipment, $note, $request->user()->id);
@@ -229,7 +236,7 @@ class ShipmentController extends Controller
             'control_number' => ['nullable', 'string', 'max:120'],
             // "Assessment received": the clearing agent and the assessed cost,
             // recorded as the clearing fee for the accountant to pay.
-            'clearing_cost' => ['nullable', 'integer', 'min:1'],
+            'clearing_cost' => ['nullable', 'numeric', 'min:1'],
             'clearing_vendor_id' => ['nullable', 'exists:vendors,id'],
             // The payment mode can be chosen on the step itself: "Manufacturer
             // paid shipping / payment not required" lifts the payment gates.
@@ -290,7 +297,7 @@ class ShipmentController extends Controller
         $feeChanged = false;
         DB::transaction(function () use ($shipment, $from, $target, $data, $request, $costNote, $controlNote, &$feeChanged) {
             if (! empty($data['clearing_cost'])) {
-                $feeChanged = $this->assessClearingFee($shipment, (int) $data['clearing_cost'], $data['clearing_vendor_id'] ?? null, $request);
+                $feeChanged = $this->assessClearingFee($shipment, (int) round((float) $data['clearing_cost']), $data['clearing_vendor_id'] ?? null, $request);
             }
             $shipment->save();
             foreach (array_filter([$costNote, $target === $from ? $controlNote : null]) as $note) {
@@ -382,7 +389,7 @@ class ShipmentController extends Controller
         $data = $request->validate([
             'vendor_fee_id' => ['nullable', 'exists:vendor_fees,id'],
             'vendor_id' => ['required_without:vendor_fee_id', 'nullable', 'exists:vendors,id'],
-            'billed_amount' => ['required_without:vendor_fee_id', 'nullable', 'integer', 'min:1'],
+            'billed_amount' => ['required_without:vendor_fee_id', 'nullable', 'numeric', 'min:1'],
             'description' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -391,7 +398,7 @@ class ShipmentController extends Controller
             abort_if(Shipment::where('vendor_fee_id', $fee->id)->where('id', '!=', $shipment->id)->exists(), 422, 'That vendor fee is already linked to another shipment.');
             abort_if($fee->status === 'rejected', 422, 'That vendor fee was rejected.');
         } else {
-            $fee = $this->newClearingFee($shipment, (int) $data['vendor_id'], (int) $data['billed_amount'], $request, $data['description'] ?? null);
+            $fee = $this->newClearingFee($shipment, (int) $data['vendor_id'], (int) round((float) $data['billed_amount']), $request, $data['description'] ?? null);
         }
         // Paid first, receipt after (2026-10-26).
         $fee->update(['receipt_after_payment' => true]);
@@ -511,6 +518,27 @@ class ShipmentController extends Controller
 
     // ------------------------------------------------------------ helpers
 
+    /**
+     * The supplier typed on the shipment form when it isn't in the list
+     * (user, 2026-10-26): an existing one with the same name (any case) is
+     * used, otherwise it's saved to Suppliers. Called inside the shipment's
+     * transaction, so a failed save leaves no stray supplier.
+     */
+    private function resolveSupplier(array $data): array
+    {
+        $name = trim(preg_replace('/\s+/', ' ', (string) ($data['supplier_name'] ?? '')));
+        unset($data['supplier_name']);
+        if (! empty($data['supplier_id']) || $name === '') {
+            return $data;
+        }
+        $supplier = Supplier::whereRaw('lower(name) = ?', [mb_strtolower($name)])->first()
+            ?? Supplier::create(['name' => $name, 'is_active' => true,
+                'notes' => 'Added from a shipment — complete the country, currency and contacts in Suppliers.']);
+        $data['supplier_id'] = $supplier->id;
+
+        return $data;
+    }
+
     private function validated(Request $request, bool $creating): array
     {
         // The create form is multipart (it carries the documents), so the
@@ -523,6 +551,8 @@ class ShipmentController extends Controller
             'freight_mode' => [$creating ? 'required' : 'sometimes', Rule::in(['air', 'sea', 'road'])],
             'description' => [$creating ? 'required' : 'sometimes', 'string', 'max:500'],
             'supplier_id' => ['nullable', 'exists:suppliers,id'],
+            // A supplier not in the list yet: typed name, saved with the shipment.
+            'supplier_name' => ['nullable', 'string', 'max:255'],
             'purchase_order_id' => ['nullable', 'exists:purchase_orders,id'],
             'outbound_reason' => ['nullable', 'string', 'max:255'],
             'department_id' => ['nullable', 'exists:departments,id'],
