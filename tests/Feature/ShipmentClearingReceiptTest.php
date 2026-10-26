@@ -290,4 +290,28 @@ class ShipmentClearingReceiptTest extends TestCase
             ->assertOk()->assertJsonPath('data.status', 'rejected');
         $this->assertTrue(\App\Models\AppNotification::where('user_id', $this->officer->id)->where('entity_id', $feeId)->exists());
     }
+
+    public function test_catch_up_routes_fees_left_waiting_and_tells_them(): void
+    {
+        $patrick = $this->user('procurement_manager', 'clr-patrick3');
+        $this->officer->update(['manager_id' => $patrick->id]);
+        $accountant = $this->user('accountant', 'clr-acct3');
+        $vendor = Vendor::create(['name' => 'ZZ Clearing Co', 'type' => 'clearing', 'is_active' => true]);
+        // Recorded before the fix: sat "awaiting Finance", nobody told.
+        $stuck = VendorFee::create(['vendor_id' => $vendor->id, 'description' => 'Clearing — old', 'billed_amount' => 5000,
+            'currency' => 'TZS', 'status' => 'pending_receipt', 'created_by' => $this->officer->id]);
+        $withReceipt = VendorFee::create(['vendor_id' => $vendor->id, 'description' => 'Clearing — receipt in', 'billed_amount' => 7000,
+            'currency' => 'TZS', 'status' => 'ready_for_payment', 'created_by' => $this->officer->id]);
+        $withReceipt->receipts()->create(['receipt_type' => 'efd', 'receipt_number' => 'R-' . uniqid(), 'issuer_name' => 'ZZ',
+            'receipt_date' => now()->toDateString(), 'amount' => 7000, 'file_original_name' => 'r.pdf', 'file_stored_name' => 'r.pdf',
+            'file_mime' => 'application/pdf', 'file_size' => 10, 'uploaded_by' => $this->officer->id]);
+
+        (require database_path('migrations/2026_10_26_000004_catch_up_waiting_vendor_fees.php'))->up();
+
+        $this->assertSame('pending_manager', $stuck->fresh()->status);
+        $this->assertTrue(\App\Models\AppNotification::where('user_id', $patrick->id)->where('entity_id', $stuck->id)->exists());
+        $this->assertTrue(\App\Models\AppNotification::where('user_id', $accountant->id)->where('entity_id', $withReceipt->id)
+            ->where('title', 'like', 'Receipt to verify%')->exists());
+        $this->assertSame('ready_for_payment', $withReceipt->fresh()->status); // left with the Director
+    }
 }

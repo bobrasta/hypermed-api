@@ -239,6 +239,8 @@ class ShipmentController extends Controller
             // recorded as the clearing fee for the accountant to pay.
             'clearing_cost' => ['nullable', 'numeric', 'min:1'],
             'clearing_vendor_id' => ['nullable', 'exists:vendors,id'],
+            // An agent not saved yet: typed name, saved as a clearing agent.
+            'clearing_vendor_name' => ['nullable', 'string', 'max:255'],
             // The payment mode can be chosen on the step itself: "Manufacturer
             // paid shipping / payment not required" lifts the payment gates.
             ...$this->costBearerRules(),
@@ -298,7 +300,13 @@ class ShipmentController extends Controller
         $feeChanged = false;
         DB::transaction(function () use ($shipment, $from, $target, $data, $request, $costNote, $controlNote, &$feeChanged) {
             if (! empty($data['clearing_cost'])) {
-                $feeChanged = $this->assessClearingFee($shipment, (int) round((float) $data['clearing_cost']), $data['clearing_vendor_id'] ?? null, $request);
+                $agentId = $data['clearing_vendor_id'] ?? null;
+                if (! $agentId && trim((string) ($data['clearing_vendor_name'] ?? '')) !== '') {
+                    $name = trim(preg_replace('/\s+/', ' ', $data['clearing_vendor_name']));
+                    $agentId = (Vendor::whereRaw('lower(name) = ?', [mb_strtolower($name)])->first()
+                        ?? Vendor::create(['name' => $name, 'type' => 'clearing', 'is_active' => true]))->id;
+                }
+                $feeChanged = $this->assessClearingFee($shipment, (int) round((float) $data['clearing_cost']), $agentId, $request);
             }
             $shipment->save();
             foreach (array_filter([$costNote, $target === $from ? $controlNote : null]) as $note) {
