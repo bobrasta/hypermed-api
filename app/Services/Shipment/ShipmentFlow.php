@@ -32,6 +32,8 @@ class ShipmentFlow
     public const STEP_TO_CLEARING_AGENT = 6;
     public const STEP_ASSESSMENT = 7;
     public const STEP_PAYMENT = 8;
+    public const STEP_RELEASED = 9;
+    public const STEP_ARRIVED = 10;
 
     public const DOC_LABELS = [
         'air_waybill' => 'Air Waybill',
@@ -46,10 +48,17 @@ class ShipmentFlow
         'assessment_notice' => 'Assessment notice',
         'customs_release' => 'Customs release order',
         'clearing_other' => 'Other clearing documents',
+        // At "Arrived at HQ": storage & handling papers (Swissport etc.) for
+        // charges the clearing agent paid on our behalf (user, 2026-11-02).
+        'storage_handling' => 'Storage & handling (Swissport etc.)',
+        'arrival_other' => 'Other arrival documents',
     ];
 
     /** Optional record-keeping documents offered from "Assessment received" on. */
     public const RECORD_DOCS = ['assessment_notice', 'customs_release', 'clearing_other'];
+
+    /** Optional papers offered from "Released by customs" on, kept with the storage & handling charge. */
+    public const ARRIVAL_DOCS = ['storage_handling', 'arrival_other'];
 
     /** 18.7 — shown in settings so each can be marked confirmed once Procurement checks it. */
     public const ASSUMPTIONS = [
@@ -146,7 +155,7 @@ class ShipmentFlow
     public static function allowedDocTypes(string $direction): array
     {
         return $direction === 'import'
-            ? ['air_waybill', 'bill_of_lading', 'packing_list', 'commercial_invoice', 'coa', 'tmda_permit', ...self::RECORD_DOCS]
+            ? ['air_waybill', 'bill_of_lading', 'packing_list', 'commercial_invoice', 'coa', 'tmda_permit', ...self::RECORD_DOCS, ...self::ARRIVAL_DOCS]
             : ['air_waybill', 'bill_of_lading', 'packing_list', 'commercial_invoice', 'recipient_receipt'];
     }
 

@@ -19,7 +19,7 @@ class Shipment extends Model
         'reference', 'direction', 'freight_mode', 'description', 'supplier_id', 'purchase_order_id',
         'outbound_reason', 'department_id', 'tender_id', 'expected_arrival', 'port', 'location_notes',
         'step', 'tmda_application_ref', 'tmda_applied_at', 'tmda_issued_at', 'control_number',
-        'vendor_fee_id', 'created_by', 'coa_required', 'carrier_vendor_id', 'cost_bearer', 'paid_by',
+        'vendor_fee_id', 'handling_fee_id', 'created_by', 'coa_required', 'carrier_vendor_id', 'cost_bearer', 'paid_by',
         'goods_category', 'cost_note', 'permit_sent_at', 'permit_sent_vendor_id',
     ];
 
@@ -72,6 +72,12 @@ class Shipment extends Model
     public function vendorFee()
     {
         return $this->belongsTo(VendorFee::class);
+    }
+
+    /** Storage & handling (Swissport etc.) the clearing agent paid for us. */
+    public function handlingFee()
+    {
+        return $this->belongsTo(VendorFee::class, 'handling_fee_id');
     }
 
     public function creator()

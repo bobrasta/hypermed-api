@@ -91,7 +91,7 @@ class ShipmentController extends Controller
     {
         $this->assertView($request);
 
-        $q = Shipment::with(['supplier:id,name', 'carrier:id,name,type', 'permitSentVendor:id,name', 'purchaseOrder:id,po_number', 'department:id,name', 'documents:id,shipment_id,type', 'vendorFee.receipts', 'vendorFee.vendor:id,name', 'vendorFee.deliveryJob'])
+        $q = Shipment::with(['supplier:id,name', 'carrier:id,name,type', 'permitSentVendor:id,name', 'purchaseOrder:id,po_number', 'department:id,name', 'documents:id,shipment_id,type', 'vendorFee.receipts', 'vendorFee.vendor:id,name', 'vendorFee.deliveryJob', 'handlingFee.receipts', 'handlingFee.vendor:id,name'])
             ->latest('updated_at');
         if (! $this->seesAll($request)) {
             $uid = $request->user()->id;
@@ -241,6 +241,10 @@ class ShipmentController extends Controller
             'clearing_vendor_id' => ['nullable', 'exists:vendors,id'],
             // An agent not saved yet: typed name, saved as a clearing agent.
             'clearing_vendor_name' => ['nullable', 'string', 'max:255'],
+            // "Arrived at HQ": storage & handling (Swissport etc.) the clearing
+            // agent paid for us — owed to the agent as a second fee.
+            'handling_cost' => ['nullable', 'numeric', 'min:1'],
+            'handling_vendor_id' => ['nullable', 'exists:vendors,id'],
             // The payment mode can be chosen on the step itself: "Manufacturer
             // paid shipping / payment not required" lifts the payment gates.
             ...$this->costBearerRules(),
@@ -250,7 +254,7 @@ class ShipmentController extends Controller
             throw ValidationException::withMessages(['cost_bearer' => 'Only import shipments have clearing costs.']);
         }
         $from = $shipment->step;
-        $detailKeys = ['tmda_application_ref', 'tmda_applied_at', 'tmda_issued_at', 'control_number', 'cost_bearer', 'paid_by', 'cost_note', 'clearing_cost'];
+        $detailKeys = ['tmda_application_ref', 'tmda_applied_at', 'tmda_issued_at', 'control_number', 'cost_bearer', 'paid_by', 'cost_note', 'clearing_cost', 'handling_cost'];
         $hasDetails = array_filter(array_intersect_key($data, array_flip($detailKeys)), fn ($v) => $v !== null) !== [];
 
         // The current status again: save what was entered with it (e.g. the
@@ -271,7 +275,11 @@ class ShipmentController extends Controller
             $details['tmda_applied_at'] = now()->toDateString();
         }
         $shipment->fill($details + ['step' => $target]);
-        $shipment->load(['documents', 'vendorFee.receipts', 'vendorFee.deliveryJob']);
+        $shipment->load(['documents', 'vendorFee.receipts', 'vendorFee.deliveryJob', 'handlingFee']);
+        if (! empty($data['handling_cost']) && ($shipment->direction !== 'import' || $target < ShipmentFlow::STEP_ARRIVED)) {
+            throw ValidationException::withMessages(['handling_cost' => 'Storage & handling charges are entered at "'
+                . $this->flow->label($shipment, ShipmentFlow::STEP_ARRIVED) . '".']);
+        }
 
         $costNote = $this->costBearerChanged($shipment) ? $this->costBearerNote($shipment) : null;
 
@@ -307,6 +315,9 @@ class ShipmentController extends Controller
                         ?? Vendor::create(['name' => $name, 'type' => 'clearing', 'is_active' => true]))->id;
                 }
                 $feeChanged = $this->assessClearingFee($shipment, (int) round((float) $data['clearing_cost']), $agentId, $request);
+            }
+            if (! empty($data['handling_cost'])) {
+                $this->assessHandlingFee($shipment, (int) round((float) $data['handling_cost']), $data['handling_vendor_id'] ?? null, $request);
             }
             $shipment->save();
             foreach (array_filter([$costNote, $target === $from ? $controlNote : null]) as $note) {
@@ -719,6 +730,49 @@ class ShipmentController extends Controller
         return true;
     }
 
+    /**
+     * Storage & handling (Swissport etc.) the clearing agent paid on our
+     * behalf, entered at "Arrived at HQ": a second fee owed to the agent,
+     * through the same approvals as the clearing fee (manager → Finance →
+     * Director), paid first with the agent's receipt after. Correctable
+     * until Finance has asked for payment.
+     */
+    private function assessHandlingFee(Shipment $shipment, int $amount, ?int $vendorId, Request $request): void
+    {
+        $fee = $shipment->handlingFee;
+        $vendorId = (int) ($vendorId ?: ($fee?->vendor_id ?? $shipment->vendorFee?->vendor_id)) ?: null;
+        if (! $fee || $fee->status === 'rejected') {
+            if (! $vendorId) {
+                throw ValidationException::withMessages(['handling_vendor_id' => 'Choose who paid the storage & handling — usually the clearing agent.']);
+            }
+            $fee = VendorFee::create([
+                'vendor_id' => $vendorId,
+                'description' => "Storage & handling (Swissport etc., paid by the agent for us) — {$shipment->reference}",
+                'billed_amount' => $amount,
+                'currency' => 'TZS',
+                'status' => 'pending_receipt',
+                'receipt_after_payment' => true,
+                'created_by' => $request->user()->id,
+            ]);
+            ApprovalLog::record($fee, 'created', $request->user());
+            app(VendorFeeFlow::class)->start($fee);
+            $shipment->handling_fee_id = $fee->id;
+            $shipment->setRelation('handlingFee', $fee);
+            $this->logNote($shipment, 'Storage & handling charges: TZS ' . number_format($amount) . ' owed to the clearing agent.', $request->user()->id);
+
+            return;
+        }
+        if ($fee->billed_amount === $amount && $fee->vendor_id === $vendorId) {
+            return;
+        }
+        if (! in_array($fee->status, ['pending_manager', 'pending_receipt'], true)) {
+            throw ValidationException::withMessages(['handling_cost' => 'The storage & handling charge is already with the Director or paid — it can\'t be changed here.']);
+        }
+        $fee->update(['billed_amount' => $amount, 'vendor_id' => $vendorId, 'manager_approved_by' => null, 'manager_approved_at' => null]);
+        app(VendorFeeFlow::class)->start($fee);
+        $this->logNote($shipment, 'Storage & handling charges set to TZS ' . number_format($amount) . '.', $request->user()->id);
+    }
+
     private function feePayload(?VendorFee $fee): ?array
     {
         if (! $fee) {
@@ -791,6 +845,7 @@ class ShipmentController extends Controller
             ] : null,
             'control_number' => $s->control_number,
             'clearing_fee' => $this->feePayload($s->vendorFee),
+            'handling_fee' => $this->feePayload($s->handlingFee),
             'updated_at' => $s->updated_at?->toIso8601String(),
         ];
     }
@@ -799,7 +854,7 @@ class ShipmentController extends Controller
     {
         $s->load(['supplier:id,name', 'carrier:id,name,type', 'permitSentVendor:id,name', 'notifyUsers:id,name', 'purchaseOrder:id,po_number,status,total_amount', 'department.manager:id,name', 'tender:id,tender_number,title',
             'documents.uploader:id,name', 'events.user:id,name', 'vendorFee.receipts', 'vendorFee.vendor:id,name',
-            'vendorFee.deliveryJob', 'machines:id,serial_no,model,type', 'creator:id,name']);
+            'vendorFee.deliveryJob', 'handlingFee.receipts', 'handlingFee.vendor:id,name', 'machines:id,serial_no,model,type', 'creator:id,name']);
 
         $labels = $this->flow->labels($s);
         $required = ShipmentFlow::requiredFor($s);
@@ -818,12 +873,13 @@ class ShipmentController extends Controller
             'notify_users' => $s->notifyUsers->map(fn ($u) => ['id' => $u->id, 'name' => $u->name])->values(),
             'documents' => collect(ShipmentFlow::allowedDocTypes($s->direction))
                 ->filter(fn ($t) => in_array($t, $required, true) || $docs->has($t) || in_array($t, ['tmda_permit', 'recipient_receipt', 'coa'], true)
-                    || (in_array($t, ShipmentFlow::RECORD_DOCS, true) && $s->step >= ShipmentFlow::STEP_ASSESSMENT))
+                    || (in_array($t, ShipmentFlow::RECORD_DOCS, true) && $s->step >= ShipmentFlow::STEP_ASSESSMENT)
+                    || (in_array($t, ShipmentFlow::ARRIVAL_DOCS, true) && $s->step >= ShipmentFlow::STEP_RELEASED))
                 ->map(fn ($t) => [
                     'type' => $t,
                     'label' => ShipmentFlow::DOC_LABELS[$t],
                     'required' => in_array($t, $required, true),
-                    'for_records' => in_array($t, ShipmentFlow::RECORD_DOCS, true),
+                    'for_records' => in_array($t, [...ShipmentFlow::RECORD_DOCS, ...ShipmentFlow::ARRIVAL_DOCS], true),
                     // COA switched off for this shipment, or TMDA papers for
                     // non-medical goods: shown, but not applicable.
                     'not_applicable' => ($t === 'coa' && (! $s->coa_required || ShipmentFlow::nonMedical($s)))

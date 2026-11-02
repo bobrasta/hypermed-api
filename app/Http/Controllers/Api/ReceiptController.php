@@ -47,7 +47,7 @@ class ReceiptController extends Controller
     public static function shipmentStaffOnClearingFee($user, VendorFee $fee): bool
     {
         return ($user->isAdminTier() || app(EffectivePermissionResolver::class)->can($user, 'shipments.manage'))
-            && Shipment::where('vendor_fee_id', $fee->id)->exists();
+            && Shipment::where('vendor_fee_id', $fee->id)->orWhere('handling_fee_id', $fee->id)->exists();
     }
 
     public function store(Request $request, VendorFee $vendorFee)

@@ -233,7 +233,7 @@ class ConnectionsService
                 break;
             case 'vendor_fee':
                 $add($m->vendor, 'vendor');
-                $add(Shipment::where('vendor_fee_id', $m->id)->get(), 'shipment');
+                $add(Shipment::where('vendor_fee_id', $m->id)->orWhere('handling_fee_id', $m->id)->get(), 'shipment');
                 $add($m->deliveryJob ?? null, 'delivery job');
                 break;
             case 'delivery_job':
