@@ -465,6 +465,7 @@ Route::prefix('v1')->group(function () {
         Route::post('inventory/{inventoryItem}/documents', [InventoryController::class, 'uploadDocument']);
         Route::delete('inventory/{inventoryItem}/documents/{document}', [InventoryController::class, 'deleteDocument']);
         Route::post('inventory/quick-create', [InventoryController::class, 'quickCreate']);
+        Route::get('inventory-lots', [BatchLotController::class, 'open']);
         Route::apiResource('inventory', InventoryController::class);
 
         // Stock Movements (global — filterable by item)
