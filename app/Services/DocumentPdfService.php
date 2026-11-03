@@ -789,7 +789,7 @@ class DocumentPdfService
         // title row
         $html .= "<table id='titlerow'><tr><td style='width:60%'>"
             . "<div class='doctitle'><strong>" . e($d['title']) . '</strong></div>'
-            . "<table id='tag'><tr><td><strong>" . e($d['tag']) . '</strong></td></tr></table></td>'
+            . (($d['tag'] ?? '') !== '' ? "<table id='tag'><tr><td><strong>" . e($d['tag']) . '</strong></td></tr></table>' : '') . '</td>'
             . "<td style='width:40%; text-align:right'><table id='invbox' style='margin-left:auto; text-align:left'><tr><td>"
             . "<div class='invbox-lbl'><strong>" . e(strtoupper(rtrim($d['docLabel'], ':')) . '.') . '</strong></div>'
             . "<div class='invbox-num'><strong>" . e($d['docNumber']) . '</strong></div>'
@@ -804,7 +804,8 @@ class DocumentPdfService
         if ($generic) {
             // Generic letterhead documents: their own details strip.
             $cells = $d['metaCells'] ?? [];
-            $html .= "<table id='meta'><tr>";
+            // A letter has no details strip (its own Ref/date/recipient block).
+            $html .= $cells ? "<table id='meta'><tr>" : '<table style=\'display:none\'><tr><td></td>';
             foreach ($cells as $i => $cell) {
                 $w = $i === 0 ? 42 : round(58 / max(1, count($cells) - 1));
                 $html .= "<td style='width:{$w}%'><div class='meta-lbl'><strong>" . e($cell[0]) . '</strong></div><br>'

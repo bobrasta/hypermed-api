@@ -36,6 +36,7 @@ use App\Http\Controllers\Api\LocationController;
 use App\Http\Controllers\Api\MachineController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\PurchaseOrderController;
+use App\Http\Controllers\Api\LetterController;
 use App\Http\Controllers\Api\PurchaseRequisitionController;
 use App\Http\Controllers\Api\PurchaseReturnController;
 use App\Http\Controllers\Api\QuotationController;
@@ -500,6 +501,17 @@ Route::prefix('v1')->group(function () {
         Route::post('purchase-orders/{purchaseOrder}/cancel',  [PurchaseOrderController::class, 'cancel']);
         Route::get('purchase-orders/{purchaseOrder}/pdf',      [PurchaseOrderController::class, 'pdf']);
         Route::apiResource('purchase-orders', PurchaseOrderController::class);
+        // Letters on the letterhead (HHL/{year}/{n}); signature only when the signatory signs.
+        Route::get('letters', [LetterController::class, 'index']);
+        Route::post('letters', [LetterController::class, 'store']);
+        Route::post('letters/my-signature', [LetterController::class, 'uploadSignature']);
+        Route::delete('letters/my-signature', [LetterController::class, 'removeSignature']);
+        Route::post('letters/stamp', [LetterController::class, 'uploadStamp']);
+        Route::put('letters/{letter}', [LetterController::class, 'update']);
+        Route::delete('letters/{letter}', [LetterController::class, 'destroy']);
+        Route::post('letters/{letter}/sign', [LetterController::class, 'sign']);
+        Route::post('letters/{letter}/unsign', [LetterController::class, 'unsign']);
+        Route::get('letters/{letter}/pdf', [LetterController::class, 'pdf']);
 
         // Purchase returns — goods sent back to the supplier (Purchases menu)
         Route::get('purchase-returns/{purchaseReturn}/pdf', [PurchaseReturnController::class, 'pdf']);
