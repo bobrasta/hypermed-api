@@ -720,6 +720,7 @@ Route::prefix('v1')->group(function () {
         Route::post('emails/{syncedEmail}/forward',           [EmailController::class, 'forward']);
         Route::patch('emails/{syncedEmail}/read',             [EmailController::class, 'markRead']);
         Route::patch('emails/{syncedEmail}/flag',             [EmailController::class, 'flag']);
+        Route::post('emails/{syncedEmail}/move',              [EmailController::class, 'move']);
         Route::delete('emails/{syncedEmail}',                 [EmailController::class, 'destroy']);
     });
 });

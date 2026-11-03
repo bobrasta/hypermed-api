@@ -9,11 +9,13 @@ use App\Models\EmailAccount;
 use App\Models\SyncedEmail;
 use App\Models\SyncedEmailAttachment;
 use App\Services\Email\EmailAttachmentStore;
+use App\Services\Email\MailFolders;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Mail\Message;
 use Webklex\PHPIMAP\ClientManager;
+use Webklex\PHPIMAP\IMAP;
 
 class EmailController extends Controller
 {
@@ -91,6 +93,22 @@ class EmailController extends Controller
         }
         if (strcasecmp($folder, 'sent') === 0) {
             $folder = SyncEmailsJob::SENT;
+        }
+        // Spam / Trash / Archive tabs: the server's own folder of that kind
+        // (mail its spam filter put in Junk shows up). None yet: nothing to fetch.
+        $kind = strtolower($folder);
+        if (in_array($kind, ['spam', 'trash', 'archive'], true)) {
+            try {
+                $client = $this->imapClient($account);
+                $client->connect();
+                $folder = MailFolders::resolve($client, $kind);
+                $client->disconnect();
+            } catch (\Exception $e) {
+                return response()->json(['data' => ['synced' => 0, 'folder' => $kind, 'error' => $e->getMessage()]], 422);
+            }
+            if ($folder === null) {
+                return response()->json(['data' => ['synced' => 0, 'folder' => $kind, 'sent_synced' => 0]]);
+            }
         }
 
         // Runs inline, not queued — see SyncEmailsJob's class doc comment for why.
@@ -198,12 +216,24 @@ class EmailController extends Controller
         return SyncedEmailResource::collection($emails);
     }
 
+    /**
+     * One folder by its server path, or a tab of the apps: spam, trash,
+     * archive (whatever the server calls them) and flagged (starred mail in
+     * every folder except Spam and Trash).
+     */
     public function folder(Request $request, string $folderName)
     {
         $account = $this->resolveAccount($request, $request->integer('account_id') ?: null);
 
-        $emails = SyncedEmail::where('email_account_id', $account->id)
-            ->where('folder', $folderName)
+        $query = SyncedEmail::where('email_account_id', $account->id);
+        $tab = strtolower($folderName);
+        match (true) {
+            in_array($tab, ['spam', 'trash', 'archive'], true) => MailFolders::scope($query, $tab),
+            $tab === 'flagged' => MailFolders::scopeNotBinned($query->where('is_flagged', true)),
+            default => $query->where('folder', $folderName),
+        };
+
+        $emails = $query
             ->orderByDesc('email_date')
             ->tap(fn ($q) => $this->applySearch($q, $request))
             ->paginate($this->pageSize($request));
@@ -533,8 +563,67 @@ class EmailController extends Controller
         return response()->json(['data' => ['id' => $syncedEmail->id, 'is_flagged' => $syncedEmail->is_flagged]]);
     }
 
-    // ── Trash ─────────────────────────────────────────────────────────────────
+    // ── Move: spam / not spam / archive / trash / restore ─────────────────────
 
+    /**
+     * Moves an email to Inbox, Spam, Trash or Archive — on the mail server
+     * too, so webmail and phones agree, and its spam filter sees the choice.
+     * The server folder is created when missing. Copies kept only here (sent
+     * from the app) move locally.
+     */
+    public function move(Request $request, SyncedEmail $syncedEmail)
+    {
+        abort_if($syncedEmail->account->user_id !== $request->user()->id, 403);
+        $kind = $request->validate(['to' => ['required', 'in:inbox,spam,trash,archive,restore']])['to'];
+
+        $account = $syncedEmail->account;
+        $ownMail = strcasecmp((string) $syncedEmail->from_email, (string) $account->from_email) === 0;
+        // Restore from Trash/Spam: own mail goes back to Sent, the rest to Inbox.
+        if ($kind === 'restore') {
+            $kind = $ownMail ? 'sent' : 'inbox';
+        }
+        if (MailFolders::kindOf($syncedEmail->folder) === $kind) {
+            return response()->json(['data' => new SyncedEmailResource($syncedEmail)]);
+        }
+
+        if (! ctype_digit((string) $syncedEmail->uid)) {
+            $local = ['inbox' => 'INBOX', 'sent' => 'Sent', 'spam' => 'Junk', 'trash' => 'Trash', 'archive' => 'Archive'][$kind];
+            $syncedEmail->update(['folder' => $local]);
+
+            return response()->json(['data' => new SyncedEmailResource($syncedEmail)]);
+        }
+
+        try {
+            $client = $this->imapClient($account);
+            $client->connect();
+            $target = MailFolders::resolve($client, $kind, create: $kind !== 'sent')
+                ?? throw new \RuntimeException('No Sent folder on the mail server');
+            $conn = $client->getConnection();
+            // The moved message's new UID, so the next sync of that folder
+            // doesn't fetch it again as new mail.
+            $status = $conn->examineFolder($target);
+            $newUid = is_array($status) ? ($status['uidnext'] ?? null) : null;
+            $client->openFolder($syncedEmail->folder, true);
+            $moved = $conn->moveMessage($target, (int) $syncedEmail->uid, null, IMAP::ST_UID);
+            $client->disconnect();
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'The mail server could not move this email: ' . $e->getMessage()], 422);
+        }
+        if (! $moved) {
+            return response()->json(['message' => 'The mail server could not move this email.'], 422);
+        }
+
+        $syncedEmail->update([
+            'folder' => $target,
+            'uid'    => $newUid ? (string) $newUid : uniqid('moved_', true),
+        ]);
+
+        return response()->json(['data' => new SyncedEmailResource($syncedEmail)]);
+    }
+
+    // ── Delete forever ────────────────────────────────────────────────────────
+
+    /** Removes the email for good, here and on the mail server (the apps' Delete moves to Trash first). */
     public function destroy(Request $request, SyncedEmail $syncedEmail)
     {
         abort_if($syncedEmail->account->user_id !== $request->user()->id, 403);
