@@ -504,6 +504,7 @@ Route::prefix('v1')->group(function () {
         // Letters on the letterhead (HHL/{year}/{n}); signature only when the signatory signs.
         Route::get('letters', [LetterController::class, 'index']);
         Route::post('letters', [LetterController::class, 'store']);
+        Route::get('letters/signatories', [LetterController::class, 'signatories']);
         Route::post('letters/my-signature', [LetterController::class, 'uploadSignature']);
         Route::delete('letters/my-signature', [LetterController::class, 'removeSignature']);
         Route::post('letters/stamp', [LetterController::class, 'uploadStamp']);

@@ -50,6 +50,7 @@ class LettersTest extends TestCase
         $body = ['letter_date' => '2026-11-03', 'recipient' => "The Director\nMuhimbili National Hospital\nDar es Salaam",
             'subject' => 'Supply of surgical gloves', 'body' => "Dear Sir,\n\nWe are pleased to quote.\n\nRegards.",
             'signatory_id' => $director->id, 'signatory_position' => 'Managing Director', 'include_stamp' => true];
+        $this->getJson('/api/v1/letters/signatories')->assertOk()->assertJsonFragment(['id' => $director->id, 'name' => 'Test letter-director']);
         $id = $this->postJson('/api/v1/letters', $body)->assertCreated()->assertJsonPath('data.reference_number', "HHL/{$y}/0001")->json('data.id');
         $this->postJson('/api/v1/letters', $body)->assertCreated()->assertJsonPath('data.reference_number', "HHL/{$y}/0002");
 

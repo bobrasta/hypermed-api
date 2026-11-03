@@ -111,6 +111,13 @@ class LetterController extends Controller
         return response()->json(['data' => $this->row($letter->fresh(['signatory', 'createdBy']), $request)]);
     }
 
+    /** Who can sign a letter: active staff, with their position. */
+    public function signatories()
+    {
+        return response()->json(['data' => \App\Models\User::where('is_active', true)->with('position:id,title')->orderBy('name')->get()
+            ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name, 'position' => $u->position?->title, 'has_signature' => (bool) $u->signature_path])->values()]);
+    }
+
     /** My signature image (PNG/JPG, transparent PNG looks best). */
     public function uploadSignature(Request $request)
     {
