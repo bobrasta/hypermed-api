@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class DocumentSequence extends Model
 {
-    protected $fillable = ['document_type', 'label', 'prefix', 'digits', 'reset_yearly', 'next_number', 'year'];
+    protected $fillable = ['document_type', 'label', 'prefix', 'format', 'digits', 'reset_yearly', 'next_number', 'year'];
 
     protected $casts = [
         'digits'       => 'integer',

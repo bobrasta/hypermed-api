@@ -58,7 +58,7 @@ class TenderDeadlineService
     {
         $today = ($today ?? now())->copy()->startOfDay();
         $closed = ! $t->isOpen();
-        $lost = in_array($t->status, ['lost', 'cancelled'], true);
+        $lost = in_array($t->status, ['lost', 'cancelled', 'not_submitted'], true);
 
         $expiry = $this->tenderExpiry($t);
         $bidSecurityDue = $expiry?->copy()->addDays(28);

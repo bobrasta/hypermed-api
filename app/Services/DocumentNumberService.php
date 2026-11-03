@@ -36,6 +36,11 @@ class DocumentNumberService
 
             $formatted = str_pad((string) $number, $seq->digits, '0', STR_PAD_LEFT);
 
+            // A sequence with its own format, e.g. '{Y}/{N}' → 2026/1276, 'HHL/{Y}/{N}'.
+            if (! empty($seq->format)) {
+                return strtr($seq->format, ['{Y}' => (string) $currentYear, '{N}' => $formatted]);
+            }
+
             return $seq->reset_yearly
                 ? "{$seq->prefix}-{$currentYear}-{$formatted}"
                 : "{$seq->prefix}-{$formatted}";

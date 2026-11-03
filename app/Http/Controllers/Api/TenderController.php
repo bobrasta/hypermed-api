@@ -99,7 +99,12 @@ class TenderController extends Controller
     public function updateStatus(Request $request, Tender $tender)
     {
         $this->assertManage($request);
-        $status = $request->validate(['status' => ['required', Rule::in(Tender::STATUSES)]])['status'];
+        $v = $request->validate([
+            'status' => ['required', Rule::in(Tender::STATUSES)],
+            // Not submitted / cancelled / lost: say why.
+            'reason' => [Rule::requiredIf(in_array($request->input('status'), Tender::NEEDS_REASON)), 'nullable', 'string', 'max:2000'],
+        ], ['reason.required' => 'Give the reason.']);
+        $status = $v['status'];
 
         $need = match ($status) {
             'won', 'awaiting_award' => $tender->reached('bid_submitted') || $tender->status === 'bid_submitted' ? null : 'Submit the bid first.',
@@ -112,7 +117,8 @@ class TenderController extends Controller
             throw ValidationException::withMessages(['status' => $need]);
         }
 
-        $tender->update(['status' => $status]);
+        $tender->update(['status' => $status,
+            'status_reason' => in_array($status, Tender::NEEDS_REASON) ? trim($v['reason']) : null]);
 
         return response()->json(['data' => $this->detail($tender->fresh(['procuringEntity', 'owner:id,name', 'documents', 'boardResolution']))]);
     }
@@ -124,7 +130,7 @@ class TenderController extends Controller
         return $request->validate([
             'tender_number' => [$req, 'string', 'max:120'],
             'contract_number' => ['nullable', 'string', 'max:120'],
-            'tender_type' => ['sometimes', Rule::in(['standard', 'framework'])],
+            'tender_type' => ['sometimes', Rule::in(Tender::TYPES)],
             'title' => [$req, 'string', 'max:500'],
             'procuring_entity_id' => [$req, 'exists:procuring_entities,id'],
             'estimated_value' => ['nullable', 'integer', 'min:0'],
@@ -313,6 +319,7 @@ class TenderController extends Controller
             'contract_value' => $t->contract_value,
             'currency' => $t->currency,
             'status' => $t->status,
+            'status_reason' => $t->status_reason,
             'step' => $t->step(),
             'owner' => $t->owner?->only(['id', 'name']),
             'next_deadline' => $this->deadlines->next($deadlines),

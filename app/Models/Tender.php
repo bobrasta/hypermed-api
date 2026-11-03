@@ -15,12 +15,15 @@ class Tender extends Model
         'identified', 'preparing_bid', 'bid_submitted', 'awaiting_award', 'won', 'accepted',
         'performance_security_submitted', 'contract_signed', 'fulfilling', 'delivered', 'closed',
     ];
-    public const TERMINAL = ['lost', 'cancelled', 'closed'];
-    public const STATUSES = [...self::FLOW, 'lost', 'cancelled'];
+    public const TERMINAL = ['lost', 'cancelled', 'not_submitted', 'closed'];
+    public const STATUSES = [...self::FLOW, 'lost', 'cancelled', 'not_submitted'];
+    /** Ending a tender this way needs a reason (status_reason). */
+    public const NEEDS_REASON = ['not_submitted', 'cancelled', 'lost'];
+    public const TYPES = ['standard', 'framework', 'pre_qualification'];
 
     protected $fillable = [
         'tender_number', 'contract_number', 'tender_type', 'title', 'procuring_entity_id',
-        'estimated_value', 'contract_value', 'currency', 'vat_inclusive', 'status', 'owner_id',
+        'estimated_value', 'contract_value', 'currency', 'vat_inclusive', 'status', 'status_reason', 'owner_id',
         'board_resolution_id', 'attorney_name', 'attorney_address', 'signatory_name', 'signatory_position',
         'entity_ref', 'entity_ref_date', 'our_ref', 'bid_submission_deadline', 'bid_validity_days',
         'tender_expiry_date', 'other_tenderer_notified_at', 'award_notified_at', 'letter_of_acceptance_date',
