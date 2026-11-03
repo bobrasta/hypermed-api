@@ -446,6 +446,16 @@ class DocumentPdfService
     }
 
     /** Purchases menu → Print: the purchase order on the letterhead. */
+    /** A unit cost with up to 4 decimals, at least 2 (USD 0.115 → 0.115, 5.75 → 5.75). */
+    private function poUnitCost(float $v): string
+    {
+        $s = number_format($v, 4);
+        $trim = rtrim($s, '0');
+        $dec = strlen(substr(strrchr($trim, '.') ?: '.', 1));
+
+        return number_format($v, max(2, $dec));
+    }
+
     public function purchaseOrderPdf(\App\Models\PurchaseOrder $po): Response
     {
         $po->loadMissing(['supplier', 'location', 'orderedBy', 'items.inventoryItem', 'returns',
@@ -459,7 +469,7 @@ class DocumentPdfService
                 . ($it->inventoryItem?->sku ? "<div style='font-size:7.5pt;color:#7a7a7d'>" . e($it->inventoryItem->sku) . '</div>' : '') . '</td>'
                 . "<td class='dim'>" . e($it->inventoryItem?->unit_of_measure ?? '-') . '</td>'
                 . "<td class='num'>" . e($it->quantity_ordered) . "</td><td class='num'>" . e($it->quantity_received) . '</td>'
-                . "<td class='num'>" . e($n($it->unit_cost)) . "</td><td class='num'>" . e($n($it->quantity_ordered * $it->unit_cost)) . '</td></tr>';
+                . "<td class='num'>" . e(fmod((float) $it->unit_cost, 1) == 0.0 && strtoupper((string) $po->currency) === 'TZS' ? $n($it->unit_cost) : $this->poUnitCost((float) $it->unit_cost)) . "</td><td class='num'>" . e($n($it->quantity_ordered * $it->unit_cost)) . '</td></tr>';
         }
         $returned = (float) $po->returns->sum('total_amount');
         $due = max(round((float) $po->total_amount - $returned - (float) $po->amount_paid, 2), 0);

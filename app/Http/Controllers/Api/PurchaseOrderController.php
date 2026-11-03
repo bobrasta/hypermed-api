@@ -89,7 +89,7 @@ class PurchaseOrderController extends Controller
         ]);
 
         return DB::transaction(function () use ($data, $request, $documentNumbers) {
-            $total = round(collect($data['items'])->sum(fn ($i) => $i['quantity_ordered'] * $i['unit_cost']), 2);
+            $total = round(collect($data['items'])->sum(fn ($i) => round($i['quantity_ordered'] * $i['unit_cost'], 2)), 2);
 
             $po = PurchaseOrder::create([
                 'po_number'               => $documentNumbers->next('purchase_order'),

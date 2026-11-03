@@ -138,4 +138,16 @@ class PurchaseOrderFlowTest extends TestCase
         $this->step('procurement_manager', 'po-proc', 'submit-for-approval');
         $this->putJson("/api/v1/purchase-orders/{$this->po}", ['notes' => 'late'])->assertStatus(422);
     }
+
+    public function test_unit_cost_keeps_four_decimals_per_pair(): void
+    {
+        $this->as('procurement_manager', 'po-proc');
+        $res = $this->postJson('/api/v1/purchase-orders', [
+            'supplier_id' => $this->supplier->id, 'location_id' => $this->store->id, 'currency' => 'USD',
+            'items' => [['inventory_item_id' => $this->item->id, 'quantity_ordered' => 9440000, 'unit_cost' => 0.115]],
+        ])->assertCreated();
+        $this->assertEquals(1085600.0, $res->json('data.total_amount'));
+        $this->assertEquals(0.115, $res->json('data.items.0.unit_cost'));
+        $this->assertStringStartsWith('%PDF', $this->get('/api/v1/purchase-orders/' . $res->json('data.id') . '/pdf')->assertOk()->getContent());
+    }
 }
