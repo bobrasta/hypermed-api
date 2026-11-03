@@ -142,28 +142,48 @@ class PurchaseOrderController extends Controller
     public function update(Request $request, PurchaseOrder $purchaseOrder)
     {
         abort_if(! $request->user()->hasPurchaseCreateAuthority(), 403, 'You are not authorised to edit purchase orders.');
-        abort_if($purchaseOrder->status !== 'draft', 422, 'Only draft purchase orders can be edited.');
+        // A draft, or a rejected order being fixed — saving puts it back to draft to resubmit.
+        abort_if(! in_array($purchaseOrder->status, ['draft', 'rejected']), 422, 'Only draft or rejected purchase orders can be edited.');
 
         $data = $request->validate([
-            'supplier_id'            => 'sometimes|exists:suppliers,id',
-            'location_id'            => 'sometimes|exists:locations,id',
-            'expected_delivery_date' => 'nullable|date',
-            'currency'               => 'nullable|string|max:10',
-            'shipping_address'       => 'nullable|string',
-            'terms'                  => 'nullable|string',
-            'notes'                  => 'nullable|string',
+            'supplier_id'               => 'sometimes|exists:suppliers,id',
+            'location_id'               => 'sometimes|exists:locations,id',
+            'expected_delivery_date'    => 'nullable|date',
+            'currency'                  => 'nullable|string|max:10',
+            'shipping_address'          => 'nullable|string',
+            'terms'                     => 'nullable|string',
+            'notes'                     => 'nullable|string',
+            'items'                     => 'sometimes|array|min:1',
+            'items.*.inventory_item_id' => 'required_with:items|exists:inventory_items,id',
+            'items.*.quantity_ordered'  => 'required_with:items|integer|min:1',
+            'items.*.unit_cost'         => 'required_with:items|numeric|min:0',
+            'items.*.currency'          => 'nullable|string|max:10',
+            'items.*.expiry_date'       => 'nullable|date',
+            'items.*.batch_number'      => 'nullable|string|max:100',
+            'items.*.notes'             => 'nullable|string',
         ]);
 
-        $purchaseOrder->update($data);
+        DB::transaction(function () use ($purchaseOrder, $data) {
+            $items = $data['items'] ?? null;
+            unset($data['items']);
+            if ($items !== null) {
+                // Nothing has been received on a draft/rejected order, so the lines are replaced.
+                $purchaseOrder->items()->delete();
+                foreach ($items as $item) {
+                    $purchaseOrder->items()->create($item);
+                }
+                $data['total_amount'] = round(collect($items)->sum(fn ($i) => $i['quantity_ordered'] * $i['unit_cost']), 2);
+            }
+            if ($purchaseOrder->status === 'rejected') {
+                $data += ['status' => 'draft', 'rejected_by' => null, 'rejected_at' => null, 'rejection_reason' => null,
+                    'sales_approved_by' => null, 'sales_approved_at' => null, 'director_reviewed_by' => null, 'director_reviewed_at' => null,
+                    'payment_initiated_by' => null, 'payment_initiated_at' => null, 'director_approved_by' => null, 'director_approved_at' => null];
+            }
+            $purchaseOrder->update($data);
+        });
 
-        return response()->json(['data' => $purchaseOrder->fresh(['supplier', 'items.inventoryItem'])]);
+        return response()->json(['data' => $purchaseOrder->fresh(self::RELATIONS)]);
     }
-
-    // ── Approval / payment chain ────────────────────────────────────────────
-    // draft -> pending_sales_manager -> pending_director_review ->
-    // pending_payment_initiation -> pending_director_final -> approved.
-    // Covers both reorder-driven and new-product-driven POs (see the
-    // requisition's `origin` tag) — same chain either way.
 
     public function submitForApproval(Request $request, PurchaseOrder $purchaseOrder)
     {

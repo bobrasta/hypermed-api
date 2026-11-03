@@ -107,4 +107,35 @@ class PurchaseOrderFlowTest extends TestCase
         $this->assertEquals(12.5, $res->json('data.items.0.unit_cost'));
         $this->assertEquals(37.5, $res->json('data.items.0.total_cost'));
     }
+
+    public function test_a_draft_or_rejected_order_can_be_edited_items_included(): void
+    {
+        $this->as('procurement_manager', 'po-proc');
+        $other = InventoryItem::forceCreate(['sku' => 'PO-FLOW-2', 'name' => 'PO flow gloves', 'unit_cost' => 0]);
+        $this->po = $this->postJson('/api/v1/purchase-orders', [
+            'supplier_id' => $this->supplier->id, 'location_id' => $this->store->id, 'currency' => 'TZS',
+            'items' => [['inventory_item_id' => $this->item->id, 'quantity_ordered' => 10, 'unit_cost' => 1500]],
+        ])->assertCreated()->json('data.id');
+
+        $this->putJson("/api/v1/purchase-orders/{$this->po}", [
+            'notes' => 'Size 7.5 only', 'currency' => 'USD',
+            'items' => [
+                ['inventory_item_id' => $this->item->id, 'quantity_ordered' => 4, 'unit_cost' => 2.25, 'currency' => 'USD'],
+                ['inventory_item_id' => $other->id, 'quantity_ordered' => 2, 'unit_cost' => 10, 'currency' => 'USD'],
+            ],
+        ])->assertOk()->assertJsonPath('data.notes', 'Size 7.5 only')->assertJsonPath('data.currency', 'USD')
+            ->assertJsonCount(2, 'data.items');
+        $this->assertEquals(29.0, DB::table('purchase_orders')->where('id', $this->po)->value('total_amount'));
+
+        // Rejected by the sales manager → edited → back to draft, ready to resubmit.
+        $this->step('procurement_manager', 'po-proc', 'submit-for-approval');
+        $this->step('sales_manager', 'po-salesmgr', 'reject-sales-manager', ['rejection_reason' => 'Wrong size']);
+        $this->as('procurement_manager', 'po-proc');
+        $this->putJson("/api/v1/purchase-orders/{$this->po}", ['notes' => 'Fixed'])->assertOk()
+            ->assertJsonPath('data.status', 'draft')->assertJsonPath('data.rejection_reason', null);
+
+        // Once in approval it can't be edited.
+        $this->step('procurement_manager', 'po-proc', 'submit-for-approval');
+        $this->putJson("/api/v1/purchase-orders/{$this->po}", ['notes' => 'late'])->assertStatus(422);
+    }
 }
