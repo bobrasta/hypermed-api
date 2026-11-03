@@ -15,8 +15,8 @@ class PurchaseOrderItem extends Model
     protected $casts = [
         'quantity_ordered'  => 'integer',
         'quantity_received' => 'integer',
-        'unit_cost'         => 'integer',
-        'total_cost'        => 'integer',
+        'unit_cost'         => 'float',
+        'total_cost'        => 'float',
         'expiry_date'       => 'date',
     ];
 

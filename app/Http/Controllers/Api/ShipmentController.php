@@ -451,7 +451,7 @@ class ShipmentController extends Controller
             'suppliers' => Supplier::where('is_active', true)->orderBy('name')->get(['id', 'name']),
             'purchase_orders' => PurchaseOrder::with('supplier:id,name')->latest('id')->limit(200)->get(['id', 'po_number', 'supplier_id', 'status', 'total_amount'])
                 ->map(fn ($po) => ['id' => $po->id, 'po_number' => $po->po_number, 'supplier_id' => $po->supplier_id,
-                    'supplier_name' => $po->supplier?->name, 'status' => $po->status, 'total' => (int) $po->total_amount]),
+                    'supplier_name' => $po->supplier?->name, 'status' => $po->status, 'total' => (float) $po->total_amount]),
             'departments' => $this->departmentRows(),
             'staff' => User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'role']),
             'tenders' => Tender::latest('id')->limit(200)->get(['id', 'tender_number', 'title']),
@@ -868,7 +868,7 @@ class ShipmentController extends Controller
             'supplier_id' => $s->supplier_id,
             'purchase_order_id' => $s->purchase_order_id,
             'purchase_order' => $s->purchaseOrder ? ['id' => $s->purchaseOrder->id, 'po_number' => $s->purchaseOrder->po_number,
-                'status' => $s->purchaseOrder->status, 'total' => (int) $s->purchaseOrder->total_amount] : null,
+                'status' => $s->purchaseOrder->status, 'total' => (float) $s->purchaseOrder->total_amount] : null,
             'department_manager' => $s->department?->manager?->name,
             'notify_users' => $s->notifyUsers->map(fn ($u) => ['id' => $u->id, 'name' => $u->name])->values(),
             'documents' => collect(ShipmentFlow::allowedDocTypes($s->direction))

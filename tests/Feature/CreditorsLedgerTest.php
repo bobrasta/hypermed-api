@@ -197,7 +197,7 @@ class CreditorsLedgerTest extends TestCase
         $this->postJson("/api/v1/purchase-orders/{$po->id}/approve-director-final")->assertOk();
         $po->refresh();
         $this->assertSame('approved', $po->status);
-        $this->assertSame(3000, $po->amount_paid);
+        $this->assertEquals(3000.0, $po->amount_paid);
         $this->assertSame('partial', $po->payment_status);
         $this->assertSame(-3000 * 2700, $this->moved('2024'));               // a deposit before the invoice: a debit (advance)
         $this->assertSame(-3000 * 2700, $this->moved('1013'));

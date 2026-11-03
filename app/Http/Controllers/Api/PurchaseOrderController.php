@@ -81,7 +81,7 @@ class PurchaseOrderController extends Controller
             'items'                     => 'required|array|min:1',
             'items.*.inventory_item_id' => 'required|exists:inventory_items,id',
             'items.*.quantity_ordered'  => 'required|integer|min:1',
-            'items.*.unit_cost'         => 'required|integer|min:0',
+            'items.*.unit_cost'         => 'required|numeric|min:0',
             'items.*.currency'          => 'nullable|string|max:10',
             'items.*.expiry_date'       => 'nullable|date',
             'items.*.batch_number'      => 'nullable|string|max:100',
@@ -89,7 +89,7 @@ class PurchaseOrderController extends Controller
         ]);
 
         return DB::transaction(function () use ($data, $request, $documentNumbers) {
-            $total = collect($data['items'])->sum(fn ($i) => $i['quantity_ordered'] * $i['unit_cost']);
+            $total = round(collect($data['items'])->sum(fn ($i) => $i['quantity_ordered'] * $i['unit_cost']), 2);
 
             $po = PurchaseOrder::create([
                 'po_number'               => $documentNumbers->next('purchase_order'),

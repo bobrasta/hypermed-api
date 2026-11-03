@@ -92,4 +92,19 @@ class PurchaseOrderFlowTest extends TestCase
         $pdf = $this->get("/api/v1/purchase-orders/{$this->po}/pdf")->assertOk();
         $this->assertStringStartsWith('%PDF', $pdf->getContent());
     }
+
+    public function test_unit_cost_takes_cents_and_the_total_adds_up(): void
+    {
+        $this->as('procurement_manager', 'po-proc');
+        $res = $this->postJson('/api/v1/purchase-orders', [
+            'supplier_id' => $this->supplier->id, 'location_id' => $this->store->id, 'currency' => 'USD',
+            'items' => [
+                ['inventory_item_id' => $this->item->id, 'quantity_ordered' => 3, 'unit_cost' => 12.5],
+                ['inventory_item_id' => $this->item->id, 'quantity_ordered' => 2, 'unit_cost' => 0.99],
+            ],
+        ])->assertCreated();
+        $this->assertEquals(39.48, $res->json('data.total_amount'));
+        $this->assertEquals(12.5, $res->json('data.items.0.unit_cost'));
+        $this->assertEquals(37.5, $res->json('data.items.0.total_cost'));
+    }
 }

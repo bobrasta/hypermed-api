@@ -99,7 +99,7 @@ class PurchaseReturnController extends Controller
                 $name = $po->items->firstWhere('id', $poItem->id)->inventoryItem?->name ?? 'an item';
                 abort_if($line['quantity'] > $left, 422, "Only {$left} of {$name} can still be returned (received {$poItem->quantity_received}, returned {$already}).");
 
-                $lineTotal = $line['quantity'] * (int) $poItem->unit_cost;
+                $lineTotal = round($line['quantity'] * (float) $poItem->unit_cost, 2);
                 $return->items()->create([
                     'purchase_order_item_id' => $poItem->id,
                     'inventory_item_id'      => $poItem->inventory_item_id,

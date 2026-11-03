@@ -192,9 +192,9 @@ class CreditorService
         $amount = strtoupper((string) $po->currency) === 'TZS'
             ? $paid->sum(fn ($p) => strtoupper($p->currency) === 'TZS' ? self::cents($p->amount) / 100 : $p->amount_tzs)
             : $paid->sum(fn ($p) => (float) $p->amount);
-        $amount = (int) round($amount);
+        $amount = round($amount, 2);
         // Goods sent back aren't paid for.
-        $payable = (int) $po->total_amount - (int) PurchaseReturn::where('purchase_order_id', $po->id)->sum('total_amount');
+        $payable = round((float) $po->total_amount - (float) PurchaseReturn::where('purchase_order_id', $po->id)->sum('total_amount'), 2);
         $po->update([
             'amount_paid' => $amount,
             'payment_status' => $amount <= 0 && $payable > 0 ? 'unpaid' : ($amount >= $payable ? 'paid' : 'partial'),

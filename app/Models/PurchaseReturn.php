@@ -26,7 +26,7 @@ class PurchaseReturn extends Model
 
     protected $casts = [
         'return_date'   => 'date',
-        'total_amount'  => 'integer',
+        'total_amount'  => 'float',
         'posted'        => 'boolean',
         'exchange_rate' => 'decimal:6',
         'total_tzs'     => 'integer',

@@ -451,7 +451,8 @@ class DocumentPdfService
         $po->loadMissing(['supplier', 'location', 'orderedBy', 'items.inventoryItem', 'returns',
             'salesApprovedBy', 'directorReviewedBy', 'paymentInitiatedBy', 'directorApprovedBy', 'rejectedBy']);
         $cur = $this->currencyPrefix($po->currency);
-        $n = fn ($v) => number_format((float) $v);
+        // Cents show when there are any (USD 12.50); whole shillings stay whole.
+        $n = fn ($v) => number_format((float) $v, fmod((float) $v, 1) != 0.0 || strtoupper((string) $po->currency) !== 'TZS' ? 2 : 0);
         $rows = '';
         foreach ($po->items as $i => $it) {
             $rows .= '<tr><td class=\'dim\'>' . ($i + 1) . '</td><td>' . e($it->inventoryItem?->name ?? '—')
@@ -460,8 +461,8 @@ class DocumentPdfService
                 . "<td class='num'>" . e($it->quantity_ordered) . "</td><td class='num'>" . e($it->quantity_received) . '</td>'
                 . "<td class='num'>" . e($n($it->unit_cost)) . "</td><td class='num'>" . e($n($it->quantity_ordered * $it->unit_cost)) . '</td></tr>';
         }
-        $returned = (int) $po->returns->sum('total_amount');
-        $due = max((int) $po->total_amount - $returned - (int) $po->amount_paid, 0);
+        $returned = (float) $po->returns->sum('total_amount');
+        $due = max(round((float) $po->total_amount - $returned - (float) $po->amount_paid, 2), 0);
         $totals = "<tr class='muted'><td class='lbl'>Paid</td><td class='val'>{$cur} " . e($n($po->amount_paid)) . '</td></tr>'
             . ($returned > 0 ? "<tr class='muted'><td class='lbl'>Returned</td><td class='val'>{$cur} " . e($n($returned)) . '</td></tr>' : '')
             . "<tr class='muted'><td class='lbl'>Payment due</td><td class='val'>{$cur} " . e($n($due)) . '</td></tr>'
@@ -523,7 +524,7 @@ class DocumentPdfService
     {
         $r->loadMissing(['supplier', 'location', 'purchaseOrder', 'createdBy', 'items.inventoryItem']);
         $cur = $this->currencyPrefix($r->currency);
-        $n = fn ($v) => number_format((float) $v);
+        $n = fn ($v) => number_format((float) $v, fmod((float) $v, 1) != 0.0 || strtoupper((string) $r->currency) !== 'TZS' ? 2 : 0);
         $rows = '';
         foreach ($r->items as $i => $it) {
             $rows .= '<tr><td class=\'dim\'>' . ($i + 1) . '</td><td>' . e($it->inventoryItem?->name ?? '—') . '</td>'
