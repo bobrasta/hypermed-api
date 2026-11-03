@@ -1,0 +1,32 @@
+{
+    "name": "hypermed/messaging",
+    "version": "1.0.0",
+    "description": "Real-time messaging module (conversations, messages, attachments, push, Reverb broadcasting) for the HyperMed Management System.",
+    "type": "library",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.2",
+        "ext-json": "*",
+        "ext-openssl": "*",
+        "laravel/framework": "^11.0|^12.0|^13.0"
+    },
+    "suggest": {
+        "ext-gd": "Required to generate image thumbnails for attachments.",
+        "laravel/sanctum": "Default API authentication guard (auth:sanctum).",
+        "laravel/reverb": "WebSocket server implementing the Pusher protocol used for realtime events."
+    },
+    "autoload": {
+        "psr-4": {
+            "Hypermed\\Messaging\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Hypermed\\Messaging\\MessagingServiceProvider",
+                "Hypermed\\Messaging\\Calls\\CallsServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "stable"
+}
