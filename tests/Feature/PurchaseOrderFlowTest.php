@@ -87,5 +87,9 @@ class PurchaseOrderFlowTest extends TestCase
         ]])->assertJsonPath('data.status', 'received');
 
         $this->assertSame(10, $this->onHand());
+
+        // The PO PDF (letterhead, supplier contact, approvals) renders.
+        $pdf = $this->get("/api/v1/purchase-orders/{$this->po}/pdf")->assertOk();
+        $this->assertStringStartsWith('%PDF', $pdf->getContent());
     }
 }

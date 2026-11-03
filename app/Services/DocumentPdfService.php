@@ -448,13 +448,15 @@ class DocumentPdfService
     /** Purchases menu → Print: the purchase order on the letterhead. */
     public function purchaseOrderPdf(\App\Models\PurchaseOrder $po): Response
     {
-        $po->loadMissing(['supplier', 'location', 'orderedBy', 'items.inventoryItem', 'returns']);
+        $po->loadMissing(['supplier', 'location', 'orderedBy', 'items.inventoryItem', 'returns',
+            'salesApprovedBy', 'directorReviewedBy', 'paymentInitiatedBy', 'directorApprovedBy', 'rejectedBy']);
         $cur = $this->currencyPrefix($po->currency);
         $n = fn ($v) => number_format((float) $v);
         $rows = '';
         foreach ($po->items as $i => $it) {
             $rows .= '<tr><td class=\'dim\'>' . ($i + 1) . '</td><td>' . e($it->inventoryItem?->name ?? '—')
                 . ($it->inventoryItem?->sku ? "<div style='font-size:7.5pt;color:#7a7a7d'>" . e($it->inventoryItem->sku) . '</div>' : '') . '</td>'
+                . "<td class='dim'>" . e($it->inventoryItem?->unit_of_measure ?? '-') . '</td>'
                 . "<td class='num'>" . e($it->quantity_ordered) . "</td><td class='num'>" . e($it->quantity_received) . '</td>'
                 . "<td class='num'>" . e($n($it->unit_cost)) . "</td><td class='num'>" . e($n($it->quantity_ordered * $it->unit_cost)) . '</td></tr>';
         }
@@ -464,10 +466,46 @@ class DocumentPdfService
             . ($returned > 0 ? "<tr class='muted'><td class='lbl'>Returned</td><td class='val'>{$cur} " . e($n($returned)) . '</td></tr>' : '')
             . "<tr class='muted'><td class='lbl'>Payment due</td><td class='val'>{$cur} " . e($n($due)) . '</td></tr>'
             . "<tr class='grand'><td class='lbl'><span class='grand-lbl'>GRAND TOTAL</span></td><td class='val'><span class='grand-val'>{$cur} " . e($n($po->total_amount)) . '</span></td></tr>';
-        $body = "<table id='items'><tr><th style='width:5%'>#</th><th>ITEM</th><th class='num' style='width:10%'>ORDERED</th><th class='num' style='width:10%'>RECEIVED</th>"
-            . "<th class='num' style='width:15%'>UNIT COST</th><th class='num' style='width:17%'>TOTAL</th></tr>{$rows}</table>"
+        // Supplier contact, so the PDF can be sent to them as the order.
+        $s = $po->supplier;
+        $supplierLines = array_filter([
+            $s?->contact_name, $s?->address, trim(($s?->city ?? '') . ', ' . ($s?->country ?? ''), ', '),
+            implode(' · ', array_filter([$s?->contact_phone, $s?->contact_email])), $s?->tin ? 'TIN ' . $s->tin : null,
+        ]);
+        $info = "<table style='width:100%;margin:2px 0 12px'><tr><td style='width:52%;vertical-align:top;font-size:8.5pt;color:#5d5d60;line-height:1.45'>"
+            . ($supplierLines ? '<strong style=\'color:#2b2b2e\'>Supplier contact</strong><br>' . implode('<br>', array_map('e', $supplierLines)) : '')
+            . "</td><td style='vertical-align:top;font-size:8.5pt;color:#5d5d60;line-height:1.45'>"
+            . '<strong style=\'color:#2b2b2e\'>Order details</strong><br>Currency: ' . e(strtoupper((string) $po->currency))
+            . ($po->expected_delivery_date ? '<br>Expected delivery: ' . e($po->expected_delivery_date->format('d M Y')) : '')
+            . ($s?->payment_terms ? '<br>Payment terms: ' . e(ucwords(str_replace('_', ' ', $s->payment_terms))) : '')
+            . ($po->on_credit ? '<br>On credit (paid against the supplier invoice)' : '')
+            . '</td></tr></table>';
+        $ccy = e(strtoupper((string) $po->currency));
+        $body = $info . "<table id='items'><tr><th style='width:5%'>#</th><th>ITEM</th><th style='width:8%'>UNIT</th><th class='num' style='width:9%'>ORDERED</th><th class='num' style='width:9%'>RECEIVED</th>"
+            . "<th class='num' style='width:14%'>UNIT COST ({$ccy})</th><th class='num' style='width:16%'>TOTAL ({$ccy})</th></tr>{$rows}</table>"
             . "<table style='width:100%'><tr><td style='width:52%;vertical-align:top;padding-top:14px;font-size:8.5pt;color:#5d5d60'>"
             . ($po->notes ? nl2br(e($po->notes)) : '') . "</td><td style='vertical-align:top'><table id='totals' style='width:100%'>{$totals}</table></td></tr></table>";
+        // Approval trail: who did each step, and when.
+        $steps = array_filter([
+            ['Prepared', $po->orderedBy?->name, $po->created_at],
+            ['Sales manager approved', $po->salesApprovedBy?->name, $po->sales_approved_at],
+            ['Director reviewed', $po->directorReviewedBy?->name, $po->director_reviewed_at],
+            [$po->on_credit ? 'Put on credit' : 'Payment initiated', $po->paymentInitiatedBy?->name, $po->payment_initiated_at],
+            ['Director final approval', $po->directorApprovedBy?->name, $po->director_approved_at],
+            ['Sent to supplier', null, $po->sent_at],
+            ['Rejected', $po->rejectedBy?->name, $po->rejected_at],
+        ], fn ($st) => $st[1] || $st[2]);
+        if ($steps) {
+            $body .= "<div style='margin-top:16px;font-size:7.5pt;letter-spacing:1px;color:#7a7a7d'>APPROVALS</div><table style='width:100%;font-size:8.5pt;margin-top:4px'>";
+            foreach ($steps as [$what, $who, $when]) {
+                $body .= "<tr><td style='padding:3px 0;width:34%;color:#5d5d60'>" . e($what) . '</td><td style=\'padding:3px 0\'>' . e($who ?? '—') . '</td>'
+                    . "<td style='padding:3px 0;text-align:right;color:#5d5d60'>" . e($when ? \Illuminate\Support\Carbon::parse($when)->format('d M Y H:i') : '') . '</td></tr>';
+            }
+            $body .= '</table>';
+            if ($po->rejection_reason) {
+                $body .= "<div style='font-size:8.5pt;color:#5d5d60;margin-top:4px'><strong>Rejection reason:</strong> " . e($po->rejection_reason) . '</div>';
+            }
+        }
         $status = ucwords(str_replace('_', ' ', (string) $po->status));
 
         return $this->letterhead([
