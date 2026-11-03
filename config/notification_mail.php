@@ -23,6 +23,22 @@ return [
         'low_stock_alert',
     ))))),
 
+    // Shared mailboxes that get only the important emails (user, 2026-11-03:
+    // "reduce emails to info@ unless important"). Their routine alerts —
+    // below — stay in the app; approvals, shipments, deadlines still email.
+    'important_only' => array_values(array_filter(array_map('trim', explode(',', strtolower((string) env(
+        'NOTIFICATION_MAIL_IMPORTANT_ONLY',
+        'info@hypermed.co.tz',
+    )))))),
+
+    // Routine alerts not emailed to the 'important_only' mailboxes: every
+    // new NeST tender and every NeST change (the daily "closing within 3
+    // days" digest still goes).
+    'routine_types' => array_values(array_filter(array_map('trim', explode(',', (string) env(
+        'NOTIFICATION_MAIL_ROUTINE_TYPES',
+        'nest_tender_new,nest_tender_changed',
+    ))))),
+
     // Never mail these domains — the seeded test logins use @hypermed.tz,
     // which is a real outside domain, not ours.
     'skip_domains' => array_values(array_filter(array_map('trim', explode(',', (string) env(

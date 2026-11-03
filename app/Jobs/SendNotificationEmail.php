@@ -29,6 +29,9 @@ class SendNotificationEmail implements ShouldQueue
         if (! $n || ! $user || ! $user->is_active || ! self::deliverable($user->email)) {
             return;
         }
+        if (! self::importantEnoughFor((string) $user->email, (string) $n->type)) {
+            return; // routine alert for a shared mailbox — it stays in the app
+        }
 
         Mail::send('mail.notification', [
             'name' => $user->name,
@@ -49,6 +52,13 @@ class SendNotificationEmail implements ShouldQueue
 
         return (in_array('*', $types, true) || in_array($type, $types, true))
             && ! in_array($type, config('notification_mail.exclude_types', []), true);
+    }
+
+    /** A shared mailbox (info@) gets only important emails; routine alerts stay in the app. */
+    public static function importantEnoughFor(string $email, string $type): bool
+    {
+        return ! (in_array(strtolower($email), config('notification_mail.important_only', []), true)
+            && in_array($type, config('notification_mail.routine_types', []), true));
     }
 
     public static function deliverable(?string $email): bool

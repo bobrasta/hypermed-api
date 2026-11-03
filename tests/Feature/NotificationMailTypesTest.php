@@ -29,4 +29,13 @@ class NotificationMailTypesTest extends TestCase
         $this->assertFalse(SendNotificationEmail::deliverable('tech@hypermed.tz'));
         $this->assertFalse(SendNotificationEmail::deliverable('not-an-email'));
     }
+
+    public function test_info_mailbox_gets_only_important_emails(): void
+    {
+        $this->assertFalse(\App\Jobs\SendNotificationEmail::importantEnoughFor('info@hypermed.co.tz', 'nest_tender_new'));
+        $this->assertFalse(\App\Jobs\SendNotificationEmail::importantEnoughFor('INFO@hypermed.co.tz', 'nest_tender_changed'));
+        $this->assertTrue(\App\Jobs\SendNotificationEmail::importantEnoughFor('info@hypermed.co.tz', 'nest_tender_digest'));
+        $this->assertTrue(\App\Jobs\SendNotificationEmail::importantEnoughFor('info@hypermed.co.tz', 'shipment_status'));
+        $this->assertTrue(\App\Jobs\SendNotificationEmail::importantEnoughFor('patrick@hypermed.co.tz', 'nest_tender_new'));
+    }
 }
