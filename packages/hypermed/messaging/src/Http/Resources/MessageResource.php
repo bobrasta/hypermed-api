@@ -22,11 +22,15 @@ class MessageResource extends JsonResource
 {
     public static $wrap = null;
 
+    /** Chat review shows what a deleted message said (see AuditMessageResource). */
+    protected bool $revealDeleted = false;
+
     public function toArray(Request $request): array
     {
         /** @var Message $m */
         $m = $this->resource;
         $deleted = $m->isDeleted();
+        $hide = $deleted && ! $this->revealDeleted;
 
         return [
             'id' => (int) $m->id,
@@ -34,13 +38,13 @@ class MessageResource extends JsonResource
             'sender_id' => $m->sender_id !== null ? (int) $m->sender_id : null,
             'sender' => $this->senderSummary($m),
             'type' => $m->type,
-            'body' => $deleted ? null : $m->body,
-            'meta' => $deleted ? null : ($m->meta ?: null),
+            'body' => $hide ? null : $m->body,
+            'meta' => $hide ? null : ($m->meta ?: null),
             'client_uuid' => $m->client_uuid,
             'reply_to_id' => $m->reply_to_id !== null ? (int) $m->reply_to_id : null,
             'reply_to' => $this->replyTo($m),
-            'attachments' => $deleted ? [] : $this->attachments($m),
-            'entity' => $deleted ? null : $this->entity($m),
+            'attachments' => $hide ? [] : $this->attachments($m),
+            'entity' => $hide ? null : $this->entity($m),
             'is_deleted' => $deleted,
             'edited_at' => $m->edited_at?->toIso8601ZuluString(),
             'created_at' => $m->created_at?->toIso8601ZuluString(),

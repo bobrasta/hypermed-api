@@ -16,6 +16,7 @@ use Hypermed\Messaging\Http\Resources\MessageResource;
 use Hypermed\Messaging\Jobs\SendPushJob;
 use Hypermed\Messaging\Models\Conversation;
 use Hypermed\Messaging\Models\Message;
+use Hypermed\Messaging\Models\MessageRevision;
 use Hypermed\Messaging\Models\Participant;
 use Hypermed\Messaging\Support\MessagePreview;
 use Hypermed\Messaging\Support\Realtime;
@@ -179,7 +180,12 @@ class MessagingService
             throw MessagingException::forbidden('Only text messages can be edited.');
         }
 
-        $message->forceFill(['body' => $body, 'edited_at' => now()])->save();
+        // Keep the old text: chats are kept forever and an edit must not
+        // erase what was said (shown only through chat review).
+        DB::transaction(function () use ($message, $body) {
+            MessageRevision::query()->create(['message_id' => $message->id, 'body' => $message->body, 'created_at' => now()]);
+            $message->forceFill(['body' => $body, 'edited_at' => now()])->save();
+        });
         $message->load(Message::resourceRelations());
 
         Realtime::dispatch(new MessageEdited((int) $message->conversation_id, $this->render($message)));

@@ -1,12 +1,14 @@
 <?php
 
 use Hypermed\Messaging\Http\Controllers\AttachmentController;
+use Hypermed\Messaging\Http\Controllers\AuditController;
 use Hypermed\Messaging\Http\Controllers\ConversationController;
 use Hypermed\Messaging\Http\Controllers\DeliveredController;
 use Hypermed\Messaging\Http\Controllers\DeviceController;
 use Hypermed\Messaging\Http\Controllers\MessageController;
 use Hypermed\Messaging\Http\Controllers\ParticipantController;
 use Hypermed\Messaging\Http\Controllers\ReadController;
+use Hypermed\Messaging\Http\Controllers\SettingsController;
 use Hypermed\Messaging\Http\Controllers\UserController;
 use Hypermed\Messaging\Http\Middleware\EnsureConversationParticipant;
 use Hypermed\Messaging\Http\Middleware\EnsureMessageParticipant;
@@ -43,6 +45,11 @@ Route::prefix($prefix)
             Route::delete('messages/{message}', [MessageController::class, 'destroy'])->whereNumber('message')->name('messages.destroy');
         });
 
+        Route::get('settings', [SettingsController::class, 'show'])->name('settings');
+        Route::get('audit/users/{user}/conversations', [AuditController::class, 'conversations'])
+            ->whereNumber('user')->name('audit.conversations');
+        Route::get('audit/conversations/{conversation}/messages', [AuditController::class, 'messages'])
+            ->whereNumber('conversation')->name('audit.messages');
         Route::get('unread-summary', [ReadController::class, 'summary'])->name('unread-summary');
         Route::get('users', [UserController::class, 'index'])->name('users.index');
         Route::post('devices', [DeviceController::class, 'store'])->name('devices.store');

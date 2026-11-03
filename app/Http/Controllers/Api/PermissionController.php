@@ -256,6 +256,6 @@ class PermissionController extends Controller
     {
         $guarded = [...EffectivePermissionResolver::RESERVED, 'authority.admin_tier'];
         abort_if(array_intersect($keys, $guarded) !== [] && ! $request->user()->isDirector(), 403,
-            'Only the Director can grant or remove admin-tier or money-approval permissions.');
+            'Only the Director can grant or remove admin-tier, money-approval or chat-review permissions.');
     }
 }

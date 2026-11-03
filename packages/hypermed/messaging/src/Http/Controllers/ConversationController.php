@@ -35,6 +35,8 @@ class ConversationController extends Controller
 
     public function storeDirect(StoreDirectConversationRequest $request): JsonResponse
     {
+        $this->assertCanContact($request, [$request->validated('user_id')], 'user_id');
+
         [$conversation, $created] = $this->conversations->findOrCreateDirect(
             $this->userId($request),
             (int) $request->validated('user_id'),
@@ -46,6 +48,7 @@ class ConversationController extends Controller
     public function storeGroup(StoreGroupConversationRequest $request): JsonResponse
     {
         $this->authorizeGate($request, 'messaging.group.create');
+        $this->assertCanContact($request, $request->validated('user_ids'), 'user_ids');
 
         $conversation = $this->conversations->createGroup(
             $this->userId($request),

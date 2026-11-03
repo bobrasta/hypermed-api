@@ -20,6 +20,7 @@ class ParticipantController extends Controller
     public function store(AddParticipantsRequest $request): JsonResponse
     {
         $participant = $this->participant($request);
+        $this->assertCanContact($request, $request->validated('user_ids'), 'user_ids');
         $this->conversations->addParticipants($participant, $request->validated('user_ids'));
 
         $conversation = $this->query->find($this->userId($request), (int) $participant->conversation_id);

@@ -2,6 +2,7 @@
 
 namespace Hypermed\Messaging\Support;
 
+use Hypermed\Messaging\Contracts\AvatarUrlResolver;
 use Illuminate\Database\Eloquent\Model;
 
 final class UserSummary
@@ -24,7 +25,7 @@ final class UserSummary
         return [
             'id' => $id,
             'name' => (string) ($name ?? ''),
-            'avatar_url' => $avatar !== null && $avatar !== '' ? (string) $avatar : null,
+            'avatar_url' => app(AvatarUrlResolver::class)->url($avatar !== null && $avatar !== '' ? (string) $avatar : null),
         ];
     }
 

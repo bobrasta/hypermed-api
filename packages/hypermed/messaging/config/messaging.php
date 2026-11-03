@@ -47,9 +47,27 @@ return [
     'default_gates' => [
         'messaging.send' => true,
         'messaging.group.create' => true,
+        // (user, int $targetUserId): may this user start a chat with / add
+        // the target? Checked on direct chats, new groups and added members.
+        'messaging.contact' => true,
         'messaging.call' => true,
         'messaging.broadcast.org_unit' => false,
         'messaging.audit.view' => false,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Chat review (audit)
+    |--------------------------------------------------------------------------
+    | Off by default: nobody can read chats they are not in. When the host's
+    | AuditPolicy says it is on, users passing the `messaging.audit.view`
+    | gate get read-only access through /audit/* routes, and every read fires
+    | an AuditAccessed event for the host to log. Clients read the current
+    | state from GET /settings so they can tell users chats may be reviewed.
+    | The default policy reads this flag; hosts usually bind their own.
+    */
+    'audit' => [
+        'enabled' => (bool) env('MESSAGING_AUDIT_ENABLED', false),
     ],
 
     /*

@@ -138,6 +138,7 @@ class PermissionSeeder extends Seeder
             'admin' => [
                 'roles.manage'                 => ['Manage Roles & Permissions', 'Create/edit roles and their permission grants'],
                 'staff.manage'                 => ['Manage Staff', 'Create, edit, and deactivate staff accounts, including changing a member\'s role'],
+                'messaging.read_others'        => ['Review Staff Chats', 'Read other people\'s in-app chats while the Director has chat review switched on; every read is logged. Reserved: only the Director can grant it'],
             ],
             'procurement' => [
                 'procurement.create_po'             => ['Create Purchase Orders', 'Draft a purchase order and pick a vendor/supplier'],

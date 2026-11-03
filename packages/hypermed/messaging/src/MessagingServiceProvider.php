@@ -2,6 +2,8 @@
 
 namespace Hypermed\Messaging;
 
+use Hypermed\Messaging\Contracts\AuditPolicy;
+use Hypermed\Messaging\Contracts\AvatarUrlResolver;
 use Hypermed\Messaging\Contracts\EntityLinkResolver;
 use Hypermed\Messaging\Contracts\OrgUnitResolver;
 use Hypermed\Messaging\Contracts\PresenceChecker;
@@ -15,9 +17,11 @@ use Hypermed\Messaging\Services\AttachmentService;
 use Hypermed\Messaging\Services\ConversationQuery;
 use Hypermed\Messaging\Services\ConversationService;
 use Hypermed\Messaging\Services\MessagingService;
+use Hypermed\Messaging\Support\ConfigAuditPolicy;
 use Hypermed\Messaging\Support\EloquentUserDirectory;
 use Hypermed\Messaging\Support\NullEntityLinkResolver;
 use Hypermed\Messaging\Support\NullOrgUnitResolver;
+use Hypermed\Messaging\Support\PassthroughAvatarUrlResolver;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -31,6 +35,8 @@ class MessagingServiceProvider extends ServiceProvider
         $this->app->bindIf(OrgUnitResolver::class, NullOrgUnitResolver::class, true);
         $this->app->bindIf(EntityLinkResolver::class, NullEntityLinkResolver::class, true);
         $this->app->bindIf(UserDirectory::class, EloquentUserDirectory::class, true);
+        $this->app->bindIf(AuditPolicy::class, ConfigAuditPolicy::class, true);
+        $this->app->bindIf(AvatarUrlResolver::class, PassthroughAvatarUrlResolver::class, true);
 
         $this->app->bindIf(PushNotifier::class, function ($app) {
             $driver = (string) config('messaging.push.driver', 'null');

@@ -39,6 +39,8 @@ class EffectivePermissionResolver
         'procurement.approve_payment_final',
         'finance.approve_step2',
         'roles.manage',
+        // Reading other people's chats (also needs the Director's chat-review switch).
+        'messaging.read_others',
     ];
 
     /** @return Collection<int, array{key: string, scope: string}> */
