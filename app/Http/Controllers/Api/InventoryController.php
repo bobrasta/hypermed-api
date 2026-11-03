@@ -59,6 +59,7 @@ class InventoryController extends Controller
             'unit_of_measure'     => ['nullable', 'in:piece,box,litre,set,kg,roll'],
             'unit_cost'           => ['required', 'integer', 'min:0'],
             'currency'            => ['nullable', 'string', 'max:10'],
+            'cost_currency'       => ['nullable', 'string', 'size:3'],
             'stock_qty'           => ['required', 'integer', 'min:0'],
             'reorder_level'       => ['required', 'integer', 'min:0'],
             'supplier'            => ['nullable', 'string'],
@@ -70,6 +71,10 @@ class InventoryController extends Controller
 
         $models = $data['compatible_models'] ?? [];
         unset($data['compatible_models']);
+        // The unit cost's currency (TZS unless given). 'currency' was never
+        // stored (not fillable); older apps sending it mean the cost's.
+        $data['cost_currency'] = strtoupper($data['cost_currency'] ?? $data['currency'] ?? 'TZS');
+        unset($data['currency']);
 
         $item = InventoryItem::create($data);
 
@@ -86,7 +91,8 @@ class InventoryController extends Controller
     public function quickCreate(Request $request)
     {
         $data = $request->validate([
-            'name' => ['required', 'string'],
+            'name'          => ['required', 'string'],
+            'cost_currency' => ['nullable', 'string', 'size:3'],
         ]);
 
         $item = InventoryItem::create([
@@ -94,7 +100,7 @@ class InventoryController extends Controller
             'name'          => $data['name'],
             'category_id'   => null,
             'unit_cost'     => 0,
-            'currency'      => 'TZS',
+            'cost_currency' => strtoupper($data['cost_currency'] ?? 'TZS'),
             'stock_qty'     => 0,
             'reorder_level' => 0,
             'needs_review'  => true,
@@ -122,6 +128,7 @@ class InventoryController extends Controller
             'category_id'     => ['nullable', 'exists:categories,id'],
             'unit_of_measure' => ['nullable', 'in:piece,box,litre,set,kg,roll'],
             'unit_cost'       => ['sometimes', 'integer', 'min:0'],
+            'cost_currency'   => ['sometimes', 'string', 'size:3'],
             'stock_qty'       => ['sometimes', 'integer', 'min:0'],
             'reorder_level'   => ['sometimes', 'integer', 'min:0'],
             'supplier'        => ['nullable', 'string'],
@@ -131,6 +138,9 @@ class InventoryController extends Controller
             'needs_review'    => ['sometimes', 'boolean'],
         ]);
 
+        if (isset($data['cost_currency'])) {
+            $data['cost_currency'] = strtoupper($data['cost_currency']);
+        }
         $inventory->update($data);
 
         return response()->json(['data' => new InventoryItemResource($inventory->load(['compatibleModels', 'category']))]);

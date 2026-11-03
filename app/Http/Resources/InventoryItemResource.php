@@ -23,6 +23,7 @@ class InventoryItemResource extends JsonResource
             'unit_of_measure'      => $this->unit_of_measure,
             'unit_cost'            => $this->unit_cost,
             'currency'             => $this->currency ?? $this->cost_currency,
+            'cost_currency'        => $this->cost_currency ?? 'TZS',
             'stock_qty'            => $this->stock_qty,
             'reorder_level'        => $this->reorder_level,
             'is_low_stock'         => $this->stock_qty <= $this->reorder_level,
