@@ -6,7 +6,7 @@
 #   hypermed-deploy <app> status         # list releases, show the live one
 #
 # <app> is a config in /etc/hypermed-deploy/<app>.conf (APP_ROOT, SITE_USER,
-# PHP, HEALTH_URL, MIGRATE, QUEUE_SERVICE). Layout under APP_ROOT:
+# PHP, HEALTH_URL, MIGRATE, QUEUE_SERVICE, REVERB_SERVICE). Layout under APP_ROOT:
 #   releases/<utc-time>-<sha7>/   one dir per deploy (last KEEP kept)
 #   shared/.env, shared/storage/  persisted across releases
 #   current -> releases/...       what's live (the site's public_html points
@@ -55,6 +55,11 @@ switch_to() {
   if [ -n "${QUEUE_SERVICE:-}" ]; then
     artisan "$1" queue:restart >/dev/null 2>&1 || true
     systemctl restart "$QUEUE_SERVICE" || true
+  fi
+  # Live chat server: restarted so it runs the new release's code. Apps
+  # reconnect on their own within seconds.
+  if [ -n "${REVERB_SERVICE:-}" ]; then
+    systemctl restart "$REVERB_SERVICE" || true
   fi
 }
 

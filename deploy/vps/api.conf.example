@@ -5,3 +5,4 @@ PHP=/usr/local/lsws/lsphp84/bin/php
 HEALTH_URL=https://api.hypermed.co.tz/up
 MIGRATE=1
 QUEUE_SERVICE=hypermed-api-queue
+REVERB_SERVICE=hypermed-api-reverb

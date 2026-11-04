@@ -8,4 +8,12 @@
 return [
     'user_avatar_column' => 'avatar_path',
     'user_search_columns' => ['name', 'email'],
+    'realtime' => [
+        'key' => env('REVERB_APP_KEY'),
+        'host' => env('MESSAGING_REALTIME_HOST'),
+        'port' => (int) env('MESSAGING_REALTIME_PORT', 443),
+        'tls' => (bool) env('MESSAGING_REALTIME_TLS', true),
+        // bootstrap/app.php puts the broadcast auth route under /api.
+        'auth_path' => '/api/broadcasting/auth',
+    ],
 ];

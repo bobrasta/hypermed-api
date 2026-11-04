@@ -1,0 +1,17 @@
+[Unit]
+Description=Hypermed API live chat (Laravel Reverb websocket server)
+After=network.target redis-server.service postgresql.service
+
+[Service]
+User=apihy7135
+Group=apihy7135
+WorkingDirectory=/home/api.hypermed.co.tz/app/current
+# Loopback only: OpenLiteSpeed proxies wss://api.hypermed.co.tz/app/… here.
+# setup-reverb.sh writes the real port (8080 unless it was taken).
+ExecStart=/usr/local/lsws/lsphp84/bin/php /home/api.hypermed.co.tz/app/current/artisan reverb:start --host=127.0.0.1 --port=8080
+Restart=always
+RestartSec=3
+LimitNOFILE=10000
+
+[Install]
+WantedBy=multi-user.target

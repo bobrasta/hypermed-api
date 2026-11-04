@@ -24,6 +24,9 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    // Live chat (Reverb): apps sign in to private channels at
+    // POST /api/broadcasting/auth with their Sanctum token.
+    ->withBroadcasting(__DIR__.'/../routes/channels.php', ['prefix' => 'api', 'middleware' => ['api', 'auth:sanctum']])
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'cache.headers.api' => \App\Http\Middleware\CacheControlHeaders::class,

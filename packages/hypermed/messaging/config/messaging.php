@@ -72,6 +72,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Realtime connection details handed to apps (GET /settings)
+    |--------------------------------------------------------------------------
+    | So apps don't have the websocket key built in. host null = the API's own
+    | host. Live updates are reported as off unless the broadcaster is reverb
+    | and a key is set; apps then fall back to polling.
+    */
+    'realtime' => [
+        'key' => env('REVERB_APP_KEY'),
+        'host' => env('MESSAGING_REALTIME_HOST'),
+        'port' => (int) env('MESSAGING_REALTIME_PORT', 443),
+        'tls' => (bool) env('MESSAGING_REALTIME_TLS', true),
+        'auth_path' => env('MESSAGING_BROADCAST_AUTH_PATH', '/broadcasting/auth'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Limits
     |--------------------------------------------------------------------------
     */

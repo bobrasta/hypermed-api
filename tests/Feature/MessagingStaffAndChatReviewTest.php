@@ -79,6 +79,35 @@ class MessagingStaffAndChatReviewTest extends TestCase
         $this->postJson('/api/messaging/conversations/direct', ['user_id' => $me->id])->assertStatus(422);
     }
 
+    public function test_apps_sign_in_to_their_own_live_channels_only(): void
+    {
+        config([
+            'broadcasting.default' => 'reverb',
+            'broadcasting.connections.reverb.key' => 'test-key',
+            'broadcasting.connections.reverb.secret' => 'test-secret',
+            'broadcasting.connections.reverb.app_id' => 'test-app',
+        ]);
+        app(\Illuminate\Broadcasting\BroadcastManager::class)->purge();
+        \Illuminate\Support\Facades\Broadcast::clearResolvedInstances();
+        \Hypermed\Messaging\MessagingServiceProvider::registerChannels();
+
+        $me = $this->user('sales', 'live-me');
+        $other = $this->user('sales', 'live-other');
+        Sanctum::actingAs($me);
+
+        $this->postJson('/api/broadcasting/auth', ['socket_id' => '123.456', 'channel_name' => "private-messaging.user.{$me->id}"])
+            ->assertOk()->assertJsonStructure(['auth']);
+        $this->postJson('/api/broadcasting/auth', ['socket_id' => '123.456', 'channel_name' => "private-messaging.user.{$other->id}"])
+            ->assertForbidden();
+        $this->postJson('/api/broadcasting/auth', ['socket_id' => '123.456', 'channel_name' => 'presence-messaging.presence'])
+            ->assertOk()->assertJsonPath('channel_data', fn ($d) => json_decode($d, true)['user_id'] == $me->id);
+
+        // Vendor portal accounts don't see who is online.
+        Sanctum::actingAs($this->vendorUser());
+        $this->postJson('/api/broadcasting/auth', ['socket_id' => '123.456', 'channel_name' => 'presence-messaging.presence'])
+            ->assertForbidden();
+    }
+
     public function test_chat_review_needs_the_switch_and_the_reserved_permission(): void
     {
         $director = $this->user('admin', 'director');

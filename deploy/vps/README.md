@@ -14,6 +14,8 @@ to the server.
 | `hypermed-publish-update` | `/usr/local/bin/` | forced command for the desktop-release key; accepts only installer/tarball/`latest.json(.sig)`, publishes the feed last |
 | `api.conf.example`, `web.conf.example` | `/etc/hypermed-deploy/{api,web}.conf` | per-app settings |
 | `hypermed-api-queue.service` | `/etc/systemd/system/` | queue worker (restarted on every deploy) |
+| `hypermed-api-reverb.service` | `/etc/systemd/system/` | live chat websocket server, Laravel Reverb on 127.0.0.1 (restarted on every deploy) |
+| `setup-reverb.sh` | run once as root | installs the Reverb unit, `.env` keys, the OLS websocket proxy and the new `hypermed-deploy`; safe to re-run |
 | `99-hypermed.ini` | `/usr/local/lsws/lsphp84/etc/php/8.4/mods-available/` | 20MB uploads for the PHP 8.4 sites |
 
 **Layout per site** (`/home/<site>/app`): `releases/<time>-<sha7>/`,
@@ -42,3 +44,22 @@ user's crontab (`schedule:run` every minute).
 symlink switch needs a (graceful) `lswsctrl restart` — the deploy script
 does this; a plain lsphp restart is not enough (you get OLS 404s on every
 Laravel route).
+
+## Live chat (Reverb)
+
+In-app messaging pushes messages over a websocket. Laravel Reverb runs as
+`hypermed-api-reverb` on `127.0.0.1:<port>` (8080 unless taken). OpenLiteSpeed
+proxies `wss://api.hypermed.co.tz/app/<REVERB_APP_KEY>` to it (a `websocket
+/app/` block in the API vhost). Apps sign in to private channels at
+`POST https://api.hypermed.co.tz/api/broadcasting/auth` with their Sanctum
+token. Laravel publishes events to Reverb over the loopback (`REVERB_HOST=127.0.0.1`).
+
+One-time setup, as root on the VPS, from a checkout of this repo:
+
+    bash deploy/vps/setup-reverb.sh
+
+It is safe to re-run. It keeps existing keys, and it backs up `.env` and the
+vhost config before changing them. If Reverb is down, chat still works: messages
+save, and apps catch up when they reconnect or poll.
+
+Check it: `systemctl status hypermed-api-reverb`, `journalctl -u hypermed-api-reverb -n 50`.

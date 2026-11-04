@@ -3,6 +3,7 @@
 use Hypermed\Messaging\Models\Participant;
 use Hypermed\Messaging\Support\UserSummary;
 use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Support\Facades\Gate;
 
 /*
 | Channel authorization for hypermed/messaging. Loaded by MessagingServiceProvider.
@@ -24,8 +25,11 @@ Broadcast::channel('messaging.conversation.{conversationId}', function ($user, $
         ->exists();
 });
 
-// presence-messaging.presence: every authenticated user; member info {id, name}.
+// presence-messaging.presence: anyone allowed to chat (messaging.send); member info {id, name}.
 Broadcast::channel(config('messaging.presence.channel', 'messaging.presence'), function ($user) {
+    if (! Gate::forUser($user)->allows('messaging.send')) {
+        return false;
+    }
     $summary = UserSummary::make($user);
 
     return ['id' => $summary['id'], 'name' => $summary['name']];

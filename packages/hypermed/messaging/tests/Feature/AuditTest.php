@@ -131,3 +131,13 @@ it('answers 404 for unknown users and chats', function () {
     $this->getJson(msgApi('audit/users/999999/conversations'))->assertNotFound();
     $this->getJson(msgApi('audit/conversations/999999/messages'))->assertNotFound();
 });
+
+it('hands apps the realtime connection only when Reverb is the broadcaster', function () {
+    actingAsMsg(msgUser());
+    config(['broadcasting.default' => 'log', 'messaging.realtime.key' => 'k1']);
+    $this->getJson(msgApi('settings'))->assertOk()->assertJsonPath('data.realtime', null);
+
+    config(['broadcasting.default' => 'reverb', 'messaging.realtime.host' => 'live.example.test', 'messaging.realtime.auth_path' => '/api/broadcasting/auth']);
+    $this->getJson(msgApi('settings'))->assertOk()
+        ->assertJsonPath('data.realtime', ['key' => 'k1', 'host' => 'live.example.test', 'port' => 443, 'tls' => true, 'auth_path' => '/api/broadcasting/auth']);
+});
