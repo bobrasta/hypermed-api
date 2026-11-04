@@ -129,6 +129,8 @@ Route::prefix('v1')->group(function () {
         Route::put('auth/payment-profile', [AuthController::class, 'updatePaymentProfile']);
         Route::post('auth/avatar', [AuthController::class, 'updateAvatar']);
         Route::delete('auth/avatar', [AuthController::class, 'deleteAvatar']);
+        // A colleague's public profile (no sensitive data), for any staff.
+        Route::get('people/{user}', [\App\Http\Controllers\Api\PeopleController::class, 'show'])->whereNumber('user');
 
         // Global search — cross-entity, permission-filtered
         Route::get('search', [SearchController::class, 'index']);
