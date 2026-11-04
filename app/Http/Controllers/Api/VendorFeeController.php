@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Support\DirectorFastTrack;
 use App\Http\Controllers\Controller;
 use App\Models\AppNotification;
 use App\Models\ApprovalLog;
@@ -43,7 +44,7 @@ class VendorFeeController extends Controller
     // same guard costs nothing and keeps the audit trail consistent.
     private function abortIfSelfActioning(VendorFee $fee, Request $request): void
     {
-        abort_if($fee->created_by === $request->user()->id, 403,
+        abort_if(! DirectorFastTrack::active() && $fee->created_by === $request->user()->id, 403,
             'You cannot action a vendor fee you created yourself.');
     }
 

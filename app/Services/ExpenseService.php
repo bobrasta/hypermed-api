@@ -31,7 +31,11 @@ class ExpenseService
 
         $expense = Expense::create($data);
 
-        $this->notifySubmitted($expense);
+        // The Director's own expense is approved at once by the caller
+        // (FastTrackService), so nobody is asked to approve it.
+        if (! User::find($data['created_by'])?->isDirector()) {
+            $this->notifySubmitted($expense);
+        }
 
         return $expense;
     }

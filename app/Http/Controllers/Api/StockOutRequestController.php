@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\Approvals\FastTrackService;
+use App\Support\DirectorFastTrack;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\StockOutRequestResource;
 use App\Models\AppNotification;
@@ -20,7 +22,7 @@ class StockOutRequestController extends Controller
     // the request themselves (spec Section 1).
     private function abortIfSelfActioning(StockOutRequest $stockOutRequest, Request $request): void
     {
-        abort_if($stockOutRequest->requested_by === $request->user()->id, 403,
+        abort_if(! DirectorFastTrack::active() && $stockOutRequest->requested_by === $request->user()->id, 403,
             'You cannot action your own stock-out request.');
     }
 
@@ -57,7 +59,11 @@ class StockOutRequestController extends Controller
 
         $stockOutRequest = StockOutRequest::create($data);
 
-        $this->notifyCto($stockOutRequest);
+        if ($request->user()->isDirector()) {
+            $stockOutRequest = app(FastTrackService::class)->approveOwn('stock_out', $stockOutRequest, $request->user());
+        } else {
+            $this->notifyCto($stockOutRequest);
+        }
 
         return response()->json(['data' => new StockOutRequestResource(
             $stockOutRequest->load(['inventoryItem', 'location', 'serviceTicket', 'requester'])

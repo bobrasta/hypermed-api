@@ -15,6 +15,14 @@ class NotificationTemplateSeeder extends Seeder
     public function run(): void
     {
         $templates = [
+            // ── Director fast-track ──────────────────────────────────────
+            ['approval.fast_tracked', 'approval_fast_tracked', 'Approved by {director}',
+                '{director} approved your {item} {reference} past the remaining approval stages.',
+                'Requester — the Director approved their request past the remaining stages'],
+            ['approval.fast_tracked_skipped', 'approval_fast_tracked', 'No action needed — approved by {director}',
+                '{director} approved the {item} {reference} directly, so it no longer needs your approval.',
+                'Approvers whose stage was skipped — the Director approved past it'],
+
             // ── Sales leads ──────────────────────────────────────────────
             ['lead.follow_up_due', 'lead_follow_up', 'Follow-up Due',
                 'Follow up with {client_name} — {machine_type} deal is due for a check-in.',

@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\Approvals\FastTrackService;
+use App\Support\DirectorFastTrack;
 use App\Http\Controllers\Controller;
 use App\Models\ApprovalLog;
 use App\Models\PurchaseRequisition;
@@ -91,7 +93,7 @@ class PurchaseRequisitionController extends Controller
         return response()->json(['data' => $purchaseRequisition->load(['requestedBy', 'items.inventoryItem'])]);
     }
 
-    public function submit(PurchaseRequisition $purchaseRequisition)
+    public function submit(Request $request, PurchaseRequisition $purchaseRequisition)
     {
         abort_if($purchaseRequisition->status !== 'draft', 422, 'Only draft requisitions can be submitted.');
 
@@ -99,6 +101,9 @@ class PurchaseRequisitionController extends Controller
             'status'       => 'submitted',
             'submitted_at' => now(),
         ]);
+        if (! DirectorFastTrack::active() && $request->user()?->isDirector()) {
+            app(FastTrackService::class)->approveOwn('requisition', $purchaseRequisition, $request->user());
+        }
 
         return response()->json(['data' => $purchaseRequisition->fresh()]);
     }
@@ -107,7 +112,7 @@ class PurchaseRequisitionController extends Controller
     {
         abort_if(! $request->user()->hasProcurementApprovalAuthority(), 403, 'You are not authorised to approve purchase requisitions.');
         abort_if($purchaseRequisition->status !== 'submitted', 422, 'Only submitted requisitions can be approved.');
-        abort_if($purchaseRequisition->requested_by === $request->user()->id, 403, 'You cannot approve a requisition you requested.');
+        abort_if(! DirectorFastTrack::active() && $purchaseRequisition->requested_by === $request->user()->id, 403, 'You cannot approve a requisition you requested.');
 
         $data = $request->validate([
             'items'                        => 'sometimes|array',

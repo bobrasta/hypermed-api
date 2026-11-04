@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\Approvals\FastTrackService;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\LeaveRequestResource;
 use App\Models\AppNotification;
@@ -66,7 +67,11 @@ class LeaveController extends Controller
 
         $leave = LeaveRequest::create($data);
 
-        $this->notifyHr($leave);
+        if ($request->user()->isDirector()) {
+            $leave = app(FastTrackService::class)->approveOwn('leave', $leave, $request->user());
+        } else {
+            $this->notifyHr($leave);
+        }
 
         return response()->json(['data' => new LeaveRequestResource($leave->load(['user', 'leaveType']))], 201);
     }

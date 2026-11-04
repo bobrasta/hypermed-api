@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\Approvals\FastTrackService;
+use App\Support\DirectorFastTrack;
 use App\Http\Controllers\Api\Concerns\FiltersByPeriod;
 use App\Http\Controllers\Controller;
 use App\Models\AppNotification;
@@ -39,7 +41,7 @@ class PurchaseOrderController extends Controller
     // Section 1; mirrors PerDiemController::abortIfSelfActioning()).
     private function abortIfSelfActioning(PurchaseOrder $purchaseOrder, Request $request): void
     {
-        abort_if($purchaseOrder->ordered_by === $request->user()->id, 403,
+        abort_if(! DirectorFastTrack::active() && $purchaseOrder->ordered_by === $request->user()->id, 403,
             'You cannot action a purchase order you created.');
     }
 
@@ -193,6 +195,13 @@ class PurchaseOrderController extends Controller
 
         $purchaseOrder->update(['status' => 'pending_sales_manager']);
 
+        // The Director's own order is approved at once (Finance still pays).
+        if ($request->user()->isDirector()) {
+            app(FastTrackService::class)->approveOwn('purchase_order', $purchaseOrder, $request->user());
+
+            return response()->json(['data' => $purchaseOrder->fresh(self::RELATIONS)]);
+        }
+
         $this->notifyStage($purchaseOrder, 'sales_manager', 'purchase_order.submitted',
             ['po_number' => $purchaseOrder->po_number]);
 
@@ -294,6 +303,18 @@ class PurchaseOrderController extends Controller
         });
         ApprovalLog::record($purchaseOrder, $onCredit ? 'credit_requested' : 'payment_initiated', $request->user());
 
+        // The Director already approved this order past the stages: their
+        // final approval follows now that Finance has recorded the payment
+        // (unless they recorded it themselves; then it waits as usual).
+        $director = FastTrackService::fastTrackedBy($purchaseOrder);
+        if ($director && $director->isDirector() && $director->id !== $request->user()->id) {
+            $asDirector = Request::create('/', 'POST');
+            $asDirector->setUserResolver(fn () => $director);
+            DirectorFastTrack::run(fn () => $this->approveDirectorFinal($asDirector, $purchaseOrder->fresh()));
+
+            return response()->json(['data' => $purchaseOrder->fresh(self::RELATIONS)]);
+        }
+
         $this->notifyStage($purchaseOrder, 'director', 'purchase_order.payment_initiated',
             ['po_number' => $purchaseOrder->po_number]);
 
@@ -378,7 +399,7 @@ class PurchaseOrderController extends Controller
      * both can be held by more than one role) or 'ordered_by' (the PO's
      * original creator specifically, not a role at all).
      */
-    private function notifyStage(PurchaseOrder $po, string $target, string $templateKey, array $vars = []): void
+    public function notifyStage(PurchaseOrder $po, string $target, string $templateKey, array $vars = []): void
     {
         $recipientIds = match ($target) {
             'sales_manager' => User::where('role', 'sales_manager')->pluck('id'),

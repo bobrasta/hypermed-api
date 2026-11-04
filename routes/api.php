@@ -143,6 +143,9 @@ Route::prefix('v1')->group(function () {
         Route::get('dashboard/admin-overview', [AdminOverviewController::class, 'index']);
         Route::get('dashboard/cto-overview', [CtoOverviewController::class, 'index']);
 
+        // The Director's "Approve now" past every stage still open.
+        Route::post('approvals/fast-track', [\App\Http\Controllers\Api\FastTrackController::class, 'store']);
+
         // Accounting — Chart of Accounts + ledger journal
         Route::get('accounting/accounts', [AccountingController::class, 'accounts']);
         Route::post('accounting/accounts', [AccountingController::class, 'storeAccount']);

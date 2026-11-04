@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Support\DirectorFastTrack;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PayrollItemResource;
 use App\Http\Resources\PayrollRunResource;
@@ -240,7 +241,7 @@ class PayrollController extends Controller
     {
         abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the Director can approve a payroll run.');
         abort_if($payrollRun->status !== 'reviewed', 422, 'Only a reviewed run can be approved.');
-        abort_if($payrollRun->created_by === $request->user()->id, 403, 'You cannot approve a payroll run you created.');
+        abort_if(! DirectorFastTrack::active() && $payrollRun->created_by === $request->user()->id, 403, 'You cannot approve a payroll run you created.');
 
         $totals = $payrollRun->items()->selectRaw(
             'SUM(gross_pay) as gross, SUM(gross_pay - net_pay) as deductions, SUM(net_pay) as net, SUM(health_insurance_employer) as health'

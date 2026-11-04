@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\Approvals\FastTrackService;
+use App\Support\DirectorFastTrack;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\CreditNoteResource;
 use App\Models\ApprovalLog;
@@ -40,6 +42,7 @@ class CreditNoteController extends Controller
             'created_by'         => $request->user()->id,
         ]);
         ApprovalLog::record($creditNote, 'initiated', $request->user());
+        $creditNote = app(FastTrackService::class)->approveOwn('credit_note', $creditNote, $request->user());
 
         return (new CreditNoteResource($creditNote->load('createdBy')))->response()->setStatusCode(201);
     }
@@ -52,7 +55,7 @@ class CreditNoteController extends Controller
     {
         abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the Director can approve credit notes.');
         abort_if($creditNote->status !== 'draft', 422, 'Only a draft credit note can be approved.');
-        abort_if($creditNote->created_by === $request->user()->id, 403, 'You cannot approve a credit note you issued.');
+        abort_if(! DirectorFastTrack::active() && $creditNote->created_by === $request->user()->id, 403, 'You cannot approve a credit note you issued.');
 
         $creditNote->update([
             'status'      => 'approved',

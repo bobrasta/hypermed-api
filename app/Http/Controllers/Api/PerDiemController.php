@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\Approvals\FastTrackService;
+use App\Support\DirectorFastTrack;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PerDiemEditGrantResource;
 use App\Http\Resources\PerDiemRequestResource;
@@ -26,7 +28,7 @@ class PerDiemController extends Controller
     // instead of) each action's own role-authority check.
     private function abortIfSelfActioning(PerDiemRequest $perDiemRequest, Request $request): void
     {
-        abort_if($perDiemRequest->user_id === $request->user()->id, 403,
+        abort_if(! DirectorFastTrack::active() && $perDiemRequest->user_id === $request->user()->id, 403,
             'You cannot action your own per-diem request.');
     }
 
@@ -153,7 +155,11 @@ class PerDiemController extends Controller
             return $perDiem;
         });
 
-        $this->notifyTeamLead($perDiem);
+        if ($user->isDirector()) {
+            $perDiem = app(FastTrackService::class)->approveOwn('per_diem', $perDiem, $user);
+        } else {
+            $this->notifyTeamLead($perDiem);
+        }
 
         return response()->json(['data' => new PerDiemRequestResource($perDiem->load(['user', 'lines']))], 201);
     }

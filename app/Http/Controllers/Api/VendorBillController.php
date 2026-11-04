@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\Approvals\FastTrackService;
+use App\Support\DirectorFastTrack;
 use App\Http\Controllers\Api\Concerns\FiltersByPeriod;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\VendorBillResource;
@@ -126,6 +128,7 @@ class VendorBillController extends Controller
 
             return $bill->fresh();
         });
+        $bill = app(FastTrackService::class)->approveOwn('vendor_bill', $bill, $request->user());
 
         return response()->json([
             'data' => new VendorBillResource($bill->load(['supplier', 'purchaseOrder', 'category', 'lineItems', 'payments', 'approvedBy'])),
@@ -188,7 +191,7 @@ class VendorBillController extends Controller
     {
         abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the Director can approve vendor bills for payment.');
         abort_if($vendorBill->status !== 'pending', 422, 'Only a pending bill can be approved.');
-        abort_if($vendorBill->created_by === $request->user()->id, 403, 'You cannot approve a vendor bill you recorded.');
+        abort_if(! DirectorFastTrack::active() && $vendorBill->created_by === $request->user()->id, 403, 'You cannot approve a vendor bill you recorded.');
 
         $vendorBill->update([
             'status'      => 'approved',

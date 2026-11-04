@@ -35,6 +35,16 @@ class ApprovalService
             );
         }
 
+        // The Director's own quotation or order is approved as it's made (2026-11-04).
+        if ($reasons && $creator->isDirector()) {
+            return [
+                'approval_status' => 'approved',
+                'approval_reason' => implode('; ', $reasons),
+                'approved_by'     => $creator->id,
+                'approved_at'     => now(),
+            ];
+        }
+
         return [
             'approval_status' => $reasons ? 'pending' : 'not_required',
             'approval_reason' => $reasons ? implode('; ', $reasons) : null,

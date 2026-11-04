@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\Approvals\FastTrackService;
+use App\Support\DirectorFastTrack;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\SalaryAdjustmentResource;
 use App\Models\ApprovalLog;
@@ -68,6 +70,7 @@ class SalaryAdjustmentController extends Controller
             'created_by'      => $request->user()->id,
         ]);
         ApprovalLog::record($adjustment, 'initiated', $request->user());
+        $adjustment = app(FastTrackService::class)->approveOwn('salary_adjustment', $adjustment, $request->user());
 
         return (new SalaryAdjustmentResource($adjustment->load(['approvedBy', 'createdBy'])))->response()->setStatusCode(201);
     }
@@ -77,7 +80,7 @@ class SalaryAdjustmentController extends Controller
         abort_if(! $request->user()->hasFinalMoneyAuthority(), 403, 'Only the Director can approve a salary adjustment.');
         abort_if($salaryAdjustment->user_id !== $user->id, 404);
         abort_if($salaryAdjustment->status !== 'pending', 422, 'Only a pending adjustment can be approved.');
-        abort_if($salaryAdjustment->created_by === $request->user()->id, 403, 'You cannot approve a salary adjustment you recorded.');
+        abort_if(! DirectorFastTrack::active() && $salaryAdjustment->created_by === $request->user()->id, 403, 'You cannot approve a salary adjustment you recorded.');
 
         $salaryAdjustment->update([
             'status'      => 'approved',

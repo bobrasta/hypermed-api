@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\Approvals\FastTrackService;
+use App\Support\DirectorFastTrack;
 use App\Http\Controllers\Api\Concerns\FiltersByPeriod;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ExpenseResource;
@@ -39,7 +41,7 @@ class ExpenseController extends Controller
     // — mirrors PerDiemController::abortIfSelfActioning().
     private function abortIfSelfActioning(Expense $expense, Request $request): void
     {
-        abort_if($expense->created_by === $request->user()->id, 403,
+        abort_if(! DirectorFastTrack::active() && $expense->created_by === $request->user()->id, 403,
             'You cannot action your own expense submission.');
     }
 
@@ -199,6 +201,7 @@ class ExpenseController extends Controller
         $data['created_by'] = $request->user()->id;
 
         $expense = $expenseService->create($data);
+        $expense = app(FastTrackService::class)->approveOwn('expense', $expense, $request->user());
 
         return response()->json(['data' => new ExpenseResource($expense->load(['category', 'createdBy']))], 201);
     }
