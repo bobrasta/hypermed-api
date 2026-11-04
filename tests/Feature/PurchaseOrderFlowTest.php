@@ -14,7 +14,7 @@ use Tests\TestCase;
 
 // A purchase order end to end, as the roles on prod do it: procurement
 // creates → submits → sales manager → director review → accountant (on
-// credit / payment) → a second director's final approval → send → store
+// credit / payment) → the director's final approval → send → store
 // receives and the stock goes up.
 //
 // Needs a migrated Postgres database with the seeded roles; skipped on SQLite.
@@ -75,9 +75,9 @@ class PurchaseOrderFlowTest extends TestCase
         $this->step('admin', 'po-director', 'approve-director-review')->assertJsonPath('data.status', 'pending_payment_initiation');
         $this->step('accountant', 'po-acct', 'initiate-payment', ['on_credit' => true])->assertJsonPath('data.status', 'pending_director_final');
 
-        // The director who reviewed it can't also give the final approval.
-        $this->step('admin', 'po-director', 'approve-director-final', [], 403);
-        $this->step('admin', 'po-director2', 'approve-director-final')->assertJsonPath('data.status', 'approved');
+        // The director who reviewed it may also give the final approval
+        // (Hypermed has one working Director).
+        $this->step('admin', 'po-director', 'approve-director-final')->assertJsonPath('data.status', 'approved');
 
         $this->step('procurement_manager', 'po-proc', 'send')->assertJsonPath('data.status', 'sent');
 
@@ -87,6 +87,11 @@ class PurchaseOrderFlowTest extends TestCase
         ]])->assertJsonPath('data.status', 'received');
 
         $this->assertSame(10, $this->onHand());
+
+        // The received lot is listed for the sale product search.
+        $lots = collect($this->getJson('/api/v1/inventory-lots')->assertOk()->json('data'))
+            ->where('inventory_item_id', $this->item->id)->values();
+        $this->assertSame([['inventory_item_id' => $this->item->id, 'lot_number' => 'LOT-PO-1', 'expiry_date' => '2028-01-31', 'qty_left' => 10]], $lots->all());
 
         // The PO PDF (letterhead, supplier contact, approvals) renders.
         $pdf = $this->get("/api/v1/purchase-orders/{$this->po}/pdf")->assertOk();

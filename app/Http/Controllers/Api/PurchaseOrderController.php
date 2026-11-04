@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AppNotification;
 use App\Models\ApprovalLog;
 use App\Models\Location;
+use App\Models\BatchLot;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequisition;
 use App\Models\SupplierPayment;
@@ -305,7 +306,6 @@ class PurchaseOrderController extends Controller
         $this->abortIfSelfActioning($purchaseOrder, $request);
         abort_if($purchaseOrder->status !== 'pending_director_final', 422, 'Only orders awaiting final director approval can be actioned at this stage.');
         abort_if($purchaseOrder->payment_initiated_by === $request->user()->id, 403, 'The same person cannot both initiate payment and give final approval on it.');
-        abort_if($purchaseOrder->director_reviewed_by === $request->user()->id, 403, 'The director who reviewed this PO cannot also give final approval.');
 
         DB::transaction(function () use ($request, $purchaseOrder) {
             // The payment requested with this order posts now (books + ledger).
@@ -465,10 +465,29 @@ class PurchaseOrderController extends Controller
                     $purchaseOrder,
                 );
 
-                if (isset($received['batch_number']) || isset($received['expiry_date'])) {
+                $lotNumber = trim((string) ($received['batch_number'] ?? ''));
+                if ($lotNumber !== '' || isset($received['expiry_date'])) {
                     $movement->update([
-                        'batch_number' => $received['batch_number'] ?? null,
+                        'batch_number' => $lotNumber !== '' ? $lotNumber : null,
                         'expiry_date'  => $received['expiry_date'] ?? null,
+                    ]);
+                }
+
+                // A lot row is what the sale/invoice product search lists, so
+                // received stock with a lot number can be picked by lot.
+                if ($lotNumber !== '') {
+                    BatchLot::create([
+                        'inventory_item_id' => $poItem->inventory_item_id,
+                        'batch_number'      => $lotNumber,
+                        'lot_number'        => $lotNumber,
+                        'expiry_date'       => $received['expiry_date'] ?? null,
+                        'qty_received'      => $received['quantity_received'],
+                        'qty_remaining'     => $received['quantity_received'],
+                        'supplier_id'       => $purchaseOrder->supplier_id,
+                        'unit_cost'         => (int) round($poItem->unit_cost * $rate),
+                        'currency'          => 'TZS',
+                        'received_at'       => now()->toDateString(),
+                        'notes'             => "Received via {$purchaseOrder->po_number}",
                     ]);
                 }
             }
