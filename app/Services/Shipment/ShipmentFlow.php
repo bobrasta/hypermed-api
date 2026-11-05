@@ -217,26 +217,19 @@ class ShipmentFlow
     }
 
     /**
-     * What a "We pay" import waits for before "Payment made", or null once
-     * the clearing fee is paid. Section 16 owns the payment rule (receipt,
-     * Finance check, Director), so its own reason is reported.
+     * What a "We pay" import waits for before "Payment made", or null when
+     * nothing. The clearing agent pays customs first (user, 2026-11-05), so
+     * the shipment only needs the assessed cost recorded; HyperMed pays the
+     * agent at the end, once their receipts come in at "Arrived at HQ".
      */
     public function paymentWait(Shipment $s): ?string
     {
         $fee = $s->vendorFee;
         if (! $fee) {
-            return "Awaiting the clearing agent's assessed cost — enter it with the control number so the accountant can pay.";
+            return "Awaiting the clearing agent's assessed cost — enter it with the control number.";
         }
 
-        return match ($fee->status) {
-            'paid' => null,
-            'pending_manager' => 'Awaiting ' . ($fee->approver?->name ?? 'the manager') . '\'s approval of the clearing fee (TZS ' . number_format($fee->billed_amount) . ').',
-            'rejected' => 'The clearing fee was rejected — record it again.',
-            'pending_receipt' => $fee->receipt_after_payment
-                ? 'Awaiting Finance to request payment of the clearing fee (TZS ' . number_format($fee->billed_amount) . ') — the receipt follows after payment.'
-                : "Awaiting the clearing agent's receipt — " . lcfirst(rtrim($fee->paymentBlockReason() ?? 'submit the fee for payment', '.')) . '.',
-            default => "Awaiting the Director's approval of the clearing fee.",
-        };
+        return $fee->status === 'rejected' ? 'The clearing fee was rejected — record it again.' : null;
     }
 
     /**

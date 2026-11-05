@@ -69,7 +69,7 @@ class ShipmentHandlingChargesTest extends TestCase
         $this->assertSame($agent->id, $h['vendor_id']);
         $this->assertSame(185000, $h['billed']);
         $fee = VendorFee::find($h['id']);
-        $this->assertTrue((bool) $fee->receipt_after_payment);
+        $this->assertFalse((bool) $fee->receipt_after_payment); // paid once the agent's receipt is in
         $this->assertNotSame('paid', $fee->status);
         $this->assertSame($fee->id, Shipment::find($id)->handling_fee_id);
 

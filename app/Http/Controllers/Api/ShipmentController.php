@@ -376,6 +376,22 @@ class ShipmentController extends Controller
         return Storage::disk('public')->download($doc->path, $doc->original_name);
     }
 
+    /**
+     * A receipt on this shipment's clearing or storage & handling fee —
+     * anyone who can open the shipment can preview it (2026-11-05).
+     */
+    public function receiptFile(Request $request, Shipment $shipment, \App\Models\Receipt $receipt)
+    {
+        $this->assertView($request, $shipment);
+        $feeIds = array_filter([$shipment->vendor_fee_id, $shipment->handling_fee_id]);
+        abort_unless(in_array($receipt->vendor_fee_id, $feeIds, true), 404);
+        $path = 'vendor-receipts/' . $receipt->vendor_fee_id . '/' . $receipt->file_stored_name;
+        abort_unless($receipt->file_stored_name && Storage::disk('public')->exists($path), 404, 'The receipt file is missing.');
+
+        return Storage::disk('public')->response($path, $receipt->file_original_name,
+            ['Content-Type' => $receipt->file_mime ?: 'application/octet-stream']);
+    }
+
     private function storeDocument(Shipment $shipment, string $type, UploadedFile $file, int $userId): void
     {
         $old = $shipment->documents()->where('type', $type)->first();
@@ -417,12 +433,12 @@ class ShipmentController extends Controller
         } else {
             $fee = $this->newClearingFee($shipment, (int) $data['vendor_id'], (int) round((float) $data['billed_amount']), $request, $data['description'] ?? null);
         }
-        // Paid first, receipt after (2026-10-26).
-        $fee->update(['receipt_after_payment' => true]);
+        // The agent pays first; we pay them once their receipt is in (2026-11-05).
+        $fee->update(['receipt_after_payment' => false]);
 
         $shipment->update(['vendor_fee_id' => $fee->id]);
         if (empty($data['vendor_fee_id'])) {
-            app(VendorFeeFlow::class)->start($fee); // Patrick first, then Finance
+            app(VendorFeeFlow::class)->start($fee, true); // Patrick first; Finance once the receipt is in
         }
 
         return response()->json(['data' => $this->detail($request, $shipment)]);
@@ -684,7 +700,7 @@ class ShipmentController extends Controller
             'billed_amount' => $amount,
             'currency' => 'TZS',
             'status' => 'pending_receipt',
-            'receipt_after_payment' => true,
+            'receipt_after_payment' => false,
             'created_by' => $request->user()->id,
         ]);
         ApprovalLog::record($fee, 'created', $request->user());
@@ -708,7 +724,7 @@ class ShipmentController extends Controller
                 throw ValidationException::withMessages(['clearing_vendor_id' => 'Choose the clearing agent the cost is owed to.']);
             }
             $fee = $this->newClearingFee($shipment, $vendorId, $amount, $request);
-            app(VendorFeeFlow::class)->start($fee);
+            app(VendorFeeFlow::class)->start($fee, true);
             $shipment->vendor_fee_id = $fee->id;
             $shipment->setRelation('vendorFee', $fee->fresh()->load('receipts'));
 
@@ -720,10 +736,10 @@ class ShipmentController extends Controller
         if (! in_array($fee->status, ['pending_manager', 'pending_receipt'], true)) {
             throw ValidationException::withMessages(['clearing_cost' => 'The clearing fee is already with the Director or paid — it can\'t be changed here.']);
         }
-        $fee->update(['billed_amount' => $amount, 'vendor_id' => $vendorId ?: $fee->vendor_id, 'receipt_after_payment' => true,
+        $fee->update(['billed_amount' => $amount, 'vendor_id' => $vendorId ?: $fee->vendor_id, 'receipt_after_payment' => false,
             'manager_approved_by' => null, 'manager_approved_at' => null]);
         // A changed amount goes back through approval.
-        app(VendorFeeFlow::class)->start($fee);
+        app(VendorFeeFlow::class)->start($fee, true);
         $shipment->setRelation('vendorFee', $fee->fresh()->load('receipts'));
         $this->logNote($shipment, 'Clearing cost set to TZS ' . number_format($amount) . '.', $request->user()->id);
 
@@ -733,9 +749,9 @@ class ShipmentController extends Controller
     /**
      * Storage & handling (Swissport etc.) the clearing agent paid on our
      * behalf, entered at "Arrived at HQ": a second fee owed to the agent,
-     * through the same approvals as the clearing fee (manager → Finance →
-     * Director), paid first with the agent's receipt after. Correctable
-     * until Finance has asked for payment.
+     * through the same approvals as the clearing fee (manager, then the
+     * agent's receipt, then Finance → Director). Correctable until Finance
+     * has asked for payment.
      */
     private function assessHandlingFee(Shipment $shipment, int $amount, ?int $vendorId, Request $request): void
     {
@@ -751,11 +767,11 @@ class ShipmentController extends Controller
                 'billed_amount' => $amount,
                 'currency' => 'TZS',
                 'status' => 'pending_receipt',
-                'receipt_after_payment' => true,
+                'receipt_after_payment' => false,
                 'created_by' => $request->user()->id,
             ]);
             ApprovalLog::record($fee, 'created', $request->user());
-            app(VendorFeeFlow::class)->start($fee);
+            app(VendorFeeFlow::class)->start($fee, true);
             $shipment->handling_fee_id = $fee->id;
             $shipment->setRelation('handlingFee', $fee);
             $this->logNote($shipment, 'Storage & handling charges: TZS ' . number_format($amount) . ' owed to the clearing agent.', $request->user()->id);
@@ -769,7 +785,7 @@ class ShipmentController extends Controller
             throw ValidationException::withMessages(['handling_cost' => 'The storage & handling charge is already with the Director or paid — it can\'t be changed here.']);
         }
         $fee->update(['billed_amount' => $amount, 'vendor_id' => $vendorId, 'manager_approved_by' => null, 'manager_approved_at' => null]);
-        app(VendorFeeFlow::class)->start($fee);
+        app(VendorFeeFlow::class)->start($fee, true);
         $this->logNote($shipment, 'Storage & handling charges set to TZS ' . number_format($amount) . '.', $request->user()->id);
     }
 
@@ -795,6 +811,16 @@ class ShipmentController extends Controller
             'status_label' => $fee->statusLabel(),
             'receipt_after_payment' => (bool) $fee->receipt_after_payment,
             'receipt_follow_up' => $fee->receiptFollowUp(),
+            // The agent's receipts, to preview / download on the shipment.
+            'receipts' => $receipts->map(fn ($r) => [
+                'id' => $r->id,
+                'receipt_number' => $r->receipt_number,
+                'issuer_name' => $r->issuer_name,
+                'receipt_date' => $r->receipt_date ? \Illuminate\Support\Carbon::parse($r->receipt_date)->toDateString() : null,
+                'amount' => (int) $r->amount,
+                'file_name' => $r->file_original_name,
+                'verified' => $r->verified_at !== null,
+            ])->values()->all(),
         ];
     }
 

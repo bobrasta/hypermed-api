@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AppNotification;
 use App\Models\Receipt;
+use App\Models\Shipment;
 use App\Models\User;
 use App\Models\VendorFee;
 
@@ -16,8 +17,12 @@ use App\Models\VendorFee;
  */
 class VendorFeeFlow
 {
-    /** Sets the first stage of a newly recorded fee and notifies it. */
-    public function start(VendorFee $fee): void
+    /**
+     * Sets the first stage of a newly recorded fee and notifies it.
+     * $shipmentFee: a shipment's clearing / storage & handling fee, which may
+     * not be linked to the shipment yet when it is recorded.
+     */
+    public function start(VendorFee $fee, ?bool $shipmentFee = null): void
     {
         $managerId = User::whereKey($fee->created_by)->value('manager_id');
         $manager = $managerId && $managerId !== $fee->created_by ? User::where('is_active', true)->find($managerId) : null;
@@ -26,11 +31,11 @@ class VendorFeeFlow
         } else {
             $fee->update(['status' => 'pending_receipt', 'approver_id' => null]);
         }
-        $this->notifyStage($fee->fresh(['vendor', 'createdBy', 'approver', 'managerApprovedBy']));
+        $this->notifyStage($fee->fresh(['vendor', 'createdBy', 'approver', 'managerApprovedBy']), $shipmentFee);
     }
 
     /** Tells whoever the fee now waits on. */
-    public function notifyStage(VendorFee $fee): void
+    public function notifyStage(VendorFee $fee, ?bool $shipmentFee = null): void
     {
         $vars = [
             'vendor_name' => $fee->vendor?->name ?? 'the vendor',
@@ -41,9 +46,24 @@ class VendorFeeFlow
         ];
         match ($fee->status) {
             'pending_manager' => $this->send(collect([$fee->approver_id])->filter(), 'vendor_fee.manager_review', $vars, $fee),
-            'pending_receipt' => $this->send($this->finance(), 'vendor_fee.to_pay', $vars, $fee),
+            'pending_receipt' => $this->waitsForAgentReceipt($fee, $shipmentFee) ? null : $this->send($this->finance(), 'vendor_fee.to_pay', $vars, $fee),
             default => null,
         };
+    }
+
+    /**
+     * A shipment's fee is paid at the end (user, 2026-11-05): the clearing
+     * agent pays first and brings the receipts at "Arrived at HQ". Finance
+     * hears about it when a receipt is attached (receiptAttached), not before.
+     */
+    private function waitsForAgentReceipt(VendorFee $fee, ?bool $shipmentFee): bool
+    {
+        if ($fee->receipt_after_payment) {
+            return false;
+        }
+        $shipmentFee ??= Shipment::where('vendor_fee_id', $fee->id)->orWhere('handling_fee_id', $fee->id)->exists();
+
+        return $shipmentFee && $fee->receipts()->doesntExist();
     }
 
     /** Finance verifies receipts — tell them one came in. */

@@ -80,7 +80,7 @@ class VendorFee extends Model
      */
     public function paymentBlockReason(): ?string
     {
-        // A shipment's clearing fee is paid first; its receipt follows (2026-10-26).
+        // Older shipment fees were paid first with the receipt after (2026-10-26); new ones wait for the receipt (2026-11-05).
         return $this->receipt_after_payment ? null : $this->receiptGap();
     }
 
@@ -102,7 +102,19 @@ class VendorFee extends Model
             'rejected' => 'Rejected',
             'pending_manager' => 'Awaiting ' . ($this->approver?->name ?? 'manager') . '\'s approval',
             'ready_for_payment' => 'Awaiting Director approval',
-            default => $this->receipt_after_payment ? 'Awaiting Finance (payment request)' : 'Awaiting receipt',
+            default => $this->receipt_after_payment ? 'Awaiting Finance (payment request)' : $this->receiptStage(),
+        };
+    }
+
+    /** A receipt-first fee before Finance asks for payment. */
+    private function receiptStage(): string
+    {
+        $gap = $this->receiptGap();
+
+        return match (true) {
+            $gap === null => 'Awaiting Finance (payment request)',
+            str_contains($gap, 'verification') => 'Receipt with Finance to verify',
+            default => 'Awaiting receipt',
         };
     }
 
