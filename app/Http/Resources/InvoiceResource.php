@@ -46,6 +46,7 @@ class InvoiceResource extends JsonResource
             'payment_status'   => $this->paymentStatus(),
             'contact_phone'    => $this->client_contact ?: $this->hospital?->contact_phone,
             'created_by'       => $this->created_by,
+            'can_edit'         => $request->user() ? $this->editableBy($request->user()) : false,
             'added_by'         => $this->creator?->name ?? $this->added_by_name,
             'staff_note'       => $this->staff_note,
             'total_items'      => $this->when(isset($this->total_items), fn () => (float) $this->total_items),

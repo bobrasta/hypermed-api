@@ -403,8 +403,10 @@ class InvoiceController extends Controller
     // recomputed and, if the invoice was posted to the ledger, re-posted.
     public function update(Request $request, Invoice $invoice, FinancePostingService $financePosting)
     {
-        abort_if(! $request->user()->hasAccountantAuthority(), 403, 'You are not authorised to edit invoices.');
-        abort_if($invoice->status === 'cancelled', 422, 'A cancelled invoice cannot be edited.');
+        abort_if(in_array($invoice->status, ['cancelled', 'waived'], true), 422, 'A cancelled invoice cannot be edited.');
+        abort_if(! $invoice->editableBy($request->user()), 403, $invoice->status === 'paid'
+            ? 'This sale is fully paid and can no longer be edited.'
+            : 'You can only edit sales you made.');
 
         $data = $request->validate([
             // Switch a draft/proforma between the two, or finalise it.

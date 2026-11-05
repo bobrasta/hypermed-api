@@ -59,6 +59,23 @@ class Invoice extends Model
         return ! in_array($this->status, self::UNFINAL, true);
     }
 
+    /**
+     * Who may edit this sale. Accountant-level users: any sale that isn't
+     * cancelled or waived (as before). Whoever made it: their own sale while
+     * it isn't fully paid — draft, proforma, pending, due, overdue or part-paid.
+     */
+    public function editableBy(User $user): bool
+    {
+        if (in_array($this->status, ['cancelled', 'waived'], true)) {
+            return false;
+        }
+        if ($user->hasAccountantAuthority()) {
+            return true;
+        }
+
+        return $this->created_by !== null && (int) $this->created_by === (int) $user->id && $this->status !== 'paid';
+    }
+
     // /invoices/{invoice} must still find drafts and proformas.
     public function resolveRouteBinding($value, $field = null)
     {
