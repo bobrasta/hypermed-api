@@ -367,13 +367,38 @@ class ShipmentController extends Controller
         return response()->json(['data' => $this->detail($request, $shipment)]);
     }
 
+    /** The newest file of a type (older apps download by type). */
     public function downloadDocument(Request $request, Shipment $shipment, string $type)
     {
         $this->assertView($request, $shipment);
-        $doc = $shipment->documents()->where('type', $type)->first();
+        $doc = $shipment->documents()->where('type', $type)->latest('id')->first();
         abort_unless($doc && Storage::disk('public')->exists($doc->path), 404, 'File not found.');
 
         return Storage::disk('public')->download($doc->path, $doc->original_name);
+    }
+
+    /** One file, by id: a type can hold several (2026-11-09). */
+    public function documentFile(Request $request, Shipment $shipment, ShipmentDocument $document)
+    {
+        $this->assertView($request, $shipment);
+        abort_unless($document->shipment_id === $shipment->id && Storage::disk('public')->exists($document->path), 404, 'File not found.');
+
+        return Storage::disk('public')->download($document->path, $document->original_name);
+    }
+
+    /** Deletes one uploaded file; noted on the timeline (2026-11-09). */
+    public function deleteDocument(Request $request, Shipment $shipment, ShipmentDocument $document)
+    {
+        $this->assertManage($request);
+        abort_unless($document->shipment_id === $shipment->id, 404);
+        $label = ShipmentFlow::DOC_LABELS[$document->type] ?? $document->type;
+        $document->delete();
+        Storage::disk('public')->delete($document->path);
+        $this->logNote($shipment, "Document deleted: {$label} — {$document->original_name}.", $request->user()->id);
+        activity()->performedOn($shipment)->causedBy($request->user())
+            ->withProperties(['document' => $document->type, 'file' => $document->original_name])->log('document deleted');
+
+        return response()->json(['data' => $this->detail($request, $shipment)]);
     }
 
     /**
@@ -392,17 +417,14 @@ class ShipmentController extends Controller
             ['Content-Type' => $receipt->file_mime ?: 'application/octet-stream']);
     }
 
+    /** Adds a file; a type can hold several, each deleted on its own (2026-11-09). */
     private function storeDocument(Shipment $shipment, string $type, UploadedFile $file, int $userId): void
     {
-        $old = $shipment->documents()->where('type', $type)->first();
-        $path = $file->store("shipments/{$shipment->id}", 'public');
-        ShipmentDocument::updateOrCreate(
-            ['shipment_id' => $shipment->id, 'type' => $type],
-            ['path' => $path, 'original_name' => $file->getClientOriginalName(), 'uploaded_by' => $userId],
-        );
-        if ($old && $old->path !== $path) {
-            Storage::disk('public')->delete($old->path);
-        }
+        ShipmentDocument::create([
+            'shipment_id' => $shipment->id, 'type' => $type,
+            'path' => $file->store("shipments/{$shipment->id}", 'public'),
+            'original_name' => $file->getClientOriginalName(), 'uploaded_by' => $userId,
+        ]);
     }
 
     // ---------------------------------------------- clearing fee, machines
@@ -884,7 +906,9 @@ class ShipmentController extends Controller
 
         $labels = $this->flow->labels($s);
         $required = ShipmentFlow::requiredFor($s);
-        $docs = $s->documents->keyBy('type');
+        // Newest file first per type; file_name etc. are the newest (older apps).
+        $files = $s->documents->sortByDesc('id')->groupBy('type');
+        $docs = $files->map->first();
         $canManage = $this->canManage($request);
 
         return $this->summary($s) + [
@@ -913,6 +937,10 @@ class ShipmentController extends Controller
                     'file_name' => $docs->get($t)?->original_name,
                     'uploaded_by' => $docs->get($t)?->uploader?->name,
                     'uploaded_at' => $docs->get($t)?->updated_at?->toIso8601String(),
+                    'files' => ($files->get($t) ?? collect())->map(fn (ShipmentDocument $d) => [
+                        'id' => $d->id, 'file_name' => $d->original_name, 'uploaded_by' => $d->uploader?->name,
+                        'uploaded_at' => $d->created_at?->toIso8601String(),
+                    ])->values(),
                 ])->values(),
             'machines' => $s->machines->map(fn (Machine $m) => ['id' => $m->id, 'serial_no' => $m->serial_no, 'model' => $m->model, 'type' => $m->type])->values(),
             'events' => $s->events->map(fn (ShipmentEvent $e) => [

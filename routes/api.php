@@ -302,6 +302,8 @@ Route::prefix('v1')->group(function () {
         Route::post('shipments/{shipment}/status',              [ShipmentController::class, 'updateStatus'])->whereNumber('shipment');
         Route::post('shipments/{shipment}/documents',           [ShipmentController::class, 'uploadDocument'])->whereNumber('shipment');
         Route::get('shipments/{shipment}/documents/{type}',     [ShipmentController::class, 'downloadDocument'])->whereNumber('shipment');
+        Route::get('shipments/{shipment}/document-files/{document}',    [ShipmentController::class, 'documentFile'])->whereNumber('shipment')->whereNumber('document');
+        Route::delete('shipments/{shipment}/document-files/{document}', [ShipmentController::class, 'deleteDocument'])->whereNumber('shipment')->whereNumber('document');
         Route::get('shipments/{shipment}/receipts/{receipt}/file', [ShipmentController::class, 'receiptFile'])->whereNumber('shipment')->whereNumber('receipt');
         Route::post('shipments/{shipment}/clearing-fee',        [ShipmentController::class, 'linkClearingFee'])->whereNumber('shipment');
         Route::put('shipments/{shipment}/machines',             [ShipmentController::class, 'syncMachines'])->whereNumber('shipment');
