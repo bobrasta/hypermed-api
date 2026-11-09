@@ -698,8 +698,8 @@ class DocumentPdfService
 
           /* items: clean-line rows */
           #items { margin-top:20px; }
-          #items th { text-align:left; font-size:7pt; font-weight:700; letter-spacing:0.5px; padding:8px; background:#e7e7ea; border-bottom:1px solid #1d1f20; white-space:nowrap; }
-          #items td { padding:9px 8px; font-size:9pt; border-bottom:1px solid #ddd; vertical-align:top; }
+          #items th { text-align:left; font-size:8pt; font-weight:700; color:#000; letter-spacing:0.5px; padding:8px; background:#e7e7ea; border-bottom:1.5px solid #1d1f20; white-space:nowrap; }
+          #items td { padding:9px 8px; font-size:9pt; font-weight:700; color:#1d1f20; border-bottom:1px solid #ddd; vertical-align:top; }
           #items th.num, #items td.num { text-align:right; }
           #items td.dim { color:#7a7a7d; white-space:nowrap; }
 
