@@ -18,7 +18,23 @@ use Illuminate\Support\Facades\DB;
  */
 class DocumentNumberService
 {
-    public function next(string $documentType): string
+    /**
+     * $taken (optional) says whether a number is already in use; such numbers
+     * are skipped. Quotations need it: they continue Clickhuduma's 2026/NNNN
+     * series, and records imported from Clickhuduma can already hold the next numbers.
+     */
+    public function next(string $documentType, ?callable $taken = null): string
+    {
+        for ($i = 0; $i < 10000; $i++) {
+            $number = $this->issue($documentType);
+            if (! $taken || ! $taken($number)) {
+                return $number;
+            }
+        }
+        abort(500, "No free document number found for '{$documentType}'.");
+    }
+
+    private function issue(string $documentType): string
     {
         return DB::transaction(function () use ($documentType) {
             $seq = DocumentSequence::where('document_type', $documentType)->lockForUpdate()->first();

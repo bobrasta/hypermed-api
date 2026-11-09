@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\QuotationResource;
 use App\Http\Resources\SalesOrderResource;
 use App\Models\AppNotification;
+use App\Models\Invoice;
 use App\Models\Quotation;
 use App\Models\SalesOrder;
 use App\Models\User;
@@ -123,7 +124,8 @@ class QuotationController extends Controller
             );
 
             $quotation = Quotation::create([
-                'quotation_number' => $documentNumbers->next('quotation'),
+                'quotation_number' => $documentNumbers->next('quotation', fn (string $n) =>
+                    Quotation::where('quotation_number', $n)->exists() || Invoice::where('invoice_number', $n)->exists()),
                 'lead_id'          => $data['lead_id'] ?? null,
                 'client_name'      => $data['client_name'],
                 'client_contact'   => $data['client_contact'] ?? null,
