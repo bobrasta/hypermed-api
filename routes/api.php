@@ -45,6 +45,7 @@ use App\Http\Controllers\Api\RevenueController;
 use App\Http\Controllers\Api\SalesActivityController;
 use App\Http\Controllers\Api\SalesLeadController;
 use App\Http\Controllers\Api\SalesOverviewController;
+use App\Http\Controllers\Api\SalesHeadController;
 use App\Http\Controllers\Api\SalesTargetController;
 use App\Http\Controllers\Api\PerformanceController;
 use App\Http\Controllers\Api\ContributionController;
@@ -543,6 +544,23 @@ Route::prefix('v1')->group(function () {
 
         // Sales team — richer "My Team" view for sales_manager (columns,
         // recent activity, claiming an existing unmanaged rep).
+        // Head of Sales workspace (2026-11-11) — gated inside the controller (screens.sales_head).
+        Route::prefix('sales-head')->group(function () {
+            Route::get('strategic-deals', [SalesHeadController::class, 'strategicDeals']);
+            Route::get('calendar',        [SalesHeadController::class, 'calendar']);
+            Route::get('key-accounts',    [SalesHeadController::class, 'keyAccounts']);
+            Route::get('tenders',         [SalesHeadController::class, 'tenders']);
+            Route::get('relationships',   [SalesHeadController::class, 'relationships']);
+            Route::get('team-activity',   [SalesHeadController::class, 'teamActivity']);
+            Route::get('company-target',  [SalesHeadController::class, 'companyTarget']);
+            Route::put('company-target',  [SalesHeadController::class, 'setCompanyTarget']);
+            Route::get('commission',      [SalesHeadController::class, 'commission']);
+            Route::get('access',          [SalesHeadController::class, 'access']);
+            Route::get('reports',         [SalesHeadController::class, 'reports']);
+            Route::get('leave-cover',     [SalesHeadController::class, 'leaveCover']);
+            Route::get('rules',           [SalesHeadController::class, 'rules']);
+            Route::put('rules',           [SalesHeadController::class, 'saveRules']);
+        });
         Route::get('sales-team', [SalesTeamController::class, 'index']);
         Route::get('sales-team/unassigned', [SalesTeamController::class, 'unassigned']);
         Route::post('sales-team/{user}/assign', [SalesTeamController::class, 'assign']);

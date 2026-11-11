@@ -51,6 +51,12 @@ class SalesOrder extends Model
         return $this->belongsTo(Location::class);
     }
 
+    /** Invoices raised against this order (invoices.sales_order_id). */
+    public function invoices()
+    {
+        return $this->hasMany(Invoice::class);
+    }
+
     public function hospital()
     {
         return $this->belongsTo(Hospital::class);
