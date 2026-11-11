@@ -31,8 +31,8 @@ use Spatie\Permission\Models\Role;
  * of that data; the only things stored by this controller are the company
  * quarter target (settings) and the reps' discount ceilings (users).
  *
- * Gate: screens.sales_head (granted to the Head of Sales as a per-user
- * override) or admin tier.
+ * Gate: the sales_manager role (user, 2026-11-11: only the sales manager
+ * sees this workspace), or admin tier for support.
  */
 class SalesHeadController extends Controller
 {
@@ -56,7 +56,7 @@ class SalesHeadController extends Controller
     {
         $user = $request->user();
         $r = app(EffectivePermissionResolver::class);
-        abort_unless($r->can($user, 'screens.sales_head') || $r->can($user, 'authority.admin_tier'), 403, 'Only the Head of Sales can open this.');
+        abort_unless($user->role === 'sales_manager' || $r->can($user, 'authority.admin_tier'), 403, 'Only the sales manager can open this.');
 
         return $user;
     }

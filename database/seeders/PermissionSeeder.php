@@ -280,9 +280,6 @@ class PermissionSeeder extends Seeder
             'quotations', 'contributions',
             // 2026-10-26: Purchases menu (Clickhuduma's), above Sales.
             'purchases',
-            // 2026-11-11: Head of Sales workspace (granted per user, see
-            // 2026_11_11_000002_grant_sales_head_screen_to_gabriel.php).
-            'sales_head',
         ];
 
         $roles = Role::whereIn('name', User::ROLES)->get()->keyBy('name');
