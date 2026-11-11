@@ -546,6 +546,7 @@ Route::prefix('v1')->group(function () {
         // recent activity, claiming an existing unmanaged rep).
         // Head of Sales workspace (2026-11-11) — gated inside the controller (screens.sales_head).
         Route::prefix('sales-head')->group(function () {
+            Route::get('business',        [SalesHeadController::class, 'business']);
             Route::get('strategic-deals', [SalesHeadController::class, 'strategicDeals']);
             Route::get('calendar',        [SalesHeadController::class, 'calendar']);
             Route::get('key-accounts',    [SalesHeadController::class, 'keyAccounts']);

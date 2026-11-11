@@ -69,7 +69,7 @@ class ReceivablesController extends Controller
      * credit notes applied on or before it — so an invoice paid off since
      * still shows as owed then. `paid_to_date` holds the paid part either way.
      */
-    private function openInvoices(?Builder $scope = null, ?Carbon $asAt = null): Collection
+    public function openInvoices(?Builder $scope = null, ?Carbon $asAt = null): Collection
     {
         $q = ($scope ?? Invoice::query())->with('hospital:id,name,tin,contact_phone');
 
@@ -105,7 +105,7 @@ class ReceivablesController extends Controller
         return $d && $d->lt(Carbon::today()) ? $d->startOfDay() : null;
     }
 
-    private static function daysOverdue(Invoice $i, Carbon $today): int
+    public static function daysOverdue(Invoice $i, Carbon $today): int
     {
         return $i->due_date && $i->due_date->lt($today) ? $i->due_date->diffInDays($today) : 0;
     }

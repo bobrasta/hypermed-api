@@ -817,4 +817,152 @@ class SalesHeadController extends Controller
 
         return $this->rules($request);
     }
+    // ── Dashboard: the business in numbers ──────────────────────────────────
+    //
+    // Sales, money in, what customers owe us (the receivables logic) and what
+    // we owe suppliers (the creditors ledger), for the period asked for, plus
+    // twelve months of invoiced vs collected for the chart. Finals only —
+    // drafts and proformas are hidden by Invoice's global scope.
+
+    /** [start, end, label] of the period and the one before it. */
+    private static function periodRange(?string $key): array
+    {
+        $now = now();
+        [$s, $e, $label] = match ($key) {
+            'month' => [$now->copy()->startOfMonth(), $now->copy()->endOfMonth(), $now->format('F Y')],
+            'quarter' => [$now->copy()->startOfQuarter(), $now->copy()->endOfQuarter(), 'Q'.$now->quarter.' '.$now->year],
+            default => [$now->copy()->startOfYear(), $now->copy()->endOfYear(), (string) $now->year],
+        };
+        $len = match ($key) { 'month' => 'subMonthNoOverflow', 'quarter' => 'subQuarterNoOverflow', default => 'subYearNoOverflow' };
+        $ps = $s->copy()->{$len}();
+        $pe = $ps->copy()->{match ($key) { 'month' => 'endOfMonth', 'quarter' => 'endOfQuarter', default => 'endOfYear' }}();
+        // Compare like for like: the previous period up to the same day.
+        $peSoFar = $ps->copy()->addDays($s->diffInDays($now->copy()->min($e)));
+
+        return [$s, $e, $label, $ps, $peSoFar->min($pe)];
+    }
+
+    public function business(Request $request)
+    {
+        $this->gate($request);
+        [$start, $end, $label, $prevStart, $prevEnd] = self::periodRange($request->query('period'));
+        $today = Carbon::today();
+        $d = fn (Carbon $c) => $c->toDateString();
+        $live = fn ($q) => $q->whereNotIn('invoices.status', ['cancelled', 'waived']);
+
+        $invoiced = fn (Carbon $a, Carbon $b) => (int) Invoice::query()->tap($live)
+            ->whereBetween('issue_date', [$d($a), $d($b)])->sum('total');
+        $collected = fn (Carbon $a, Carbon $b) => (int) DB::table('payments')
+            ->join('invoices', 'invoices.id', '=', 'payments.invoice_id')
+            ->whereNotIn('invoices.status', ['cancelled', 'waived', 'draft', 'proforma'])
+            ->whereBetween('payments.paid_at', [$d($a), $d($b)])->sum('payments.amount');
+
+        $inPeriod = Invoice::query()->tap($live)->whereBetween('issue_date', [$d($start), $d($end)]);
+        $count = (clone $inPeriod)->count();
+        $total = $invoiced($start, $end);
+        $customerKey = "coalesce('h:' || invoices.hospital_id::text, 'n:' || lower(trim(invoices.client_name)))";
+        $customers = (int) (clone $inPeriod)->selectRaw("count(distinct {$customerKey}) c")->value('c');
+
+        // Twelve months to this one: invoiced vs collected.
+        $from = now()->startOfMonth()->subMonths(11);
+        $inv = Invoice::query()->tap($live)->where('issue_date', '>=', $d($from))
+            ->selectRaw("to_char(issue_date, 'YYYY-MM') ym, sum(total) t")->groupBy('ym')->pluck('t', 'ym');
+        $pay = DB::table('payments')->join('invoices', 'invoices.id', '=', 'payments.invoice_id')
+            ->whereNotIn('invoices.status', ['cancelled', 'waived', 'draft', 'proforma'])
+            ->where('payments.paid_at', '>=', $d($from))
+            ->selectRaw("to_char(payments.paid_at, 'YYYY-MM') ym, sum(payments.amount) t")->groupBy('ym')->pluck('t', 'ym');
+        $months = [];
+        for ($m = $from->copy(); $m->lte(now()); $m->addMonth()) {
+            $k = $m->format('Y-m');
+            $months[] = ['ym' => $k, 'label' => $m->format('M'), 'invoiced' => (int) ($inv[$k] ?? 0), 'collected' => (int) ($pay[$k] ?? 0)];
+        }
+
+        // Who we sold most to, what sold, and who sold it — this period.
+        $topCustomers = (clone $inPeriod)->leftJoin('hospitals', 'hospitals.id', '=', 'invoices.hospital_id')
+            ->selectRaw("coalesce(hospitals.name, invoices.client_name, '—') name, sum(invoices.total) total, count(*) invoices")
+            ->groupByRaw("coalesce(hospitals.name, invoices.client_name, '—')")
+            ->orderByDesc('total')->limit(6)->get()
+            ->map(fn ($r) => ['name' => $r->name, 'total' => (int) $r->total, 'invoices' => (int) $r->invoices]);
+        $topProducts = DB::table('invoice_line_items as li')->join('invoices', 'invoices.id', '=', 'li.invoice_id')
+            ->whereNotIn('invoices.status', ['cancelled', 'waived', 'draft', 'proforma'])
+            ->whereBetween('invoices.issue_date', [$d($start), $d($end)])
+            ->selectRaw("li.description name, sum(li.quantity) qty, sum(li.total) total")
+            ->groupBy('li.description')->orderByDesc('total')->limit(6)->get()
+            ->map(fn ($r) => ['name' => $r->name, 'qty' => (float) $r->qty, 'total' => (int) $r->total]);
+        $byRep = (clone $inPeriod)->leftJoin('users', 'users.id', '=', 'invoices.created_by')
+            ->selectRaw("coalesce(users.name, invoices.added_by_name, 'Unknown') name, sum(invoices.total) total, count(*) invoices")
+            ->groupByRaw("coalesce(users.name, invoices.added_by_name, 'Unknown')")
+            ->orderByDesc('total')->limit(8)->get()
+            ->map(fn ($r) => ['name' => $r->name, 'total' => (int) $r->total, 'invoices' => (int) $r->invoices]);
+
+        // What customers owe us now — the same figures as Receivables.
+        $open = app(ReceivablesController::class)->openInvoices();
+        $aging = ['current' => 0, 'd1_30' => 0, 'd31_60' => 0, 'd61_90' => 0, 'd90_plus' => 0];
+        foreach ($open as $i) {
+            $days = ReceivablesController::daysOverdue($i, $today);
+            $aging[match (true) { $days === 0 => 'current', $days <= 30 => 'd1_30', $days <= 60 => 'd31_60', $days <= 90 => 'd61_90', default => 'd90_plus' }] += $i->balance;
+        }
+        $debtors = $open->groupBy(fn ($i) => $i->hospital_id ? "h:{$i->hospital_id}" : 'n:'.mb_strtolower(trim((string) $i->client_name)))
+            ->map(fn (Collection $g) => [
+                'name' => $g->first()->hospital?->name ?? $g->first()->client_name ?? '—',
+                'balance' => (int) $g->sum('balance'),
+                'overdue' => (int) $g->filter(fn ($i) => ReceivablesController::daysOverdue($i, $today) > 0)->sum('balance'),
+                'invoices' => $g->count(),
+                'max_days_overdue' => (int) $g->map(fn ($i) => ReceivablesController::daysOverdue($i, $today))->max(),
+            ])->sortByDesc('balance')->values();
+
+        // What we owe suppliers — the creditors ledger, in TSh at book rates.
+        $creditors = app(\App\Services\Creditors\CreditorLedgerService::class)->balances()
+            ->filter(fn ($c) => abs($c['book_balance_tzs']) > 0)->values();
+        $owed = $creditors->filter(fn ($c) => $c['book_balance_tzs'] > 0);
+
+        // Quotations: what's out with customers, and how many turn into sales.
+        $openQuotes = Quotation::whereIn('status', ['draft', 'sent', 'accepted']);
+        $quotesIn = Quotation::whereBetween('created_at', [$start, $end->copy()->endOfDay()]);
+        $made = (clone $quotesIn)->count();
+        $won = (clone $quotesIn)->whereIn('status', ['accepted', 'converted'])->count();
+
+        return response()->json(['data' => [
+            'period' => ['key' => $request->query('period', 'year'), 'label' => $label, 'start' => $d($start), 'end' => $d($end)],
+            'sales' => [
+                'invoiced' => $total,
+                'invoices' => $count,
+                'customers' => $customers,
+                'average' => $count ? (int) round($total / $count) : 0,
+                'collected' => $collected($start, $end),
+                'prev_invoiced' => $invoiced($prevStart, $prevEnd),
+                'prev_collected' => $collected($prevStart, $prevEnd),
+            ],
+            'months' => $months,
+            'top_customers' => $topCustomers,
+            'top_products' => $topProducts,
+            'by_rep' => $byRep,
+            'receivables' => [
+                'total' => (int) $open->sum('balance'),
+                'overdue' => $aging['d1_30'] + $aging['d31_60'] + $aging['d61_90'] + $aging['d90_plus'],
+                'customers' => $debtors->count(),
+                'invoices' => $open->count(),
+                'aging' => $aging,
+                'top' => $debtors->take(6),
+            ],
+            'creditors' => [
+                'total' => (int) $owed->sum('book_balance_tzs'),
+                'international' => (int) $owed->where('category', 'international')->sum('book_balance_tzs'),
+                'local' => (int) $owed->where('category', 'local')->sum('book_balance_tzs'),
+                'suppliers' => $owed->count(),
+                'pending_payments' => (int) $creditors->sum('pending_payments'),
+                'top' => $owed->sortByDesc('book_balance_tzs')->take(6)->map(fn ($c) => [
+                    'name' => $c['name'], 'category' => $c['category'], 'currency' => $c['currency'],
+                    'balance' => $c['balance'], 'balance_tzs' => (int) $c['book_balance_tzs'],
+                ])->values(),
+            ],
+            'quotations' => [
+                'open' => (clone $openQuotes)->count(),
+                'open_value' => (int) (clone $openQuotes)->sum('total_amount'),
+                'made' => $made,
+                'won' => $won,
+                'win_rate' => $made ? (int) round($won * 100 / $made) : null,
+            ],
+        ]]);
+    }
 }
