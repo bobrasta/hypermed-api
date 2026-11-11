@@ -17,6 +17,9 @@ class BatchLotResource extends JsonResource
             'manufactured_date'=> $this->manufactured_date?->toDateString(),
             'qty_received'     => $this->qty_received,
             'qty_remaining'    => $this->qty_remaining,
+            // What's on the shelf now: counted quantity less invoices since the count.
+            'qty_left'         => $this->qty_left !== null ? (int) $this->qty_left : (int) $this->qty_remaining,
+            'qty_counted_at'   => $this->qty_counted_at?->toIso8601String(),
             'supplier_id'      => $this->supplier_id,
             'supplier_name'    => $this->whenLoaded('supplier', fn() => $this->supplier?->name),
             'unit_cost'        => $this->unit_cost,

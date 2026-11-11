@@ -10,7 +10,7 @@ class BatchLot extends Model
     protected $fillable = [
         'inventory_item_id', 'batch_number', 'lot_number',
         'expiry_date', 'manufactured_date',
-        'qty_received', 'qty_remaining',
+        'qty_received', 'qty_remaining', 'qty_counted_at',
         'supplier_id', 'unit_cost', 'currency',
         'received_at', 'notes',
     ];
@@ -19,6 +19,7 @@ class BatchLot extends Model
         'expiry_date'      => 'date',
         'manufactured_date'=> 'date',
         'received_at'      => 'date',
+        'qty_counted_at'   => 'datetime',
         'qty_received'     => 'integer',
         'qty_remaining'    => 'integer',
         'unit_cost'        => 'integer',
