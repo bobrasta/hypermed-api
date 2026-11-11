@@ -889,10 +889,12 @@ class SalesHeadController extends Controller
             ->selectRaw("li.description name, sum(li.quantity) qty, sum(li.total) total")
             ->groupBy('li.description')->orderByDesc('total')->limit(6)->get()
             ->map(fn ($r) => ['name' => $r->name, 'qty' => (float) $r->qty, 'total' => (int) $r->total]);
-        $byRep = (clone $inPeriod)->leftJoin('users', 'users.id', '=', 'invoices.created_by')
-            ->selectRaw("coalesce(users.name, invoices.added_by_name, 'Unknown') name, sum(invoices.total) total, count(*) invoices")
-            ->groupByRaw("coalesce(users.name, invoices.added_by_name, 'Unknown')")
-            ->orderByDesc('total')->limit(8)->get()
+        // By region (who sold it isn't usable yet: the imported sales were all
+        // entered under one account). "Dar-Es-Salaam" and "Dar Es Salaam" are one.
+        $region = "coalesce(initcap(replace(lower(trim(hospitals.region)), '-', ' ')), 'No region')";
+        $byRegion = (clone $inPeriod)->leftJoin('hospitals', 'hospitals.id', '=', 'invoices.hospital_id')
+            ->selectRaw("{$region} name, sum(invoices.total) total, count(*) invoices")
+            ->groupByRaw($region)->orderByDesc('total')->limit(8)->get()
             ->map(fn ($r) => ['name' => $r->name, 'total' => (int) $r->total, 'invoices' => (int) $r->invoices]);
 
         // What customers owe us now — the same figures as Receivables.
@@ -936,7 +938,7 @@ class SalesHeadController extends Controller
             'months' => $months,
             'top_customers' => $topCustomers,
             'top_products' => $topProducts,
-            'by_rep' => $byRep,
+            'by_region' => $byRegion,
             'receivables' => [
                 'total' => (int) $open->sum('balance'),
                 'overdue' => $aging['d1_30'] + $aging['d31_60'] + $aging['d61_90'] + $aging['d90_plus'],
