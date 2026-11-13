@@ -9,6 +9,7 @@ use App\Models\Location;
 use App\Models\SerialNumber;
 use App\Services\StockService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class InventoryController extends Controller
 {
@@ -52,8 +53,14 @@ class InventoryController extends Controller
         abort_if(! $request->user()->hasInventoryManageAuthority(), 403, 'You are not authorised to manage the inventory catalog.');
 
         $data = $request->validate([
-            'sku'                 => ['required', 'string', 'unique:inventory_items'],
+            // Blank SKU → numbered automatically (HM-000123).
+            'sku'                 => ['nullable', 'string', 'unique:inventory_items'],
             'name'                => ['required', 'string'],
+            'manufacturer'        => ['nullable', 'string', 'max:255'],
+            'model_number'        => ['nullable', 'string', 'max:255'],
+            'has_ce'              => ['nullable', 'boolean'],
+            'has_fda'             => ['nullable', 'boolean'],
+            'has_tbs'             => ['nullable', 'boolean'],
             'description'         => ['nullable', 'string'],
             'category_id'         => ['nullable', 'exists:categories,id'],
             'unit_of_measure'     => ['nullable', 'in:piece,box,litre,set,kg,roll,pair,bottle'],
@@ -75,6 +82,12 @@ class InventoryController extends Controller
         // stored (not fillable); older apps sending it mean the cost's.
         $data['cost_currency'] = strtoupper($data['cost_currency'] ?? $data['currency'] ?? 'TZS');
         unset($data['currency']);
+        if (isset($data['manufacturer'])) {
+            $data['manufacturer'] = trim($data['manufacturer']) ?: null;
+        }
+        if (blank($data['sku'] ?? null)) {
+            $data['sku'] = $this->nextSku();
+        }
 
         $item = InventoryItem::create($data);
 
@@ -83,6 +96,37 @@ class InventoryController extends Controller
         }
 
         return response()->json(['data' => new InventoryItemResource($item->load(['compatibleModels', 'category']))], 201);
+    }
+
+    // GET /inventory/manufacturers — every manufacturer name already in the
+    // system (items, machines, and suppliers marked Manufacturer), for the
+    // item form's type-ahead. Same name in different case is listed once.
+    public function manufacturers()
+    {
+        $names = DB::table('inventory_items')->whereNotNull('manufacturer')->pluck('manufacturer')
+            ->merge(DB::table('machines')->whereNotNull('manufacturer')->pluck('manufacturer'))
+            ->merge(DB::table('suppliers')->where('type', 'manufacturer')->pluck('name'))
+            ->map(fn ($n) => trim((string) $n))
+            ->filter()
+            ->unique(fn ($n) => mb_strtolower($n))
+            ->sort(SORT_NATURAL | SORT_FLAG_CASE)
+            ->values();
+
+        return response()->json(['data' => $names]);
+    }
+
+    /** Next free automatic SKU: HM-000001, HM-000002, … */
+    private function nextSku(): string
+    {
+        $n = (int) InventoryItem::where('sku', 'like', 'HM-%')
+            ->pluck('sku')
+            ->map(fn ($s) => ctype_digit(substr($s, 3)) ? (int) substr($s, 3) : 0)
+            ->max();
+        do {
+            $sku = sprintf('HM-%06d', ++$n);
+        } while (InventoryItem::where('sku', $sku)->exists());
+
+        return $sku;
     }
 
     // Minimal-friction creation for a part discovered mid-service that isn't
@@ -124,6 +168,11 @@ class InventoryController extends Controller
         $data = $request->validate([
             'sku'             => ['sometimes', 'string', 'unique:inventory_items,sku,' . $inventory->id],
             'name'            => ['sometimes', 'string'],
+            'manufacturer'    => ['nullable', 'string', 'max:255'],
+            'model_number'    => ['nullable', 'string', 'max:255'],
+            'has_ce'          => ['sometimes', 'boolean'],
+            'has_fda'         => ['sometimes', 'boolean'],
+            'has_tbs'         => ['sometimes', 'boolean'],
             'description'     => ['nullable', 'string'],
             'category_id'     => ['nullable', 'exists:categories,id'],
             'unit_of_measure' => ['nullable', 'in:piece,box,litre,set,kg,roll,pair,bottle'],
