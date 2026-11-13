@@ -527,6 +527,7 @@ Route::prefix('v1')->group(function () {
 
         // Customers = client facilities we do business with; contacts are the people there
         Route::get('customers',            [\App\Http\Controllers\Api\CustomerController::class, 'index']);
+        Route::post('customers',           [\App\Http\Controllers\Api\CustomerController::class, 'store']);
         Route::get('customers/{hospital}', [\App\Http\Controllers\Api\CustomerController::class, 'show']);
 
         // Contacts (CRM)

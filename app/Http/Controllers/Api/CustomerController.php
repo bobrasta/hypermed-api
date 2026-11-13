@@ -8,6 +8,7 @@ use App\Models\Hospital;
 use App\Models\Invoice;
 use App\Models\Quotation;
 use App\Services\EffectivePermissionResolver;
+use App\Support\Tin;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,7 +18,8 @@ use Illuminate\Support\Facades\DB;
 // are its contacts. The hospitals table also holds the ~13,600-row
 // national facility registry (prospects), so "customer" here means a
 // facility we actually do business with: it has our machines, invoices,
-// sales orders or contact people, or came over from Clickhuduma.
+// sales orders or contact people, came over from Clickhuduma, or was
+// added on the Customers page (is_customer).
 class CustomerController extends Controller
 {
     private const OPEN = ['pending', 'sent', 'partial', 'overdue'];
@@ -40,6 +42,7 @@ class CustomerController extends Controller
             ->orWhereHas('invoices')
             ->orWhereHas('salesOrders')
             ->orWhereHas('contacts')
+            ->orWhere('is_customer', true)
             ->orWhere('notes', 'ilike', 'Client imported from Clickhuduma%'));
     }
 
@@ -72,6 +75,57 @@ class CustomerController extends Controller
             ->get();
 
         return response()->json(['data' => $rows->map(fn (Hospital $h) => $this->row($h))->values()]);
+    }
+
+    // POST /customers — "New customer" on the Customers page. Open to
+    // everyone who can see Customers (sales included), unlike adding a
+    // hospital to the facility directory. When a facility with the same
+    // name is already in the directory (e.g. a registry prospect), that
+    // record becomes the customer — blank details are filled in, nothing
+    // already there is overwritten — instead of creating a duplicate.
+    public function store(Request $request)
+    {
+        $this->assertAccess($request);
+
+        $data = $request->validate([
+            'name'          => ['required', 'string', 'max:255'],
+            'type'          => ['required', 'in:public,private,mission,clinic'],
+            'region'        => ['nullable', 'string', 'max:100'],
+            'district'      => ['nullable', 'string', 'max:100'],
+            'contact_name'  => ['nullable', 'string', 'max:255'],
+            'contact_phone' => ['nullable', 'string', 'max:50'],
+            'contact_email' => ['nullable', 'email', 'max:255'],
+            'tin'           => ['nullable', ...Tin::RULE],
+            'address'       => ['nullable', 'string', 'max:255'],
+        ], ['tin.regex' => Tin::MESSAGE]);
+        $data['name'] = trim($data['name']);
+        if (! empty($data['tin'])) {
+            $data['tin'] = Tin::normalize($data['tin']);
+        }
+        $data = array_filter($data, fn ($v) => $v !== null && $v !== '');
+
+        $existing = Hospital::whereRaw('lower(trim(name)) = ?', [mb_strtolower($data['name'])])
+            ->orderByDesc('is_customer')->orderByDesc('machine_count')->orderBy('id')
+            ->first();
+
+        if ($existing) {
+            foreach ($data as $k => $v) {
+                if ($k !== 'name' && $k !== 'type' && blank($existing->{$k})) {
+                    $existing->{$k} = $v;
+                }
+            }
+            $existing->is_customer = true;
+            $existing->save();
+            $hospital = $existing;
+        } else {
+            $hospital = Hospital::create($data + ['is_customer' => true]);
+        }
+
+        return response()->json(['data' => [
+            'id'       => $hospital->id,
+            'name'     => $hospital->name,
+            'existing' => (bool) $existing,
+        ]], $existing ? 200 : 201);
     }
 
     // GET /customers/{hospital} — one customer: details, totals, contact
